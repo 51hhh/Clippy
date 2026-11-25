@@ -55,6 +55,7 @@ export component HistoryPane inherits Rectangle {
     in property <bool> busy;
     in property <bool> auto-paste;
     in property <bool> can-load-more;
+    in property <bool> preview-open;
     in-out property <string> query;
     in-out property <string> selected-id;
     in-out property <int> selected-index: -1;
@@ -64,7 +65,7 @@ export component HistoryPane inherits Rectangle {
     callback close-panel();
     callback copy-item(string, bool);
     callback modify-item(string, bool);
-    callback preview-item(string, bool);
+    callback show-preview(bool);
     private property <string> expanded-id;
     private property <bool> search-visible;
     private property <length> row-height: 77px;
@@ -99,6 +100,7 @@ export component HistoryPane inherits Rectangle {
 
     forward-focus: keys;
     init => { keys.focus(); }
+    changed preview-open => { if !root.preview-open { keys.focus(); } }
 
     keys := FocusScope {
         focus-on-click: false;
@@ -119,6 +121,8 @@ export component HistoryPane inherits Rectangle {
                 } else if root.expanded-id != "" {
                     root.expanded-id = "";
                     keys.focus();
+                } else if root.preview-open {
+                    root.show-preview(false);
                 } else {
                     root.close-panel();
                 }
@@ -127,6 +131,11 @@ export component HistoryPane inherits Rectangle {
             reject
         }
         key-pressed(event) => {
+            if event.text == Key.Tab && !event.modifiers.shift && !event.modifiers.control
+                && !event.modifiers.alt && !event.modifiers.meta && (root.preview-open || root.selected-id != "") {
+                root.show-preview(!root.preview-open);
+                return accept;
+            }
             if event.text == Key.UpArrow || event.text == Key.DownArrow {
                 root.focus-row(event.text == Key.UpArrow ? -1 : 1);
                 return accept;
@@ -253,7 +262,12 @@ export component HistoryPane inherits Rectangle {
                                 spacing: 1px;
                                 SurfaceButton { label: "Copy"; enabled: !root.busy; clicked => { root.copy-item(clip.id, false); } }
                                 if root.auto-paste: SurfaceButton { label: "Paste"; enabled: !root.busy; clicked => { root.copy-item(clip.id, true); } }
-                                SurfaceButton { label: clip.kind == "Image" ? "Edit image" : "Preview"; caption: "View"; clicked => { root.preview-item(clip.id, clip.kind == "Image"); } }
+                                SurfaceButton { label: "Preview"; caption: "View"; clicked => {
+                                    root.select-row(index);
+                                    root.expanded-id = "";
+                                    keys.focus();
+                                    root.show-preview(true);
+                                } }
                                 SurfaceButton { label: clip.favorite ? "Remove favorite" : "Add favorite"; caption: clip.favorite ? "★" : "☆"; width: 32px; clicked => { root.modify-item(clip.id, true); } }
                                 SurfaceButton { label: "Delete"; caption: "×"; danger: true; width: 32px; clicked => { root.modify-item(clip.id, false); } }
                             }

@@ -8,6 +8,9 @@
 - 设置使用 720×560 的窗口布局、可拖动标题栏、四个分页和六套主题预览卡。
   已在 X11 验证拖动后仍可切页。Wayland、Windows 和 macOS 的实机窗口行为仍待验收。
   （需求 `SLINT-UI-MIGRATION-01`）
+- 剪贴板列表按 Tab 或点行菜单的 View 展开预览侧栏，可选取纯文本、查看透明 PNG，并进入图片编辑或文本工具。
+  敏感项仅显示保护提示。隔离 X11 覆盖键盘、行菜单、图片像素及复制；Wayland、Windows 和 macOS 的实机布局待验收。
+  （需求 `SLINT-HISTORY-PREVIEW-01`）
 
 ### Slint 识字、扫码和翻译
 

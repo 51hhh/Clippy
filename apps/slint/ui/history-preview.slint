@@ -1,0 +1,102 @@
+import { TextEdit } from "std-widgets.slint";
+import { ClippyTheme, SurfaceButton } from "theme.slint";
+
+export struct ClipPreview {
+    clip-id: string,
+    kind: string,
+    metadata: string,
+    content: string,
+    image: image,
+    status: string,
+    protected: bool,
+}
+
+export component HistoryPreviewPane inherits Rectangle {
+    in property <ClipPreview> preview;
+    in property <string> selected-id;
+    in property <bool> selected-sensitive;
+    in property <bool> loading;
+    in property <bool> busy;
+    callback dismiss();
+    callback copy();
+    callback open-image();
+    callback open-tools();
+
+    private property <bool> ready: !root.loading && root.selected-id != "" && root.preview.clip-id == root.selected-id;
+    private property <bool> sensitive: root.selected-sensitive || (root.ready && root.preview.protected);
+    private property <bool> has-item: root.ready && !root.sensitive && root.preview.kind != "";
+    private property <bool> is-image: root.preview.kind == "Image";
+    private property <string> message: root.sensitive ? "Sensitive content hidden"
+        : root.loading || (root.selected-id != "" && !root.ready) ? "Loading preview…"
+        : root.selected-id == "" ? "Select an item to preview" : root.preview.status;
+
+    preferred-width: 400px;
+    min-width: 240px;
+    horizontal-stretch: 1;
+    background: ClippyTheme.elevated;
+
+    Rectangle { x: 0px; y: 0px; width: 1px; height: parent.height; background: ClippyTheme.border; }
+
+    FocusScope {
+        focus-on-click: false;
+        capture-key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.dismiss();
+                return accept;
+            }
+            reject
+        }
+        VerticalLayout {
+            padding: 12px;
+            spacing: 10px;
+            HorizontalLayout {
+                height: 28px;
+                Text {
+                    text: "Preview";
+                    color: ClippyTheme.foreground;
+                    font-weight: 600;
+                    font-size: 14px;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                SurfaceButton { label: "Close preview"; caption: "×"; width: 28px; clicked => { root.dismiss(); } }
+            }
+            if root.has-item: Text {
+                text: root.preview.kind + " · " + root.preview.metadata;
+                color: ClippyTheme.muted;
+                font-size: 12px;
+                overflow: elide;
+            }
+            if root.message != "": Text {
+                text: root.message;
+                color: ClippyTheme.muted;
+                vertical-stretch: 1;
+                vertical-alignment: center;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+            }
+            if root.has-item && root.message == "" && !root.is-image: TextEdit {
+                text: root.preview.content;
+                read-only: true;
+                wrap: word-wrap;
+                vertical-stretch: 1;
+            }
+            if root.has-item && root.message == "" && root.is-image: Image {
+                source: root.preview.image;
+                image-fit: contain;
+                accessible-label: "Clipboard image";
+                accessible-role: image;
+                min-height: 0px;
+                min-width: 0px;
+                vertical-stretch: 1;
+            }
+            if root.has-item: HorizontalLayout {
+                alignment: end;
+                spacing: 6px;
+                SurfaceButton { label: "Copy"; enabled: !root.busy; clicked => { root.copy(); } }
+                if root.is-image: SurfaceButton { label: "Edit image"; enabled: !root.busy; clicked => { root.open-image(); } }
+                if !root.is-image: SurfaceButton { label: "Open in Actions"; enabled: !root.busy; clicked => { root.open-tools(); } }
+            }
+        }
+    }
+}

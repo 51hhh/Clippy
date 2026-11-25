@@ -1,8 +1,9 @@
 import { Button } from "std-widgets.slint";
 import { ClipRow, HistoryPane } from "history.slint";
+import { ClipPreview, HistoryPreviewPane } from "history-preview.slint";
 import { GeneralSettings, SettingsPane, TranslationSettings } from "settings.slint";
 import { ClippyTheme, WindowHeader } from "theme.slint";
-export { GeneralSettings, TranslationSettings, ClippyTheme, ClipRow }
+export { GeneralSettings, TranslationSettings, ClippyTheme, ClipRow, ClipPreview }
 export { EditorWindow } from "editor.slint";
 export { PinnedWindow, WorkspaceWindow, WorkspaceRow } from "pins.slint";
 export { LongshotWindow } from "longshot.slint";
@@ -71,6 +72,11 @@ export component AppWindow inherits Window {
     in property <bool> show-settings;
     in property <bool> auto-paste;
     in property <bool> busy;
+    in property <bool> preview-open;
+    in property <ClipPreview> preview;
+    out property <length> panel-width: root.show-settings ? 720px : root.preview-open ? 780px : 380px;
+    out property <bool> selected-sensitive: root.selected-index >= 0
+        && root.selected-index < root.clips.length && root.clips[root.selected-index].sensitive;
     callback reload-history();
     callback close-panel();
     callback copy-item(string, bool);
@@ -87,11 +93,16 @@ export component AppWindow inherits Window {
     callback data-action(int, string);
     callback edit-history-image(string);
     callback preview-item(string);
+    callback show-preview(bool);
+    callback preview-selection-changed();
+
+    changed selected-id => { root.preview-selection-changed(); }
+    changed selected-sensitive => { root.preview-selection-changed(); }
 
     title: root.show-settings ? "Clippy Settings" : root.product-name;
-    preferred-width: root.show-settings ? 720px : 380px;
+    preferred-width: root.panel-width;
     preferred-height: root.show-settings ? 560px : 500px;
-    min-width: root.show-settings ? 480px : 340px;
+    min-width: root.show-settings ? 480px : root.preview-open ? 540px : 340px;
     min-height: 400px;
     no-frame: true;
     resize-border-width: root.show-settings ? 6px : 0px;
@@ -118,28 +129,42 @@ export component AppWindow inherits Window {
             wrap: word-wrap;
             font-size: 12px;
         }
-        if !root.show-settings: HistoryPane {
+        if !root.show-settings: HorizontalLayout {
             vertical-stretch: 1;
-            clips: root.clips;
-            status: root.history-status;
-            all-count: root.all-count;
-            favorite-count: root.favorite-count;
-            busy: root.busy;
-            loading: root.loading-history;
-            auto-paste: root.auto-paste;
-            can-load-more: root.can-load-more && root.history-limit < 200;
-            query <=> root.query;
-            favorites-only <=> root.favorites-only;
-            selected-id <=> root.selected-id;
-            selected-index <=> root.selected-index;
-            refresh => { root.history-limit = 50; root.reload-history(); }
-            load-more => { root.history-limit += 50; root.reload-history(); }
-            close-panel => { root.close-panel(); }
-            copy-item(id, paste) => { root.copy-item(id, paste); }
-            modify-item(id, favorite) => { root.modify-item(id, favorite); }
-            preview-item(id, image) => {
-                if image { root.edit-history-image(id); }
-                else { root.preview-item(id); }
+            HistoryPane {
+                min-width: 300px;
+                preferred-width: 380px;
+                horizontal-stretch: root.preview-open ? 0 : 1;
+                clips: root.clips;
+                status: root.history-status;
+                all-count: root.all-count;
+                favorite-count: root.favorite-count;
+                busy: root.busy;
+                loading: root.loading-history;
+                auto-paste: root.auto-paste;
+                can-load-more: root.can-load-more && root.history-limit < 200;
+                query <=> root.query;
+                favorites-only <=> root.favorites-only;
+                selected-id <=> root.selected-id;
+                selected-index <=> root.selected-index;
+                preview-open: root.preview-open;
+                refresh => { root.history-limit = 50; root.reload-history(); }
+                load-more => { root.history-limit += 50; root.reload-history(); }
+                close-panel => { root.close-panel(); }
+                copy-item(id, paste) => { root.copy-item(id, paste); }
+                modify-item(id, favorite) => { root.modify-item(id, favorite); }
+                show-preview(open) => { root.show-preview(open); }
+            }
+            if root.preview-open: HistoryPreviewPane {
+                preview: root.preview;
+                selected-id: root.selected-id;
+                selected-sensitive: root.selected-sensitive;
+                loading: root.loading-history;
+                busy: root.busy;
+                dismiss => { root.show-preview(false); }
+                copy => { root.copy-item(root.preview.clip-id, false); }
+                open-image => { root.edit-history-image(root.preview.clip-id); }
+                open-tools => { root.preview-item(root.preview.clip-id); }
             }
         }
 

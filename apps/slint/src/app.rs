@@ -31,6 +31,7 @@ mod clipboard;
 mod editor;
 mod longshot;
 mod pins;
+mod preview;
 mod recording;
 mod settings;
 mod tools;
@@ -130,6 +131,7 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
             editor: None,
             editor_id: 0,
             pins: pins::Pins::default(),
+            preview: preview::Preview::default(),
             longshot: None,
             capture_task_id: 0,
             vision: vision::Vision::default(),
@@ -192,6 +194,7 @@ enum Event {
     TmuxCaptured(Result<String>),
     Settings(settings::Message),
     Tools(tools::Message),
+    Preview(preview::Message),
     Changed(Result<(), StorageError>),
     CaptureStart,
     CaptureReady {
@@ -252,6 +255,7 @@ struct App {
     editor: Option<editor::View>,
     editor_id: u64,
     pins: pins::Pins,
+    preview: preview::Preview,
     longshot: Option<longshot::View>,
     capture_task_id: u64,
     vision: vision::Vision,
@@ -362,6 +366,7 @@ impl App {
             }
             Event::Settings(message) => self.settings_message(message),
             Event::Tools(message) => self.tools_message(message),
+            Event::Preview(message) => self.preview_message(message),
             Event::Changed(result) => {
                 if let Err(error) = result {
                     self.status(format!("Could not update history: {error}"));
@@ -503,6 +508,8 @@ impl App {
                 post(Event::Tools(tools::Message::Preview(id)));
             }
         });
+        window.on_show_preview(|open| post(Event::Preview(preview::Message::Show(open))));
+        window.on_preview_selection_changed(|| post(Event::Preview(preview::Message::Selection)));
         window.window().on_close_requested(|| {
             post(Event::Hide);
             CloseRequestResponse::HideWindow
@@ -517,6 +524,7 @@ impl App {
     }
 
     fn hide(&mut self) {
+        self.preview.select(None);
         if let Some(window) = self.window.take() {
             let _ = window.hide();
             if self.identity.channel == DistributionChannel::Qa {

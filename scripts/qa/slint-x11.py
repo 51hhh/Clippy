@@ -32,6 +32,7 @@ SETTINGS_TITLE = "Clippy Settings"
 TEXT = "needle 自动剪贴板 QA"
 OTHER = "unrelated fixture"
 HTML = "<b>rich-qa</b>".encode()
+SENSITIVE = "password=synthetic-clipboard-preview-qa"
 WATCHER = "org.kde.StatusNotifierWatcher"
 ITEM = "org.kde.StatusNotifierItem"
 MENU = "com.canonical.dbusmenu"
@@ -317,6 +318,23 @@ def run(binary, root):
     def panel():
         return wait_for(lambda: titled_window(TITLE), "clipboard panel never appeared")
 
+    def panel_width(width):
+        def match():
+            window = titled_window(TITLE)
+            return window if window and window[1][2:] == (width, 500) else None
+
+        return wait_for(match, f"clipboard panel did not resize to {width}×500")
+
+    def preview_pixels(box):
+        x, y, width, _ = box
+        root_window = Gdk.get_default_root_window()
+        image = Gdk.pixbuf_get_from_window(root_window, x + width - 310, y + 235, 240, 1)
+        if image is None:
+            return False
+        pixels = image.get_pixels()
+        red, green, blue = pixels[:3]
+        return red >= 250 and 105 <= green <= 170 and 105 <= blue <= 170 and min(pixels[-3:]) >= 245
+
     def search(word):
         desktop.keys("Control_L", "f")
         desktop.keys("Control_L", "a")
@@ -376,6 +394,57 @@ def run(binary, root):
             assert loader.get_pixbuf().get_pixels()[:8] == bytes((255, 0, 0, 128, 0, 128, 255, 0))
         set_clipboard("UTF8_STRING", OTHER.encode())
         wait_for(lambda: ("text", OTHER, None) in rows(), "second text did not reach the history")
+
+        tray.activate("Open Clipboard")
+        panel_id, (x, y, _, _) = panel_width(380)
+        desktop.focus(panel_id)
+        desktop.click(x + 356, y + 42)
+        desktop.click(x + 247, y + 42)
+        panel_width(780)
+        desktop.keys("Tab")
+        panel_width(380)
+        desktop.keys("Tab")
+        _, expanded = panel_width(780)
+        desktop.keys("Down")
+        wait_for(lambda: preview_pixels(expanded), "preview did not render the transparent PNG")
+        if os.environ.get("CLIPPY_SLINT_QA_ARTIFACTS"):
+            x, y, width, height = expanded
+            preview = Gdk.pixbuf_get_from_window(Gdk.get_default_root_window(), x, y, width, height)
+            preview.savev(str(Path(os.environ["CLIPPY_SLINT_QA_ARTIFACTS"]) / "slint-history-image-preview.png"), "png", [], [])
+
+        desktop.keys("Down")
+        x, y, width, height = expanded
+        time.sleep(0.2)
+        desktop.click(x + width - 330, y + 95)
+        desktop.keys("Control_L", "a")
+        desktop.keys("Control_L", "c")
+        wait_for(lambda: get_clipboard("UTF8_STRING").decode() == "rich-qa",
+                 "read-only preview did not expose the rich item's plain text")
+        desktop.keys("Escape")
+        panel_width(380)
+        desktop.keys("Tab")
+        _, (x, y, width, height) = panel_width(780)
+        # 历史可能因上一次复制重排。搜索固定夹具来核对侧栏复制仍跟随当前选项。
+        search("needle")
+        desktop.click(x + 52, y + 79)
+        time.sleep(0.2)
+        desktop.click(x + width - 150, y + height - 25)
+        wait_for(lambda: get_clipboard("UTF8_STRING").decode() == TEXT,
+                 "side panel Copy did not use the selected Unicode row")
+        assert entry.get_text() == "", "Preview Copy injected paste input"
+
+        set_clipboard("UTF8_STRING", SENSITIVE.encode())
+        wait_for(lambda: ("text", SENSITIVE, None) in rows(), "sensitive fixture did not reach the history")
+        search("synthetic")
+        desktop.click(x + 52, y + 79)
+        set_clipboard("UTF8_STRING", OTHER.encode())
+        time.sleep(0.2)
+        desktop.click(x + width - 150, y + height - 25)
+        assert get_clipboard("UTF8_STRING").decode() == OTHER, "protected preview exposed a Copy action"
+        desktop.click(x + width - 24, y + 25)
+        panel_width(380)
+        close()
+        print("PASS history preview resize, Unicode/HTML/image selection, protected row and close", flush=True)
 
         desktop.focus(target_id)
         desktop.keys("Control_L", "Alt_L", "Shift_L", "j")

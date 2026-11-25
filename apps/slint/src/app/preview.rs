@@ -1,0 +1,326 @@
+use super::{editor, post, App, Event};
+use crate::{clip_metadata, truncate_preview, ClipPreview};
+use anyhow::Result;
+use clippy_core::{
+    clipboard::strip_html_tags,
+    models::{ClipItem, ContentType},
+};
+use clippy_storage::{BoundedImageData, BoundedImageSnapshot, StorageEngine, StorageError};
+use image::{ImageError, ImageFormat, ImageReader, RgbaImage};
+use slint::{ComponentHandle, LogicalSize};
+use std::{io::Cursor, thread};
+
+const MAX_PNG_BYTES: usize = 16 * 1024 * 1024;
+const MAX_DECODED_BYTES: u64 = 48 * 1024 * 1024;
+const MAX_IMAGE_EDGE: u32 = 8192;
+const PREVIEW_EDGE: u32 = 800;
+const MAX_TEXT_CHARS: usize = 32_768;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) struct Request {
+    id: i64,
+    generation: u64,
+}
+
+pub(super) enum Message {
+    Show(bool),
+    Selection,
+    Loaded(Request, Result<Details>),
+}
+
+#[derive(Default)]
+pub(super) struct Preview {
+    selected: Option<Request>,
+    generation: u64,
+    in_flight: bool,
+}
+
+impl Preview {
+    pub(super) fn select(&mut self, id: Option<i64>) -> bool {
+        if self.selected.map(|request| request.id) == id {
+            return false;
+        }
+        self.generation += 1;
+        self.selected = id.map(|id| Request {
+            id,
+            generation: self.generation,
+        });
+        true
+    }
+
+    fn begin(&mut self) -> Option<Request> {
+        if self.in_flight {
+            return None;
+        }
+        let request = self.selected?;
+        self.in_flight = true;
+        Some(request)
+    }
+
+    fn finish(&mut self, request: Request) -> bool {
+        self.in_flight = false;
+        self.selected == Some(request)
+    }
+}
+
+pub(super) struct Details {
+    metadata: String,
+    kind: &'static str,
+    body: Body,
+}
+
+enum Body {
+    Text(String),
+    Image(RgbaImage),
+    Protected,
+    Unavailable(&'static str),
+}
+
+impl Details {
+    fn into_model(self, id: i64) -> ClipPreview {
+        let mut model = ClipPreview {
+            clip_id: id.to_string().into(),
+            kind: self.kind.into(),
+            metadata: self.metadata.into(),
+            ..Default::default()
+        };
+        match self.body {
+            Body::Text(text) => model.content = text.into(),
+            Body::Image(image) => model.image = editor::to_slint(&image),
+            Body::Protected => model.protected = true,
+            Body::Unavailable(message) => model.status = message.into(),
+        }
+        model
+    }
+}
+
+impl App {
+    pub(super) fn preview_message(&mut self, message: Message) {
+        match message {
+            Message::Show(open) => {
+                let Some(window) = self
+                    .window
+                    .as_ref()
+                    .filter(|window| !window.get_show_settings())
+                else {
+                    return;
+                };
+                if window.get_preview_open() != open {
+                    window.set_preview_open(open);
+                    let native = window.window();
+                    let height = native.size().to_logical(native.scale_factor()).height;
+                    native.set_size(LogicalSize::new(window.get_panel_width(), height));
+                    self.refresh_preview();
+                }
+            }
+            Message::Selection => self.refresh_preview(),
+            Message::Loaded(request, result) => {
+                if !self.preview.finish(request) {
+                    self.load_preview();
+                    return;
+                }
+                let window = self.window.as_ref().expect("请求对应已展开的预览侧栏");
+                if window.get_selected_sensitive()
+                    || window.get_selected_id().parse() != Ok(request.id)
+                {
+                    return;
+                }
+                window.set_preview(match result {
+                    Ok(details) => details.into_model(request.id),
+                    Err(error) => {
+                        eprintln!("Clipboard preview unavailable: {error}");
+                        ClipPreview {
+                            clip_id: request.id.to_string().into(),
+                            status: "Preview unavailable".into(),
+                            ..Default::default()
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    fn refresh_preview(&mut self) {
+        let Some(window) = &self.window else { return };
+        let id = window.get_selected_id();
+        let selected = (window.get_preview_open()
+            && !window.get_selected_sensitive()
+            && !id.is_empty())
+        .then(|| {
+            id.parse()
+                .expect("The clipboard model carries database IDs")
+        });
+        if self.preview.select(selected) {
+            window.set_preview(ClipPreview::default());
+            self.load_preview();
+        }
+    }
+
+    fn load_preview(&mut self) {
+        let Some(request) = self.preview.begin() else {
+            return;
+        };
+        let result = self.storage.client().execute(
+            move |db| read_details(db, request.id),
+            move |result| match result {
+                Ok((clip, snapshot)) => {
+                    if snapshot.as_ref().is_some_and(|item| {
+                        !item.is_sensitive && matches!(item.image, BoundedImageData::Bytes(_))
+                    }) {
+                        // 解码不占用 SQLite 线程，快速选中多项时只保留最新一项候选。
+                        if let Err(error) = thread::Builder::new()
+                            .name("clippy-preview".into())
+                            .spawn(move || loaded(request, Ok(prepare(clip, snapshot))))
+                        {
+                            loaded(request, Err(error.into()));
+                        }
+                    } else {
+                        loaded(request, Ok(prepare(clip, snapshot)));
+                    }
+                }
+                Err(error) => loaded(request, Err(error.into())),
+            },
+        );
+        if let Err(error) = result {
+            loaded(request, Err(error.into()));
+        }
+    }
+}
+
+fn loaded(request: Request, result: Result<Details>) {
+    post(Event::Preview(Message::Loaded(request, result)));
+}
+
+fn read_details(
+    db: &StorageEngine,
+    id: i64,
+) -> Result<(ClipItem, Option<BoundedImageSnapshot>), StorageError> {
+    let clip = db.get_clip_detail_by_id(id)?;
+    let snapshot = if clip.content_type == ContentType::Image && !clip.is_sensitive {
+        db.get_bounded_image_snapshot(id, MAX_PNG_BYTES)?
+    } else {
+        None
+    };
+    Ok((clip, snapshot))
+}
+
+fn prepare(clip: ClipItem, snapshot: Option<BoundedImageSnapshot>) -> Details {
+    let kind = match clip.content_type {
+        ContentType::Text => "Text",
+        ContentType::Html => "Rich text",
+        ContentType::Image => "Image",
+    };
+    let body = if clip.is_sensitive || snapshot.as_ref().is_some_and(|item| item.is_sensitive) {
+        Body::Protected
+    } else {
+        match clip.content_type {
+            ContentType::Text | ContentType::Html => {
+                let text = clip.text_content.unwrap_or_else(|| {
+                    clip.html_content
+                        .as_deref()
+                        .map(strip_html_tags)
+                        .unwrap_or_default()
+                });
+                Body::Text(truncate_preview(&text, MAX_TEXT_CHARS))
+            }
+            ContentType::Image => match snapshot.map(|item| item.image) {
+                Some(BoundedImageData::Bytes(bytes)) => match thumbnail(&bytes) {
+                    Ok(image) => Body::Image(image),
+                    Err(ImageError::Limits(_)) => Body::Unavailable("Image too large to preview"),
+                    Err(_) => Body::Unavailable("Could not preview image"),
+                },
+                Some(BoundedImageData::TooLarge) => Body::Unavailable("Image too large to preview"),
+                _ => Body::Unavailable("Image data unavailable"),
+            },
+        }
+    };
+    Details {
+        metadata: clip_metadata(clip.byte_size, clip.created_at),
+        kind,
+        body,
+    }
+}
+
+fn thumbnail(bytes: &[u8]) -> Result<RgbaImage, ImageError> {
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), ImageFormat::Png);
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_IMAGE_EDGE);
+    limits.max_image_height = Some(MAX_IMAGE_EDGE);
+    limits.max_alloc = Some(MAX_DECODED_BYTES);
+    reader.limits(limits);
+    let image = reader.decode()?;
+    if image.width() > PREVIEW_EDGE || image.height() > PREVIEW_EDGE {
+        Ok(image.thumbnail(PREVIEW_EDGE, PREVIEW_EDGE).into_rgba8())
+    } else {
+        Ok(image.into_rgba8())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clippy_capture::png_io::encode_png;
+
+    #[test]
+    fn selection_updates_coalesce_and_closed_requests_do_not_publish() {
+        let mut preview = Preview::default();
+        assert!(preview.select(Some(1)));
+        let first = preview.begin().unwrap();
+        assert!(preview.select(Some(2)));
+        assert!(preview.select(Some(3)));
+        assert!(preview.begin().is_none());
+        assert!(!preview.finish(first));
+        let third = preview.begin().unwrap();
+        assert_eq!(third.id, 3);
+
+        assert!(preview.select(None));
+        assert!(preview.select(Some(3)));
+        assert!(!preview.finish(third));
+        let reopened = preview.begin().unwrap();
+        assert_eq!(reopened.id, 3);
+        assert!(!preview.select(Some(3)));
+        assert!(preview.finish(reopened));
+    }
+
+    #[test]
+    fn preview_decodes_and_downscales_rgba_with_an_allocation_limit() {
+        let original = [255, 0, 0, 128, 0, 128, 255, 0];
+        let image = thumbnail(&encode_png(&original, 2, 1).unwrap()).unwrap();
+        assert_eq!(image.as_raw(), &original);
+        let wide = encode_png(&vec![128; 1_200 * 18 * 4], 1_200, 18).unwrap();
+        let reduced = thumbnail(&wide).unwrap();
+        assert_eq!(reduced.dimensions(), (800, 12));
+        assert_eq!(reduced.get_pixel(0, 0)[3], 128);
+
+        let width = MAX_IMAGE_EDGE + 1;
+        let oversized = encode_png(&vec![0; width as usize * 4], width, 1).unwrap();
+        assert!(matches!(thumbnail(&oversized), Err(ImageError::Limits(_))));
+        assert!(thumbnail(b"invalid PNG").is_err());
+    }
+
+    #[test]
+    fn rich_text_is_plain_and_sensitive_body_does_not_enter_the_ui_model() {
+        let clip = ClipItem {
+            id: 9,
+            content_type: ContentType::Html,
+            text_content: None,
+            html_content: Some("<b>中文</b><img src='https://invalid.test/sample.png'>".into()),
+            image_data: None,
+            content_hash: "fixture".into(),
+            is_favorite: false,
+            created_at: 0,
+            byte_size: 70,
+            is_sensitive: false,
+        };
+        let model = prepare(clip.clone(), None).into_model(clip.id);
+        assert_eq!(model.content.as_str(), "中文");
+        assert_eq!(model.kind.as_str(), "Rich text");
+        let protected = ClipItem {
+            is_sensitive: true,
+            ..clip
+        };
+        let model = prepare(protected, None).into_model(9);
+        assert!(model.protected);
+        assert!(model.content.is_empty());
+    }
+}
