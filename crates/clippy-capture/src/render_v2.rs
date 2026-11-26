@@ -4,7 +4,7 @@
 //! WebView Canvas 仍可画交互预览，但不能再决定 Copy/Save 的持久化像素。
 
 use base64::{engine::general_purpose::STANDARD, Engine};
-use image::{Rgba, RgbaImage};
+use image::{GenericImageView, Rgba, RgbaImage};
 use resvg::tiny_skia::{ColorU8, IntSize, Pixmap, Transform};
 use serde::Deserialize;
 use serde_json::Value;
@@ -21,8 +21,8 @@ const FONT_BYTES: &[u8] = include_bytes!(concat!(
 ));
 // v2 同时持有 source、效果合成图和 tiny-skia 输出；32 Mi 像素可覆盖
 // 4K/5K/6K 显示器和 8K UHD，又不会让 64 Mi 像素的容器上限变成数 GiB 峰值内存。
-const MAX_RENDERER_PIXELS: u64 = 32 * 1024 * 1024;
-const MAX_EFFECT_WORK_PIXELS: u64 = 512 * 1024 * 1024;
+pub const MAX_RENDERER_PIXELS: u64 = 32 * 1024 * 1024;
+pub const MAX_EFFECT_WORK_PIXELS: u64 = 512 * 1024 * 1024;
 const MAX_BLUR_CACHE_PIXELS: u64 = 32 * 1024 * 1024;
 const HIGHLIGHT_ALPHA: f64 = 0.32;
 const MARKER_WIDTH_FACTOR: f64 = 2.6;
@@ -250,6 +250,64 @@ impl PixelRect {
             x1: self.x1.saturating_add(radius).min(width),
             y1: self.y1.saturating_add(radius).min(height),
         }
+    }
+}
+
+pub const DEFAULT_MOSAIC_CELL: u32 = 12;
+
+pub struct MosaicPreview {
+    pub tiles: RgbaImage,
+    pub bounds: [u32; 4],
+}
+
+/// 每个源像素格只留一个颜色。界面按格宽拉伸并裁掉最右、最下格的余量。
+pub fn mosaic_preview(
+    source: &impl GenericImageView<Pixel = Rgba<u8>>,
+    viewport: [u32; 4],
+    from: [f32; 2],
+    to: [f32; 2],
+) -> MosaicPreview {
+    let [left, top, right, bottom] = viewport;
+    let (width, height) = (right - left, bottom - top);
+    let [x0, y0] = [
+        f64::from(from[0]) * f64::from(width),
+        f64::from(from[1]) * f64::from(height),
+    ];
+    let [x1, y1] = [
+        f64::from(to[0]) * f64::from(width),
+        f64::from(to[1]) * f64::from(height),
+    ];
+    let rect = PixelRect::from_rect(
+        Rect {
+            x: x0.min(x1),
+            y: y0.min(y1),
+            width: (x1 - x0).abs(),
+            height: (y1 - y0).abs(),
+        },
+        width,
+        height,
+    );
+    let cell = DEFAULT_MOSAIC_CELL;
+    let tiles = RgbaImage::from_fn(
+        rect.width().div_ceil(cell),
+        rect.height().div_ceil(cell),
+        |column, row| {
+            let x = rect.x0 + column * cell;
+            let y = rect.y0 + row * cell;
+            mosaic_color(
+                source,
+                [
+                    left + x,
+                    top + y,
+                    left + (x + cell).min(rect.x1),
+                    top + (y + cell).min(rect.y1),
+                ],
+            )
+        },
+    );
+    MosaicPreview {
+        tiles,
+        bounds: [rect.x0, rect.y0, rect.x1, rect.y1],
     }
 }
 
@@ -703,22 +761,15 @@ fn apply_mosaic_region(
         let mut x = first_x;
         while x < last_x {
             let end_x = x.saturating_add(cell).min(rect.x1);
-            // 在预乘 alpha 空间求平均，再恢复直通 RGBA。直接分别平均 RGB/A 会把
-            // 完全透明像素里不可见的 RGB 混进结果，在透明 PNG 边缘形成黑边或彩边。
-            let mut sums = [0u64; 4];
-            let count = u64::from(end_x - x) * u64::from(end_y - y);
-            for sample_y in y..end_y {
-                for sample_x in x..end_x {
-                    let pixel =
-                        source.get_pixel(sample_x - source_rect.x0, sample_y - source_rect.y0);
-                    let alpha = u64::from(pixel[3]);
-                    for channel in 0..3 {
-                        sums[channel] += u64::from(pixel[channel]) * alpha;
-                    }
-                    sums[3] += alpha;
-                }
-            }
-            let average = average_premultiplied(sums, count);
+            let average = mosaic_color(
+                source,
+                [
+                    x - source_rect.x0,
+                    y - source_rect.y0,
+                    end_x - source_rect.x0,
+                    end_y - source_rect.y0,
+                ],
+            );
             if let Some(visible) = (PixelRect {
                 x0: x,
                 y0: y,
@@ -737,6 +788,26 @@ fn apply_mosaic_region(
         }
         y = end_y;
     }
+}
+
+fn mosaic_color(
+    source: &impl GenericImageView<Pixel = Rgba<u8>>,
+    [left, top, right, bottom]: [u32; 4],
+) -> Rgba<u8> {
+    // 预乘平均避免让透明像素中不可见的 RGB 改变格子颜色。
+    let mut sums = [0u64; 4];
+    for y in top..bottom {
+        for x in left..right {
+            let pixel = source.get_pixel(x, y);
+            let alpha = u64::from(pixel[3]);
+            for channel in 0..3 {
+                sums[channel] += u64::from(pixel[channel]) * alpha;
+            }
+            sums[3] += alpha;
+        }
+    }
+    let count = u64::from(right - left) * u64::from(bottom - top);
+    average_premultiplied(sums, count)
 }
 
 fn apply_magnifier_region(
@@ -1595,6 +1666,47 @@ mod tests {
             assert_eq!(output.get_pixel(x, y).0, expected);
         }
         assert_eq!(output.get_pixel(0, 0), source.get_pixel(0, 0));
+    }
+
+    #[test]
+    fn mosaic_preview_samples_the_same_pixels_as_the_editor_for_a_cropped_viewport() {
+        use crate::editor::{Editor, Tool};
+
+        let source = RgbaImage::from_fn(64, 54, |x, y| {
+            Rgba([
+                (23 * x) as u8,
+                (43 * y) as u8,
+                (67 * (x + y)) as u8,
+                (7 * x + y) as u8,
+            ])
+        });
+        let borrowed = image::ImageBuffer::from_raw(
+            source.width(),
+            source.height(),
+            source.as_raw().as_slice(),
+        )
+        .unwrap();
+        let (from, to) = ([0.875, 0.875], [0.125, 0.125]);
+        let preview = mosaic_preview(&borrowed, [7, 9, 47, 45], from, to);
+        assert_eq!(preview.bounds, [5, 4, 35, 32]);
+        assert_eq!(preview.tiles.dimensions(), (3, 3));
+
+        let original = image::imageops::crop_imm(&source, 7, 9, 40, 36).to_image();
+        let mut editor = Editor::new(Arc::new(original.clone()));
+        editor
+            .annotate(Tool::Mosaic, &[from, to], "", 3.0, "")
+            .unwrap();
+        let output = editor.snapshot().render().unwrap();
+        for (x, y, pixel) in output.enumerate_pixels() {
+            let expected = if (5..35).contains(&x) && (4..32).contains(&y) {
+                preview
+                    .tiles
+                    .get_pixel((x - 5) / DEFAULT_MOSAIC_CELL, (y - 4) / DEFAULT_MOSAIC_CELL)
+            } else {
+                original.get_pixel(x, y)
+            };
+            assert_eq!(pixel, expected, "{x}, {y}");
+        }
     }
 
     #[test]

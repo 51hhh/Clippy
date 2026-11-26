@@ -117,7 +117,7 @@ def open_longshot(tray, desktop, page):
     toolbar_y = bottom + 8
     wait_for(lambda: display_pixel(toolbar_x + 4, toolbar_y + 22) == b"\x20\x21\x24",
              "capture toolbar did not appear")
-    desktop.click(toolbar_x + 255, toolbar_y + 19)
+    desktop.click(qa["capture_command_x"](toolbar_x, toolbar_width, 1), toolbar_y + 19)
     return ready_control()
 
 

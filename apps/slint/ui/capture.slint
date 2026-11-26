@@ -1,8 +1,14 @@
+import { LineEdit } from "std-widgets.slint";
 import { ClippyIcon, SurfaceButton } from "theme.slint";
 
 export enum CaptureAction { copy, save, edit, longshot, record }
-export enum CaptureTool { select, rectangle, ellipse, line, arrow, highlight }
+export enum CaptureTool { select, rectangle, ellipse, line, arrow, highlight, pen, text, mosaic }
 export struct CaptureMark { x0: float, y0: float, x1: float, y1: float, tool: CaptureTool, ink: color, stroke: float }
+export struct CapturePoint { x: float, y: float }
+export struct CaptureMosaic {
+    source: image, x: float, y: float, width: float, height: float, tiled-width: float, tiled-height: float, work-pixels: int
+}
+export struct CaptureAnnotation { geometry: CaptureMark, points: [CapturePoint], path: string, text: string, mosaic: CaptureMosaic }
 struct ToolButton { label: string, tool: CaptureTool, drawing: string }
 struct CaptureCommand { label: string, action: CaptureAction, drawing: string }
 struct OverlayInk { ink: color, label: string }
@@ -24,7 +30,10 @@ component OverlayButton inherits SurfaceButton {
 
 component MarkVisual inherits Rectangle {
     in property <CaptureMark> mark;
-    in property <length> weight;
+    in property <length> pixel-scale;
+    in property <string> path;
+    in property <string> caption;
+    private property <length> weight: root.mark.stroke * root.pixel-scale;
     private property <length> first-x: root.mark.x0 * root.width;
     private property <length> first-y: root.mark.y0 * root.height;
     private property <length> last-x: root.mark.x1 * root.width;
@@ -46,6 +55,7 @@ component MarkVisual inherits Rectangle {
     }
     if root.mark.tool == CaptureTool.ellipse && root.size-x > 0px && root.size-y > 0px: Path {
         width: parent.width; height: parent.height;
+        fit: preserve;
         stroke: root.mark.ink; stroke-width: root.weight;
         commands: "M " + (root.left / 1px) + " " + ((root.top + root.size-y / 2) / 1px)
             + " a " + (root.size-x / 2px) + " " + (root.size-y / 2px) + " 0 1 1 " + (root.size-x / 1px) + " 0"
@@ -53,6 +63,7 @@ component MarkVisual inherits Rectangle {
     }
     if root.mark.tool == CaptureTool.line || root.mark.tool == CaptureTool.arrow: Path {
         width: parent.width; height: parent.height;
+        fit: preserve;
         stroke: root.mark.ink; stroke-width: root.weight; stroke-line-cap: round; stroke-line-join: round;
         commands: "M " + (root.first-x / 1px) + " " + (root.first-y / 1px) + " L " + (root.last-x / 1px) + " " + (root.last-y / 1px)
             + (root.mark.tool == CaptureTool.arrow ?
@@ -60,26 +71,52 @@ component MarkVisual inherits Rectangle {
                 + " L " + (root.last-x / 1px) + " " + (root.last-y / 1px)
                 + " l " + (-root.direction-x * 10 + root.direction-y * 4) + " " + (-root.direction-y * 10 - root.direction-x * 4) : "");
     }
+    if root.mark.tool == CaptureTool.pen && root.path != "": Path {
+        width: parent.width; height: parent.height;
+        fit: preserve;
+        stroke: root.mark.ink; stroke-width: root.weight; stroke-line-cap: round; stroke-line-join: round;
+        commands: root.path;
+    }
+    if root.mark.tool == CaptureTool.text: Text {
+        x: root.first-x; y: root.first-y;
+        width: root.width - self.x; height: self.preferred-height;
+        text: root.caption; color: root.mark.ink;
+        font-family: "Noto Sans CJK SC"; font-weight: 500;
+        font-size: max(14.0, root.mark.stroke * 4.0) * root.pixel-scale;
+        overflow: clip;
+    }
+    if root.mark.tool == CaptureTool.mosaic: Rectangle {
+        x: root.left; y: root.top; width: root.size-x; height: root.size-y;
+        border-width: 1px; border-color: #e5e7eb;
+    }
 }
 
 export component CaptureWindow inherits Window {
     in property <image> frame;
     in property <int> source-width;
     in property <int> source-height;
-    in property <[CaptureMark]> marks;
-    in property <[CaptureMark]> undone-marks;
+    in property <[CaptureAnnotation]> marks;
+    in property <[CaptureAnnotation]> undone-marks;
+    in property <string> pen-path;
+    in property <bool> mosaic-pending;
+    in-out property <string> annotation-error;
     callback cancel();
     callback confirm(CaptureAction, float, float, float, float);
-    callback add-mark(CaptureMark);
+    callback add-mark(CaptureAnnotation) -> bool;
     callback undo-mark();
     callback redo-mark();
     callback clear-marks();
+    callback sample-pen(bool, float, float, float, float);
+    callback finish-pen(CaptureMark);
+    callback render-mosaic(CaptureMark, float, float, float, float);
 
     private property <length> left;
     private property <length> top;
     private property <length> right;
     private property <length> bottom;
-    private property <bool> selected: right - left >= 1px && bottom - top >= 1px;
+    private property <length> selection-width: root.right - root.left;
+    private property <length> selection-height: root.bottom - root.top;
+    private property <bool> selected: root.selection-width >= 1px && root.selection-height >= 1px;
     private property <bool> ready: selected && !drag.pressed;
     private property <CaptureTool> active-tool;
     private property <bool> marking: root.active-tool != CaptureTool.select;
@@ -90,12 +127,16 @@ export component CaptureWindow inherits Window {
     private property <int> resize-x;
     private property <int> resize-y;
     private property <bool> moved-selection;
+    private property <CaptureMark> draft-mark;
+    private property <bool> entering-text;
+    private property <string> draft-text;
+    private property <CaptureMark> pending-mosaic;
     private property <color> shade: #00000057;
     private property <length> pixel-scale: root.width / max(1, root.source-width);
     private property <length> gap: 8px;
     private property <length> toolbar-width: min(560px, root.width - 2 * root.gap);
     private property <length> toolbar-height: 76px;
-    private property <length> tool-width: min(32px, (root.toolbar-width - 12px) / 10);
+    private property <length> tool-width: min(32px, (root.toolbar-width - 24px) / (root.tools.length + root.commands.length));
     private property <bool> toolbar-below: root.bottom + root.toolbar-height + 2 * root.gap <= root.height;
     private property <length> toolbar-y: root.toolbar-below
         ? root.bottom + root.gap : max(root.gap, root.top - root.toolbar-height - root.gap);
@@ -112,6 +153,9 @@ export component CaptureWindow inherits Window {
         { label: "Line", tool: CaptureTool.line, drawing: "M4 12h16" },
         { label: "Arrow", tool: CaptureTool.arrow, drawing: "M5 19 19 5M8 5h11v11" },
         { label: "Highlight", tool: CaptureTool.highlight, drawing: "M4 14 15 3l5 5-11 11-5 1Z M4 14l5 5M4 22h16" },
+        { label: "Pen", tool: CaptureTool.pen, drawing: "M4 15 15 4l5 5L9 20H4Z M12 7l5 5" },
+        { label: "Text", tool: CaptureTool.text, drawing: "M4 6V4h16v2M12 4v16m-4 0h8" },
+        { label: "Mosaic", tool: CaptureTool.mosaic, drawing: "M4 4h16v16H4Z M12 4v16M4 12h16M5 5l6 6m2 2 6 6" },
     ];
     private property <[CaptureCommand]> commands: [
         { label: "Edit image", action: CaptureAction.edit, drawing: "M4 19l1-5L17 2l5 5L10 19Z M14 5l5 5 M3 22h18" },
@@ -130,7 +174,27 @@ export component CaptureWindow inherits Window {
     forward-focus: keys;
 
     function commit(action: CaptureAction) {
-        root.confirm(action, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height);
+        if !root.mosaic-pending && root.finish-caption() {
+            root.confirm(action, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height);
+        }
+    }
+
+    function dismiss-caption() {
+        root.entering-text = false;
+        root.draft-text = "";
+        root.annotation-error = "";
+        keys.focus();
+    }
+
+    function finish-caption() -> bool {
+        if root.entering-text {
+            if !root.add-mark({ geometry: root.draft-mark, text: root.draft-text }) {
+                caption-entry.focus();
+                return false;
+            }
+            root.dismiss-caption();
+        }
+        return true;
     }
 
     Image {
@@ -152,7 +216,7 @@ export component CaptureWindow inherits Window {
     }
 
     drag := TouchArea {
-        enabled: !root.marking;
+        enabled: !root.marking && !root.mosaic-pending;
         mouse-cursor: crosshair;
         pointer-event(event) => {
             if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
@@ -163,6 +227,7 @@ export component CaptureWindow inherits Window {
                     && point-y >= root.top - margin && point-y <= root.bottom + margin;
                 root.resize-x = abs(point-x - root.left) <= margin ? -1 : abs(point-x - root.right) <= margin ? 1 : 0;
                 root.resize-y = abs(point-y - root.top) <= margin ? -1 : abs(point-y - root.bottom) <= margin ? 1 : 0;
+                root.annotation-error = "";
                 root.gesture = !near ? SelectionGesture.select
                     : root.resize-x != 0 || root.resize-y != 0 ? SelectionGesture.resize : SelectionGesture.move;
                 root.drag-start = { left: root.left, top: root.top, right: root.right, bottom: root.bottom };
@@ -213,6 +278,20 @@ export component CaptureWindow inherits Window {
         width: root.right - root.left;
         height: root.bottom - root.top;
         clip: true;
+        for item in root.marks: Rectangle {
+            width: parent.width; height: parent.height;
+            if item.geometry.tool == CaptureTool.mosaic: Rectangle {
+                x: item.mosaic.x * parent.width; y: item.mosaic.y * parent.height;
+                width: item.mosaic.width * parent.width; height: item.mosaic.height * parent.height;
+                clip: true;
+                Image {
+                    x: 0px; y: 0px;
+                    width: item.mosaic.tiled-width * root.selection-width;
+                    height: item.mosaic.tiled-height * root.selection-height;
+                    source: item.mosaic.source; image-fit: fill; image-rendering: pixelated;
+                }
+            }
+        }
         Path {
             width: parent.width;
             height: parent.height;
@@ -221,34 +300,67 @@ export component CaptureWindow inherits Window {
             stroke-dash-array: [5px, 4px];
             commands: "M1 1 H " + (self.width / 1px - 1) + " V " + (self.height / 1px - 1) + " H1 Z";
         }
-        for mark in root.marks: MarkVisual {
+        for item in root.marks: MarkVisual {
             x: 0px; y: 0px; width: parent.width; height: parent.height;
-            mark: mark; weight: mark.stroke * root.pixel-scale;
+            visible: item.geometry.tool != CaptureTool.mosaic;
+            mark: item.geometry; pixel-scale: root.pixel-scale; path: item.path; caption: item.text;
         }
         mark-drag := TouchArea {
-            enabled: root.marking && root.marks.length < 64;
-            mouse-cursor: crosshair;
+            enabled: root.marking && root.marks.length < 64 && !root.entering-text && !root.mosaic-pending;
+            mouse-cursor: root.active-tool == CaptureTool.text ? text : crosshair;
+            property <float> cursor-x: clamp(self.mouse-x / self.width, 0.0, 1.0);
+            property <float> cursor-y: clamp(self.mouse-y / self.height, 0.0, 1.0);
             property <CaptureMark> current: {
                 x0: clamp(self.pressed-x / self.width, 0.0, 1.0),
                 y0: clamp(self.pressed-y / self.height, 0.0, 1.0),
-                x1: clamp(self.mouse-x / self.width, 0.0, 1.0),
-                y1: clamp(self.mouse-y / self.height, 0.0, 1.0),
+                x1: self.cursor-x, y1: self.cursor-y,
                 tool: root.active-tool, ink: root.active-ink, stroke: root.stroke,
             };
+            function sample(begin: bool) {
+                root.sample-pen(begin, self.cursor-x, self.cursor-y, self.width / 1px, self.height / 1px);
+            }
+            moved => {
+                if self.pressed && root.active-tool == CaptureTool.pen {
+                    self.sample(false);
+                }
+            }
             pointer-event(event) => {
+                if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                    root.annotation-error = "";
+                    if root.active-tool == CaptureTool.pen {
+                        self.sample(true);
+                    }
+                    keys.focus();
+                }
                 if event.kind == PointerEventKind.up && event.button == PointerEventButton.left {
-                    let dx = abs(self.current.x1 - self.current.x0) * self.width;
-                    let dy = abs(self.current.y1 - self.current.y0) * self.height;
-                    let linear = root.active-tool == CaptureTool.line || root.active-tool == CaptureTool.arrow;
-                    if linear ? max(dx, dy) >= 2px : min(dx, dy) >= 2px {
-                        root.add-mark(self.current);
+                    if root.active-tool == CaptureTool.pen {
+                        self.sample(false);
+                        root.finish-pen(self.current);
+                    } else if root.active-tool == CaptureTool.text {
+                        root.draft-mark = self.current;
+                        root.entering-text = true;
+                        caption-entry.focus();
+                    } else {
+                        let dx = abs(self.current.x1 - self.current.x0) * self.width;
+                        let dy = abs(self.current.y1 - self.current.y0) * self.height;
+                        let linear = root.active-tool == CaptureTool.line || root.active-tool == CaptureTool.arrow;
+                        if linear ? max(dx, dy) >= 2px : min(dx, dy) >= 2px {
+                            if root.active-tool == CaptureTool.mosaic {
+                                root.pending-mosaic = self.current;
+                                root.render-mosaic(self.current, root.left / root.width, root.top / root.height,
+                                    root.right / root.width, root.bottom / root.height);
+                            } else {
+                                root.add-mark({ geometry: self.current });
+                            }
+                        }
                     }
                 }
             }
         }
-        if mark-drag.pressed: MarkVisual {
+        if (mark-drag.pressed && root.active-tool != CaptureTool.text) || root.mosaic-pending: MarkVisual {
             x: 0px; y: 0px; width: parent.width; height: parent.height;
-            mark: mark-drag.current; weight: root.stroke * root.pixel-scale;
+            mark: root.mosaic-pending ? root.pending-mosaic : mark-drag.current;
+            pixel-scale: root.pixel-scale; path: root.pen-path;
         }
     }
 
@@ -322,19 +434,27 @@ export component CaptureWindow inherits Window {
         for tool[index] in root.tools: OverlayButton {
             x: 6px + index * root.tool-width; y: 4px; width: root.tool-width; height: 30px;
             label: tool.label; drawing: tool.drawing;
+            enabled: !root.mosaic-pending;
             selected: root.active-tool == tool.tool;
-            clicked => { root.active-tool = tool.tool; keys.focus(); }
+            clicked => {
+                if root.finish-caption() {
+                    root.active-tool = tool.tool;
+                    keys.focus();
+                }
+            }
         }
-        Rectangle { x: 8px + 6 * root.tool-width; y: 8px; width: 1px; height: 22px; background: #444956; }
+        Rectangle { x: 8px + root.tools.length * root.tool-width; y: 8px; width: 1px; height: 22px; background: #444956; }
         for command[index] in root.commands: OverlayButton {
-            x: 15px + (6 + index) * root.tool-width; y: 4px; width: root.tool-width; height: 30px;
+            x: 15px + (root.tools.length + index) * root.tool-width; y: 4px; width: root.tool-width; height: 30px;
             label: command.label; drawing: command.drawing;
+            enabled: !root.mosaic-pending;
             clicked => { root.commit(command.action); }
         }
         Rectangle { x: 8px; y: 37px; width: parent.width - 16px; height: 1px; background: #3d4049; }
         for sample[index] in root.inks: SurfaceButton {
             x: 7px + index * 19px; y: 45px; width: 19px; min-width: 19px; height: 24px;
             label: sample.label; caption: ""; background: transparent;
+            enabled: !root.entering-text && !root.mosaic-pending;
             Rectangle {
                 x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
                 width: 15px; height: 15px; border-radius: 8px; border-color: #b7bdca;
@@ -359,6 +479,7 @@ export component CaptureWindow inherits Window {
             Rectangle { x: 0px; width: (root.stroke - 1) / 11 * parent.width; height: 4px; border-radius: 2px; background: #2f8cff; }
             Rectangle { x: (root.stroke - 1) / 11 * parent.width - 5px; width: 10px; height: 10px; border-radius: 5px; background: #ffffff; }
             TouchArea {
+                enabled: !root.entering-text && !root.mosaic-pending;
                 mouse-cursor: pointer;
                 clicked => { root.stroke = clamp(round(1 + 11 * self.mouse-x / self.width), 1, 12); keys.focus(); }
                 moved => { if self.pressed { root.stroke = clamp(round(1 + 11 * self.mouse-x / self.width), 1, 12); } }
@@ -368,33 +489,68 @@ export component CaptureWindow inherits Window {
             x: parent.width - 6px - 6 * root.tool-width; y: 42px; width: 6 * root.tool-width; height: 30px;
             OverlayButton {
                 label: "Undo"; drawing: "M9 5l-6 6 6 6 M3 11h12a5 5 0 0 1 5 5v3";
-                width: root.tool-width; enabled: root.marks.length > 0;
+                width: root.tool-width; enabled: root.marks.length > 0 && !root.entering-text && !root.mosaic-pending;
                 clicked => { root.undo-mark(); keys.focus(); }
             }
             OverlayButton {
                 label: "Redo"; drawing: "M15 5l6 6-6 6 M21 11H9a5 5 0 0 0-5 5v3";
-                width: root.tool-width; enabled: root.undone-marks.length > 0;
+                width: root.tool-width; enabled: root.undone-marks.length > 0 && !root.entering-text && !root.mosaic-pending;
                 clicked => { root.redo-mark(); keys.focus(); }
             }
             OverlayButton {
                 label: "Clear marks"; drawing: "M4 6h16m-6 0V3h-4v3M6 6l1 15h10l1-15M10 10v7m4-7v7";
-                width: root.tool-width; enabled: root.marks.length > 0 || root.undone-marks.length > 0;
+                width: root.tool-width;
+                enabled: (root.marks.length > 0 || root.undone-marks.length > 0) && !root.entering-text && !root.mosaic-pending;
                 clicked => { root.clear-marks(); keys.focus(); }
             }
             OverlayButton {
                 label: "Save PNG"; drawing: "M4 3h13l4 4v14H3V3Z M7 3v7h10V3 M7 21v-7h10v7";
-                width: root.tool-width;
+                width: root.tool-width; enabled: !root.mosaic-pending;
                 clicked => { root.commit(CaptureAction.save); }
             }
             OverlayButton {
                 label: "Copy"; drawing: "M5 12l4 4L19 6"; ink: #6ee7a8;
-                width: root.tool-width; clicked => { root.commit(CaptureAction.copy); }
+                width: root.tool-width; enabled: !root.mosaic-pending;
+                clicked => { root.commit(CaptureAction.copy); }
             }
             OverlayButton { label: "Cancel"; drawing: root.cancel-icon; width: root.tool-width; clicked => { root.cancel(); } }
         }
     }
 
+    caption-entry := FocusScope {
+        visible: root.entering-text;
+        x: clamp(root.left + root.draft-mark.x0 * root.selection-width, root.gap, root.width - self.width - root.gap);
+        y: clamp(root.top + root.draft-mark.y0 * root.selection-height, root.gap, root.height - self.height - root.gap);
+        width: min(260px, root.width - 2 * root.gap);
+        height: 34px;
+        forward-focus: caption-input;
+        capture-key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.dismiss-caption();
+                return accept;
+            }
+            reject
+        }
+        caption-input := LineEdit {
+            width: parent.width; height: parent.height;
+            text <=> root.draft-text;
+            placeholder-text: "Annotation text";
+            accepted => { root.finish-caption(); }
+        }
+    }
+    if root.mosaic-pending || root.annotation-error != "": Rectangle {
+        x: (root.width - self.width) / 2; y: root.gap;
+        width: annotation-status.preferred-width + 20px; height: 28px;
+        background: #202124; border-radius: 6px;
+        annotation-status := Text {
+            text: root.mosaic-pending ? "Applying mosaic…" : root.annotation-error;
+            color: #ffffff; font-size: 12px;
+            horizontal-alignment: center; vertical-alignment: center;
+        }
+    }
+
     keys := FocusScope {
+        focus-on-click: false;
         key-pressed(event) => {
             if event.text == Key.Escape {
                 root.cancel();
@@ -404,7 +560,7 @@ export component CaptureWindow inherits Window {
                 root.commit(CaptureAction.copy);
                 return accept;
             }
-            if root.ready && (event.modifiers.control || event.modifiers.meta) && !event.modifiers.alt {
+            if root.ready && !root.mosaic-pending && (event.modifiers.control || event.modifiers.meta) && !event.modifiers.alt {
                 let z = event.text == "z" || event.text == "Z";
                 if z && !event.modifiers.shift && root.marks.length > 0 {
                     root.undo-mark();

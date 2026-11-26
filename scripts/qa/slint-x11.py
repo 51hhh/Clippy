@@ -273,6 +273,14 @@ def pixbuf_png(data):
     loader.close()
     return loader.get_pixbuf()
 
+def capture_button_width(toolbar_width):
+    return min(32, (toolbar_width - 24) / 12)
+
+
+def capture_command_x(left, width, index):
+    return round(left + 15 + (9 + index + 0.5) * capture_button_width(width))
+
+
 
 def save_failure_frame():
     directory = os.environ.get("CLIPPY_SLINT_QA_ARTIFACTS")
@@ -429,10 +437,11 @@ def run(binary, root):
 
     def click_capture_action(toolbar, index):
         x, y, width = toolbar
-        button = min(32, (width - 12) / 10)
-        if index in (2, 3, 4, 5):
-            left = 6 + button if index == 5 else 15 + (index + 4) * button
-            desktop.click(round(x + left + button / 2), y + 19)
+        button = capture_button_width(width)
+        if index in (2, 3, 4):
+            desktop.click(capture_command_x(x, width, index - 2), y + 19)
+        elif index == 5:
+            desktop.click(round(x + 6 + 1.5 * button), y + 19)
         else:
             right = {0: 1, 1: 2, 6: 5, 7: 0, 8: 4, 9: 3}[index]
             desktop.click(round(x + width - 6 - (right + 0.5) * button), y + 57)
@@ -1081,6 +1090,117 @@ def run(binary, root):
         wait_for(lambda: not titled_window(PIN_TITLE), "text pin did not close")
         close()
         print("PASS pin shortcut uses the selected clipboard item and persists a text pin", flush=True)
+
+        def rgb(pixels, x, y):
+            offset = y * pixels.get_rowstride() + x * pixels.get_n_channels()
+            return pixels.get_pixels()[offset:offset + 3]
+
+        def annotate_selection(check_history=False, accept_caption=True):
+            desktop.scroll_fixture(0)
+            root_window = Gdk.get_default_root_window()
+            original = Gdk.pixbuf_get_from_window(root_window, 440, 200, 140, 100)
+            tray.activate("Screenshot")
+            toolbar = select_area()
+            left, top, width = toolbar
+
+            def select_tool(index):
+                desktop.click(round(left + 6 + (index + 0.5) * capture_button_width(width)), top + 19)
+
+            def screen_pixels(x, y, width=1, height=1):
+                pixels = Gdk.pixbuf_get_from_window(root_window, 440 + x, 200 + y, width, height)
+                return pixels.get_pixels() if pixels else b""
+
+            select_tool(6)
+            desktop.move(desktop.display, 0, 448, 224, 0)
+            desktop.button(desktop.display, 1, 1, 0)
+            desktop.sync(desktop.display, 0)
+            for x, y in [(462, 208), (474, 220), (480, 230)]:
+                desktop.move(desktop.display, 0, x, y, 0)
+                desktop.sync(desktop.display, 0)
+                time.sleep(0.045)
+            desktop.button(desktop.display, 1, 0, 0)
+            desktop.sync(desktop.display, 0)
+            red = bytes.fromhex("ff3b30")
+            pen_turn = lambda: red in screen_pixels(20, 6, 5, 5)
+            wait_for(pen_turn, "the pen turn did not stay at the drawn coordinates")
+            if check_history:
+                desktop.keys("Control_L", "z")
+                wait_for(lambda: not pen_turn(), "pen undo left the stroke visible")
+                desktop.keys("Control_L", "y")
+                wait_for(pen_turn, "pen redo did not restore the bend")
+
+            select_tool(8)
+            sample_tiles = {}
+            for cell_x, cell_y in [(70, 25), (94, 25), (94, 73)]:
+                cell = [rgb(original, px, py)
+                        for px in range(cell_x, min(cell_x + 12, 105))
+                        for py in range(cell_y, min(cell_y + 12, 75))]
+                sample_tiles[cell_x + 2, cell_y + 1] = bytes(
+                    (sum(pixel[channel] for pixel in cell) + len(cell) // 2) // len(cell)
+                    for channel in range(3))
+
+            def mosaic_visible():
+                return all(screen_pixels(*point)[:3] == color for point, color in sample_tiles.items())
+
+            desktop.drag(510, 225, 545, 275)
+            wait_for(mosaic_visible, "mosaic preview did not keep source cell colors and partial edges")
+            if check_history:
+                desktop.keys("Control_L", "z")
+                wait_for(lambda: all(screen_pixels(*point)[:3] == rgb(original, *point) for point in sample_tiles),
+                         "mosaic undo did not restore the source colors")
+                desktop.keys("Control_L", "y")
+                wait_for(mosaic_visible, "mosaic redo did not restore the preview")
+
+            select_tool(7)
+            if check_history:
+                desktop.click(448, 252)
+                desktop.keys("q")
+                desktop.keys("Escape")
+                assert titled_window(CAPTURE_TITLE), "Escape closed the capture instead of the text field"
+                wait_for(lambda: screen_pixels(11, 54)[:3] == rgb(original, 11, 54),
+                         "a cancelled text field left pixels on the selection")
+            desktop.click(448, 252)
+            set_clipboard("UTF8_STRING", "Label 中".encode())
+            desktop.keys("Control_L", "v")
+            time.sleep(0.2)
+            if accept_caption:
+                desktop.keys("Return")
+                label_visible = lambda: red in screen_pixels(8, 52, 61, 20)
+                wait_for(label_visible, "confirmed caption did not appear at the chosen position")
+                if check_history:
+                    desktop.keys("Control_L", "z")
+                    wait_for(lambda: not label_visible(), "caption undo left letters on the image")
+                    desktop.keys("Control_L", "y")
+                    wait_for(label_visible, "caption redo did not restore the letters")
+                    save_qa_window("capture-inline-tools.png", (12, 170, 600, 225))
+            return toolbar, sample_tiles
+
+        toolbar, sample_tiles = annotate_selection(check_history=True)
+        click_capture_action(toolbar, 0)
+        inline_copy = wait_for(lambda: pixbuf_png(png) if (png := clipboard_png()) else None,
+                               "inline annotations were not copied")
+        assert (inline_copy.get_width(), inline_copy.get_height()) == (140, 100)
+        assert all(rgb(inline_copy, *point) == color for point, color in sample_tiles.items())
+        assert bytes.fromhex("ff3b30") in inline_copy.get_pixels()
+
+        known_files = set(output.parent.glob("fixture*.png"))
+        toolbar, _ = annotate_selection(accept_caption=False)
+        click_capture_action(toolbar, 1)
+        saved = wait_for(lambda: next(iter(set(output.parent.glob("fixture*.png")) - known_files), None),
+                         "PNG output did not commit the open text field")
+        assert pixbuf_png(saved.read_bytes()).get_pixels() == inline_copy.get_pixels()
+
+        toolbar, _ = annotate_selection()
+        click_capture_action(toolbar, 2)
+        editor_id, (x, y, width, height) = wait_for(lambda: titled_window(EDITOR_TITLE),
+                                                  "inline annotations did not open in the editor")
+        set_clipboard("UTF8_STRING", OTHER.encode())
+        desktop.click(x + width - 253, y + height - 55)
+        wait_for(lambda: (png := clipboard_png()) and pixbuf_png(png).get_pixels() == inline_copy.get_pixels(),
+                 "editor did not inherit the three inline tools")
+        desktop.request_close(editor_id)
+        wait_for(lambda: not titled_window(EDITOR_TITLE), "inline annotation editor did not close")
+        print("PASS inline pen path, text input and mosaic undo/redo, matching clipboard/PNG/editor", flush=True)
 
         def configured(key):
             return json.loads((data_dir / "config.json").read_text())[key]

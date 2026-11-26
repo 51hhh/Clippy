@@ -24,7 +24,7 @@ pub const MAX_CONTAINER_BYTES: usize = 160 * 1024 * 1024;
 const MAX_ANNOTATIONS: usize = 10_000;
 const MAX_STROKE_POINTS: usize = 100_000;
 const MAX_TOTAL_POINTS: usize = 500_000;
-const MAX_TEXT_BYTES: usize = 16 * 1024;
+pub const MAX_TEXT_BYTES: usize = 16 * 1024;
 const MAX_ID_BYTES: usize = 128;
 const MAX_COLOR_BYTES: usize = 128;
 

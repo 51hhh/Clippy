@@ -240,7 +240,8 @@ impl Editor {
             Tool::Blur | Tool::Mosaic | Tool::Spotlight | Tool::Magnifier => {
                 annotation["rect"] = rect;
                 annotation["effect"] = json!({
-                    "blurRadius": 12, "mosaicCell": 12, "spotlightDim": 0.65, "magnifierZoom": 2,
+                    "blurRadius": 12, "mosaicCell": render_v2::DEFAULT_MOSAIC_CELL,
+                    "spotlightDim": 0.65, "magnifierZoom": 2,
                 });
             }
             _ => {

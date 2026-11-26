@@ -12,7 +12,7 @@ use std::{sync::Arc, thread};
 const COLORS: [&str; 6] = [
     "#ff3b30", "#ff9500", "#34c759", "#0a84ff", "#ffffff", "#171717",
 ];
-const MAX_STROKE_POINTS: usize = 4_096;
+pub(super) const MAX_STROKE_POINTS: usize = 4_096;
 
 pub(super) enum Action {
     Undo,
