@@ -206,7 +206,7 @@ run_slint_segment() {
   run_step "Slint cargo clippy" cargo clippy --locked -p clippy-slint --all-targets -- -D warnings
   run_step "Slint cargo test" cargo test --locked -p clippy-slint
   run_step "Slint QA profile test" cargo test --locked -p clippy-slint --features qa-build
-  run_step "Shared A/V tests" cargo test --locked -p clippy-media --features recording-opus-webm,recording-linux-audio -- --test-threads=1
+  run_step "Shared A/V tests" cargo test --locked -p clippy-media --features recording-opus-webm,recording-linux-audio,recording-macos-resampling -- --test-threads=1
   if [[ "$(uname -s)" == "Linux" ]]; then
     run_step "Slint X11 桌面回归" bash scripts/test-slint-x11.sh
   fi

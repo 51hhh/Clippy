@@ -232,7 +232,7 @@ if ($runSlint) {
     Invoke-Check 'Slint Rust tests' $repository { & cargo.exe test --locked -p clippy-slint }
     Invoke-Check 'Slint QA profile tests' $repository { & cargo.exe test --locked -p clippy-slint --features qa-build }
     Invoke-Check 'Shared A/V and WASAPI tests' $repository {
-        & cargo.exe test --locked -p clippy-media --features recording-opus-webm,recording-windows-audio -- --test-threads=1
+        & cargo.exe test --locked -p clippy-media --features recording-opus-webm,recording-windows-audio,recording-macos-resampling -- --test-threads=1
     }
 }
 

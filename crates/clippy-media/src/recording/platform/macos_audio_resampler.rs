@@ -18,7 +18,7 @@ const MAX_NATIVE_PACKET_MILLIS: u64 = 200;
 const MAX_FLUSH_PASSES: usize = 16;
 
 #[derive(Debug, Error)]
-pub(super) enum MacAudioResamplerError {
+pub enum MacAudioResamplerError {
     #[error("ScreenCaptureKit 麦克风采样率不受支持: {0} Hz")]
     UnsupportedSampleRate(u32),
     #[error("ScreenCaptureKit 麦克风连续音频段内采样率发生变化: {from} -> {to} Hz")]
@@ -39,7 +39,7 @@ pub(super) enum MacAudioResamplerError {
 
 /// 把同一连续原生时间段转换成 48 kHz；PTS 空洞由调用方以 `starts_new_segment` 显式切段。
 #[derive(Default)]
-pub(super) struct MacAudioStreamResampler {
+pub struct MacAudioStreamResampler {
     active_rate_hz: Option<u32>,
     segment: Option<ResampledSegment>,
 }
@@ -131,7 +131,7 @@ fn validate_native_packet(
     Ok(())
 }
 
-pub(super) fn validate_native_frame_count(
+pub fn validate_native_frame_count(
     native_rate_hz: u32,
     frame_count: u32,
 ) -> Result<(), MacAudioResamplerError> {
@@ -149,9 +149,7 @@ pub(super) fn validate_native_frame_count(
     Ok(())
 }
 
-pub(super) fn validate_native_sample_rate(
-    native_rate_hz: u32,
-) -> Result<(), MacAudioResamplerError> {
+pub fn validate_native_sample_rate(native_rate_hz: u32) -> Result<(), MacAudioResamplerError> {
     if (MIN_NATIVE_SAMPLE_RATE_HZ..=MAX_NATIVE_SAMPLE_RATE_HZ).contains(&native_rate_hz) {
         Ok(())
     } else {

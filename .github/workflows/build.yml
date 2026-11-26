@@ -82,7 +82,7 @@ jobs:
         run: cargo test --locked -p clippy-slint
 
       - name: Shared native A/V tests
-        run: cargo test --locked -p clippy-media --features recording-opus-webm,recording-linux-audio -- --test-threads=1
+        run: cargo test --locked -p clippy-media --features recording-opus-webm,recording-linux-audio,recording-macos-resampling -- --test-threads=1
 
       - name: Slint QA profile tests
         run: cargo test --locked -p clippy-slint --features qa-build
@@ -166,7 +166,7 @@ jobs:
         run: cargo test --locked -p clippy-slint
 
       - name: Shared native A/V tests
-        run: cargo test --locked -p clippy-media --features recording-opus-webm,recording-windows-audio,recording-macos-audio -- --test-threads=1
+        run: cargo test --locked -p clippy-media --features recording-opus-webm,recording-windows-audio,recording-macos-audio,recording-macos-resampling -- --test-threads=1
 
       - name: macOS Core Media audio buffer test
         if: runner.os == 'macOS'

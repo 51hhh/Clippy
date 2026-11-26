@@ -388,6 +388,21 @@ ScreenCaptureKit 取 `SCStreamFrameInfoDisplayTime`。原生时间缺失或超�
 
 **Out of Scope** 本次接线只覆盖系统声。麦克风、混音和浮窗排除仍由本阶段后续验收。
 
+#### 阶段 4 · 共享 macOS 麦克风重采样
+
+**Goal** 把已验证的麦克风 PCM 校验和重采样迁到共享媒体层，供 Slint 的 ScreenCaptureKit 麦克风输出复用。
+
+**Requirements** 复用固定的 Rubato 5.0.0 带限 sinc。保持原有 8–192 kHz、mono/stereo Float32 PCM、48 kHz
+双声道输出、100 毫秒拆块和正常停录封尾。保留旧版 QA 的 feature 入口和依赖、许可合同。Slint 后续接线继续用
+系统声已接入的原生主机 PTS，按设备能力显示麦克风。
+[既有重采样合同](../specs/2026-09-23-recording-macos-resampler.md) ·
+[Apple 麦克风输出示例](https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos)
+
+**Acceptance Criteria** 迁移后在共享层执行现有 13 项格式、时间线、滤波和封尾测试，并核对供应链锁定。
+默认新版构建继续只依赖实际使用的媒体能力。
+
+**Out of Scope** 抽离阶段保留现有用户入口。macOS 15 权限、设备选择、双源混音和长录作为后续接线与实机验收项。
+
 #### 阶段 4 · GStreamer 库内播放候选
 
 **Goal** 在录屏库验证原件、独立分段和恢复文件的原生嵌入播放、暂停、定位和关闭。
@@ -969,8 +984,20 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   [录屏音频适配](../../../crates/clippy-media/src/recording/platform/macos_audio.rs)
 - 使用 macOS 11.0 目标对平台和媒体层的 Intel、Apple Silicon 构建图做了 `--all-targets` 交叉 Clippy。
   Windows GNU 通过关闭录屏编解码特性的 Slint QA 严格检查。日志位于
-  `target/test-artifacts/slint-stage4-macos-audio/`。新增原生 PCM 测试和三平台门禁仍需对应提交的 CI，
-  权限、自身音频排除、暂停和 30 分钟同步仍需 macOS 实机验收。
+  `target/test-artifacts/slint-stage4-macos-audio/`。`84e768a` 的 macOS 原生 CI 通过了交错、分平面、单声道
+  Core Media 缓冲、时间戳拆块和系统声选项测试。权限、自身音频排除、暂停和 30 分钟同步仍需实机验收。
+  [macOS 原生 CI](https://github.com/51hhh/Clippy/actions/runs/45865306493/job/140066511904)
+
+### 阶段 4 · macOS 麦克风重采样移入共享媒体层
+
+- PCM 合同和 Rubato 重采样原样迁入媒体 crate。旧版显式录屏 QA 引用同一实现，版本、许可和供应链检查通过。
+  新版日常构建按原有系统声路径运行，麦克风的原生设备入口待接入。
+- 共享层通过全部 13 项合同测试和带 feature 的严格 Clippy。覆盖单/双声道布局、44.1/48/88.2/96 kHz、
+  抗混叠、包边界、暂停丢弃和停止封尾。Windows GNU 和 macOS 双架构的同 feature 交叉 Clippy 通过。
+  三平台的共享录屏测试已将这组用例纳入命令。
+  日志见 `target/test-artifacts/slint-stage4-macos-audio/microphone-resampler-shared.log` 和
+  `microphone-resampler-shared-clippy.log`。新版 Linux 完整门禁 11 通过、0 失败、0 跳过，见
+  `ci-local-shared-resampler.log`。
 
 ### 阶段 4 · GStreamer 库内回放结果
 

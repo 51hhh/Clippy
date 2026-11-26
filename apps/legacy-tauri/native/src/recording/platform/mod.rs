@@ -1,16 +1,11 @@
 #[cfg(target_os = "macos")]
 pub(super) mod macos;
 mod region;
-// ScreenCaptureKit 的 PTS、PCM 布局与拆块合同在所有宿主运行测试，原生对象只进入 macOS AV feature。
 #[cfg(all(target_os = "linux", feature = "recording-linux-av-qa"))]
 #[allow(dead_code)]
 pub(super) use clippy_media::recording::platform::linux_audio;
-#[allow(dead_code)]
-mod macos_audio_contract;
-// macOS 麦克风的纯 Rust 流式重采样合同可在 Linux feature 测试中执行；原生对象仍只进入 macOS。
-#[cfg(feature = "recording-macos-av-qa")]
-#[allow(dead_code)]
-mod macos_audio_resampler;
+#[cfg(all(target_os = "macos", feature = "recording-macos-av-qa"))]
+pub(super) use clippy_media::recording::platform::{macos_audio_contract, macos_audio_resampler};
 #[cfg(target_os = "linux")]
 pub(super) mod wayland;
 #[cfg(target_os = "windows")]

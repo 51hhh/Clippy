@@ -10,7 +10,7 @@ const OUTPUT_CHANNELS: usize = 2;
 const NANOS_PER_SECOND: u128 = 1_000_000_000;
 
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
-pub(super) enum MacAudioContractError {
+pub enum MacAudioContractError {
     #[error("ScreenCaptureKit 音频时间戳无效")]
     InvalidTimestamp,
     #[error("ScreenCaptureKit 音频时间戳超出范围")]
@@ -34,26 +34,26 @@ pub(super) enum MacAudioContractError {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(super) enum NativeFloatPcm<'a> {
+pub enum NativeFloatPcm<'a> {
     Interleaved(&'a [f32]),
     NonInterleaved(&'a [&'a [f32]]),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct MappedPcmChunk {
+pub struct MappedPcmChunk {
     pub captured_at_ns: u64,
     pub frame_count: u32,
     pub samples: Box<[f32]>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct MappedPacketTiming {
+pub struct MappedPacketTiming {
     pub captured_at_ns: u64,
     pub starts_new_segment: bool,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub(super) struct MacAudioPtsMapper {
+pub struct MacAudioPtsMapper {
     anchor: Option<NativePtsAnchor>,
     last_end_ns: Option<u64>,
 }
@@ -123,7 +123,7 @@ impl MacAudioPtsMapper {
     }
 }
 
-pub(super) fn normalize_float_pcm(
+pub fn normalize_float_pcm(
     input: NativeFloatPcm<'_>,
     native_channels: u16,
     frame_count: u32,
@@ -187,7 +187,7 @@ pub(super) fn normalize_float_pcm(
     Ok(output.into_boxed_slice())
 }
 
-pub(super) fn split_stereo_packet(
+pub fn split_stereo_packet(
     captured_at_ns: u64,
     frame_count: u32,
     samples: &[f32],

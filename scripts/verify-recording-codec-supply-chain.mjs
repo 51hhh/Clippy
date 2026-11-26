@@ -126,7 +126,7 @@ if (
 }
 if (
   !cargoToml.includes(
-    'recording-macos-av-qa = [\n    "recording-macos-screencapturekit",\n    "recording-opus-webm",\n    "dep:rubato",\n    "dep:objc2-core-audio-types",\n    "dep:objc2-av-foundation",\n    "objc2-core-media/objc2-core-audio-types",\n]',
+    'recording-macos-av-qa = [\n    "recording-macos-screencapturekit",\n    "recording-opus-webm",\n    "clippy-media/recording-macos-resampling",\n    "dep:objc2-core-audio-types",\n    "dep:objc2-av-foundation",\n    "objc2-core-media/objc2-core-audio-types",\n]',
   ) ||
   !cargoToml.includes(
     'objc2-av-foundation = { version = "=0.3.2", default-features = false, features = ["AVCaptureDevice", "AVMediaFormat"], optional = true }',
@@ -134,7 +134,8 @@ if (
   !cargoToml.includes(
     'objc2-core-audio-types = { version = "=0.3.2", optional = true }',
   ) ||
-  !cargoToml.includes(
+  !mediaCargo.includes('recording-macos-resampling = ["dep:rubato"]') ||
+  !mediaCargo.includes(
     'rubato = { version = "=5.0.0", default-features = false, optional = true }',
   )
 ) {
