@@ -768,6 +768,27 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   Windows GNU 的 Slint QA 入口在关闭默认录屏编解码特性时交叉检查通过，Apple Silicon 平台层交叉
   clippy 通过。Windows、macOS 的截图仍需在目标系统取得原生画面。
 
+#### 阶段 2 · 独立 KWin 输出复现选屏器与选区残影
+
+- KWin 6.6.7 使用独立的 `Virtual-0` 1280×720 输出和 OpenGL。实际 Slint QA 在系统选屏器授权一次后
+  显示覆盖层，保存的 240×150 PNG 中有 7,350 个像素偏离纯色底图。选区横跨原选屏器边缘，PNG
+  仍可见白色选屏器。保存后 PipeWire 流已释放。该次现象发生在现有源时间戳检查通过后。
+- 同一路径的独立采集探针观察授权响应、PipeWire 帧头和三个源像素位置。首帧 PTS 晚于响应约
+  48.3 毫秒，仍包含选屏器。三个位置首次同时恢复底色的帧 PTS 晚于响应约 215.0 毫秒，到达约
+  227.4 毫秒。KWin 的输出采集时钟取该输出最近一次呈现时刻。
+  [KWin 输出时钟](https://github.com/KDE/kwin/blob/v6.6.4/src/plugins/screencast/outputscreencastsource.cpp#L98-L101)
+- 在测试进程内把连接 PipeWire 推迟 250 毫秒，默认动画时一次 PNG 与底图逐像素一致。只在隔离配置把
+  动画时长设为两倍后，用相同等待仍有 4,500 个偏离像素。默认动画的换色录屏完成并释放了同一会话，
+  15 个解码帧中的第 0 和第 1 帧仍含 Slint 选区边框，其余 13 帧在既定像素阈值内。
+- 探针验证了固定等待对动画速度敏感，选屏器和应用覆盖层各有一次合成边界。下一候选需验证能观测到前者
+  消失的接口，并单独对照应用覆盖层结束绘制后是否仍会进入录屏。保留静止、换色、快速确认与单次授权的
+  像素验收，KDE 真机结果仍待补。
+- 原始证据位于 `target/test-artifacts/slint-stage2-kde/` 的 `kde-virtual-clock-pixels.log`、
+  `kde-virtual-frame-timing.log`、`kde-virtual-connect-delay250-final.log` 和
+  `kde-virtual-connect-delay250-slow.log`。对应 PNG 为 `kde-virtual-chooser-in-frame.png`、
+  `kde-virtual-delay250-default.png`、`kde-virtual-delay250-slow.png`、
+  `kde-virtual-recording-first.png` 和 `kde-virtual-recording-second.png`。
+
 ### 阶段 3 · X11 输入基线
 
 - 在独立 Xvfb 中使用有固定页眉的确定性滚动页。原生输入在四个方向各收到目标滚轮事件，绘制的选区像素
