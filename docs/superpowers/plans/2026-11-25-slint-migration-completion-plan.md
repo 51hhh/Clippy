@@ -505,6 +505,9 @@ Linux 增加 deb 与 AppImage 资源加载对照，macOS 核对 worker 和运行
 
 **Out of Scope** 正式 updater 签名切换和旧版更新桥仍在阶段 7 验收。
 
+macOS 源码包从可访问的 ROCm 公共镜像拉取微软发行记录固定的 Git 对象。提交摘要、ONNX 子模块、
+CPU 构建、两种架构和 11.0 部署目标继续按本阶段的要求验收。
+
 ### 阶段 6 · 截图标注撤销与重做
 
 **Goal** 在冻结截图覆盖层恢复标注撤销与重做。用户可留在选区内反复修改，再复制、保存或进入编辑器。
@@ -1286,6 +1289,19 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   修复后生成五份锁定的 Rust 依赖许可证。原生 MSI、NSIS 与安装后离线识字继续验收。
   [Windows QA 失败日志](https://github.com/51hhh/Clippy/actions/runs/45874590410/job/140098342533)
 - 本地复验日志为 `target/test-artifacts/slint-stage4-macos-audio/windows-ocr-cargo-metadata-encoding.log`。
+
+#### 阶段 5 · macOS OCR 源码拉取修复
+
+- Apple Silicon QA 已编译完 OCR worker，随后在拉取 ONNX Runtime 时失败。复测微软源码仓库和固定提交均
+  返回 404。微软同版本 NuGet、Maven 发行物只有 ARM64 的 macOS 动态库，Mach-O 最低版本为 14.0。
+  [Apple Silicon QA 失败日志](https://github.com/51hhh/Clippy/actions/runs/45876990284/job/140106478702) ·
+  [微软发行记录](https://www.nuget.org/packages/Microsoft.ML.OnnxRuntime/1.24.2)
+- ROCm 的公共 Git 镜像成功浅拉取同一发行提交 `058787ceead760166e3c50a0a4cba8a833a6f53f`。
+  本地核对 Git 提交、树完整性、版本 1.24.2 和 ONNX 子模块 `d3f6b795aedb48eaecc881bf5e8f5dd6efbe25b3`。
+  随包库继续从该源码构建，11.0 部署和架构校验由两种 macOS runner 复验。
+- 源码证据见 `target/test-artifacts/slint-stage5-distribution/ort-macos-recovery/` 的
+  `source-probe.log` 和 `source-submodule-final.log`。共享 CPU 库的依赖也已在 Linux 完成 CMake
+  配置，见 `configure-linux.log`。DMG 签名、最低系统运行及干净安装离线识字继续验收。
 
 ### 阶段 6 · 截图标注撤销与重做结果
 

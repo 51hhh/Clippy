@@ -121,7 +121,8 @@ def build_macos_ort(cache, arch, bundle):
     source.mkdir(exist_ok=True)
     if not (source / "VERSION_NUMBER").is_file():
         run("git", "init", "--quiet", str(source))
-        run("git", "-C", str(source), "fetch", "--depth", "1", "https://github.com/microsoft/onnxruntime.git", ORT_SOURCE)
+        # 原仓库当前不可访问，镜像必须交付微软发行记录中的同一提交。
+        run("git", "-C", str(source), "fetch", "--depth", "1", "https://github.com/ROCm/onnxruntime.git", ORT_SOURCE)
         run("git", "-C", str(source), "checkout", "--quiet", "--detach", "FETCH_HEAD")
     if run("git", "-C", str(source), "rev-parse", "HEAD", capture_output=True, text=True).stdout.strip() != ORT_SOURCE:
         raise ValueError("Cached ONNX Runtime source revision mismatch")

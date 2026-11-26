@@ -84,6 +84,8 @@
   原生安装继续验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 - 修复 Windows 准备离线 OCR 许可时读取 Cargo 元数据失败的问题。已用 Windows 目标依赖图验证含非 ASCII
   字符的元数据可生成许可清单，Windows 安装包待重新出包验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
+- macOS OCR 包改用可访问的公共镜像拉取已固定的 ONNX Runtime 发行提交。已核对源码与子模块，Intel 和
+  Apple Silicon 的安装包继续按原部署目标验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 
 ### Slint 区域录屏
 
