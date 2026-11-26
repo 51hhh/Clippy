@@ -14,7 +14,8 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 log = "0.4"
 rusqlite = { version = "0.41", features = ["bundled", "backup"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# 修订坐标从 SQLite 读回后需要保留原数值，文档摘要才能稳定去重。
+serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
 thiserror = "2"
 zip = { version = "9.0.5", default-features = false }
