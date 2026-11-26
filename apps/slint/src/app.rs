@@ -11,7 +11,7 @@ use clippy_platform::{
     instance::Instance,
     paste::{capture_target, Target},
     paths::AppPaths,
-    private_files::{replace_private_file, restrict_directory, write_private},
+    private_files::{commit_private_replacement, restrict_directory, write_private},
     shortcuts::{Action, Shortcuts},
 };
 use clippy_storage::{ClipListRequest, StorageError, StorageRuntime};
@@ -22,6 +22,7 @@ use slint::{
 use std::{
     cell::RefCell,
     fs, io,
+    path::Path,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -124,7 +125,6 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
         .err()
         .map(|error| error.to_string())
         .unwrap_or_default();
-    let _shortcuts = shortcuts.ok();
     APP.with(|app| {
         app.replace(Some(App {
             identity,
@@ -138,6 +138,7 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
             busy: false,
             #[cfg(target_os = "linux")]
             gnome_helper_busy: false,
+            shortcuts: shortcuts.ok(),
             shortcut_status,
             action_status: SharedString::default(),
             capture_selection: None,
@@ -281,6 +282,7 @@ struct App {
     busy: bool,
     #[cfg(target_os = "linux")]
     gnome_helper_busy: bool,
+    shortcuts: Option<Shortcuts>,
     shortcut_status: String,
     action_status: SharedString,
     capture_selection: Option<capture::Selection>,
@@ -726,9 +728,13 @@ impl App {
     }
 
     fn save_config(&self, config: &AppConfig) -> Result<()> {
-        let temporary = self.paths.config_file.with_extension("tmp");
+        Self::write_config(&self.paths.config_file, config)
+    }
+
+    fn write_config(path: &Path, config: &AppConfig) -> Result<()> {
+        let temporary = path.with_extension("tmp");
         write_private(&temporary, serialize_config_json(config)?.as_bytes())?;
-        replace_private_file(&temporary, &self.paths.config_file)?;
+        commit_private_replacement(&temporary, path)?;
         Ok(())
     }
 

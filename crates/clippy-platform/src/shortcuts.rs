@@ -1,7 +1,7 @@
 use crate::identity::PlatformIdentity;
 use anyhow::{bail, Result};
 use global_hotkey::{hotkey::HotKey, GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -14,16 +14,24 @@ type Dispatch = Arc<dyn Fn(Action) + Send + Sync>;
 type Report = Arc<dyn Fn(String) + Send + Sync>;
 
 pub struct Shortcuts {
-    _native: Option<GlobalHotKeyManager>,
+    native: Option<NativeShortcuts>,
     #[cfg(target_os = "linux")]
     _wayland: Option<wayland::Worker>,
+}
+
+pub struct Bindings([(Action, HotKey); 3]);
+
+struct NativeShortcuts {
+    manager: GlobalHotKeyManager,
+    registered: Vec<HotKey>,
+    active: Arc<Mutex<Vec<(Action, HotKey)>>>,
 }
 
 pub fn can_parse(shortcut: &str) -> bool {
     shortcut.parse::<HotKey>().is_ok()
 }
 
-pub fn validate(panel: &str, pin: &str, capture: &str) -> Result<()> {
+pub fn validate(panel: &str, pin: &str, capture: &str) -> Result<Bindings> {
     let panel = panel
         .parse::<HotKey>()
         .map_err(|error| anyhow::anyhow!("Clipboard shortcut: {error}"))?;
@@ -36,7 +44,11 @@ pub fn validate(panel: &str, pin: &str, capture: &str) -> Result<()> {
     if panel.id() == capture.id() || panel.id() == pin.id() || pin.id() == capture.id() {
         bail!("The clipboard, pin and screenshot shortcuts must differ");
     }
-    Ok(())
+    Ok(Bindings([
+        (Action::Open, panel),
+        (Action::Pin, pin),
+        (Action::Capture, capture),
+    ]))
 }
 
 impl Shortcuts {
@@ -72,20 +84,23 @@ impl Shortcuts {
                 Err(error) => report(format!("{action:?} shortcut: {error}")),
             }
         }
-        if bindings.is_empty() {
-            bail!("No global shortcut is configured");
-        }
         let dispatch: Dispatch = Arc::new(dispatch);
         #[cfg(target_os = "linux")]
         if crate::session::is_wayland() {
+            if bindings.is_empty() {
+                bail!("No global shortcut is configured");
+            }
             return Ok(Self {
-                _native: None,
+                native: None,
                 _wayland: Some(wayland::Worker::start(
                     *identity, bindings, dispatch, report,
                 )?),
             });
         }
         let _ = identity;
+        if bindings.is_empty() {
+            report("No global shortcut is configured".into());
+        }
         let manager = GlobalHotKeyManager::new()?;
         bindings.retain(|(action, key)| match manager.register(*key) {
             Ok(()) => true,
@@ -94,18 +109,92 @@ impl Shortcuts {
                 false
             }
         });
+        let registered = bindings.iter().map(|(_, key)| *key).collect();
+        let active = Arc::new(Mutex::new(bindings));
+        let dispatch_bindings = Arc::clone(&active);
         GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
             if event.state() == HotKeyState::Pressed {
-                if let Some((action, _)) = bindings.iter().find(|(_, key)| key.id() == event.id()) {
-                    dispatch(*action);
+                let action = dispatch_bindings
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .find_map(|(action, key)| (key.id() == event.id()).then_some(*action));
+                if let Some(action) = action {
+                    dispatch(action);
                 }
             }
         }));
         Ok(Self {
-            _native: Some(manager),
+            native: Some(NativeShortcuts {
+                manager,
+                registered,
+                active,
+            }),
             #[cfg(target_os = "linux")]
             _wayland: None,
         })
+    }
+
+    pub fn rebind_native(
+        &mut self,
+        next: Bindings,
+        persist: impl FnOnce() -> Result<()>,
+    ) -> Result<()> {
+        self.native
+            .as_mut()
+            .expect("调用方使用原生快捷键后端")
+            .rebind(next, persist)
+    }
+}
+
+impl NativeShortcuts {
+    fn set_registered(&mut self, key: HotKey, registered: bool) -> global_hotkey::Result<()> {
+        if registered {
+            self.manager.register(key)?;
+            self.registered.push(key);
+        } else {
+            self.manager.unregister(key)?;
+            self.registered.retain(|current| *current != key);
+        }
+        Ok(())
+    }
+
+    fn rebind(&mut self, next: Bindings, persist: impl FnOnce() -> Result<()>) -> Result<()> {
+        let mut rollback = Vec::new();
+        let applied = (|| {
+            for (action, key) in next.0 {
+                if !self.registered.contains(&key) {
+                    self.set_registered(key, true)
+                        .map_err(|error| anyhow::anyhow!("{action:?} shortcut: {error}"))?;
+                    rollback.push((key, false));
+                }
+            }
+            for key in self.registered.clone() {
+                if !next.0.iter().any(|(_, next_key)| *next_key == key) {
+                    self.set_registered(key, false)?;
+                    rollback.push((key, true));
+                }
+            }
+            persist()
+        })();
+        if let Err(error) = applied {
+            let failures = rollback
+                .into_iter()
+                .rev()
+                .filter_map(|(key, registered)| self.set_registered(key, registered).err())
+                .map(|error| error.to_string())
+                .collect::<Vec<_>>();
+            if failures.is_empty() {
+                return Err(error);
+            }
+            bail!(
+                "{error}. Could not restore shortcuts: {}",
+                failures.join(", ")
+            );
+        }
+        // 交换动作使用的按键只需换分派表，仍然需要的物理按键始终保留注册。
+        *self.active.lock().unwrap() = next.0.into();
+        Ok(())
     }
 }
 

@@ -1,5 +1,6 @@
 """用独立 X11 server、SNI 主机和合成数据验收 QA 二进制。"""
 import ctypes as c
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -94,6 +95,8 @@ class Desktop:
         self.sync = bind(self.lib, "XSync", (c.c_int,))
         self.close_display = bind(self.lib, "XCloseDisplay", ())
         self.root_window = bind(self.lib, "XDefaultRootWindow", (), c.c_ulong)
+        self.grab_key = bind(self.lib, "XGrabKey", (c.c_int, c.c_uint, c.c_ulong, c.c_int, c.c_int, c.c_int))
+        self.ungrab_key = bind(self.lib, "XUngrabKey", (c.c_int, c.c_uint, c.c_ulong))
         self.set_background = bind(self.lib, "XSetWindowBackground", (c.c_ulong, c.c_ulong))
         self.clear_window = bind(self.lib, "XClearWindow", (c.c_ulong,))
         self.atom = bind(self.lib, "XInternAtom", (c.c_char_p, c.c_int), c.c_ulong)
@@ -115,6 +118,18 @@ class Desktop:
         for code in reversed(codes):
             self.key(self.display, code, 0, 0)
         self.sync(self.display, 0)
+
+    @contextmanager
+    def occupy_control_key(self, key):
+        code = self.keycode(self.display, self.keysym(key.encode()))
+        root = self.root_window(self.display)
+        self.grab_key(self.display, code, 4, root, 0, 1, 1)
+        self.sync(self.display, 0)
+        try:
+            yield
+        finally:
+            self.ungrab_key(self.display, code, 4, root)
+            self.sync(self.display, 0)
 
     def focus(self, window):
         self.focus_window(self.display, window, 2, 0)
@@ -1244,6 +1259,109 @@ def run(binary, root):
         desktop.request_close(settings_id)
         wait_for(lambda: not titled_window(SETTINGS_TITLE), "shortcut settings did not close")
         print("PASS settings record native keys, cancel, reject duplicates and persist both shortcuts", flush=True)
+
+        desktop.keys("Control_L", "Alt_L", "Shift_L", "j")
+        desktop.keys("Control_L", "Alt_L", "Shift_L", "k")
+        time.sleep(0.25)
+        assert not titled_window(TITLE) and not titled_window(CAPTURE_TITLE), "retired shortcuts still triggered"
+        desktop.keys("Control_L", "F8")
+        close()
+        desktop.keys("Control_L", "Shift_L", "F9")
+        overlay, _ = wait_for(lambda: titled_window(CAPTURE_TITLE), "new screenshot shortcut did not trigger")
+        desktop.focus(overlay)
+        desktop.keys("Escape")
+        wait_for(lambda: not titled_window(CAPTURE_TITLE), "screenshot from the new shortcut stayed open")
+        print("PASS new clipboard and screenshot shortcuts work without restart and old keys are released", flush=True)
+
+        def open_shortcut_settings():
+            tray.activate("Settings")
+            window, bounds = wait_for(lambda: titled_window(SETTINGS_TITLE), "shortcut settings did not reopen")
+            desktop.focus(window)
+            return window, bounds
+
+        def fill_shortcut(row, shortcut):
+            desktop.click(x + 160, y + row)
+            desktop.keys("Control_L", "a")
+            for char in shortcut:
+                if char == "+":
+                    desktop.keys("Shift_L", "equal")
+                elif char.isupper():
+                    desktop.keys("Shift_L", char.lower())
+                else:
+                    desktop.keys(char)
+
+        def save_shortcut_settings():
+            desktop.scroll_down(x + width - 94, y + height - 67)
+            desktop.click(x + width // 2, y + height - 50)
+
+        def footer():
+            return Gdk.pixbuf_get_from_window(
+                Gdk.get_default_root_window(), x, y + height - 25, width, 25,
+            ).get_pixels()
+
+        config_path = data_dir / "config.json"
+        saved = config_path.read_bytes()
+        settings_id, (x, y, width, height) = open_shortcut_settings()
+        fill_shortcut(206, "Ctrl+F10")
+        fill_shortcut(368, "Ctrl+F11")
+        before = footer()
+        with desktop.occupy_control_key("F11"):
+            save_shortcut_settings()
+            wait_for(lambda: footer() != before, "conflicting shortcut did not return a save result")
+            save_qa_window("native-shortcut-conflict.png", (x, y, width, height))
+            assert config_path.read_bytes() == saved, "a conflicting change overwrote the current config"
+            with desktop.occupy_control_key("F10"):
+                pass
+            desktop.keys("Control_L", "F8")
+            close()
+        print("PASS another X11 client's grab rejects the batch and releases the first new registration", flush=True)
+
+        settings_id, (x, y, width, height) = open_shortcut_settings()
+        fill_shortcut(206, "Ctrl+F10")
+        before = footer()
+        temporary_config = config_path.with_suffix(".tmp")
+        temporary_config.mkdir()
+        try:
+            save_shortcut_settings()
+            wait_for(lambda: footer() != before, "failed config write did not return a save result")
+            save_qa_window("native-shortcut-write-error.png", (x, y, width, height))
+            assert config_path.read_bytes() == saved, "failed write changed the previous config"
+            with desktop.occupy_control_key("F10"):
+                pass
+            desktop.keys("Control_L", "F8")
+            close()
+        finally:
+            temporary_config.rmdir()
+        settings_id, (x, y, width, height) = open_shortcut_settings()
+        fill_shortcut(206, "Ctrl+F10")
+        save_qa_window("native-shortcut-retry-draft.png", (x, y, width, height))
+        save_shortcut_settings()
+        wait_for(lambda: configured("global_shortcut") == "Ctrl+F10", "retry did not save the shortcut")
+        desktop.request_close(settings_id)
+        wait_for(lambda: not titled_window(SETTINGS_TITLE), "shortcut settings did not close after retry")
+        desktop.keys("Control_L", "F10")
+        close()
+        print("PASS failed config write restored the old shortcut and a subsequent save applied the new one", flush=True)
+
+        settings_id, (x, y, width, height) = open_shortcut_settings()
+        fill_shortcut(206, "Ctrl+2")
+        fill_shortcut(368, "Ctrl+F10")
+        save_shortcut_settings()
+        wait_for(lambda: (configured("global_shortcut"), configured("pin_shortcut")) == ("Ctrl+2", "Ctrl+F10"),
+                 "two active shortcuts could not be swapped")
+        desktop.request_close(settings_id)
+        wait_for(lambda: not titled_window(SETTINGS_TITLE), "swapped shortcuts left settings open")
+        desktop.keys("Control_L", "2")
+        panel_id, (panel_x, panel_y, _, _) = panel_width(380)
+        desktop.focus(panel_id)
+        search("needle")
+        desktop.click(panel_x + 48, panel_y + 80)
+        desktop.keys("Control_L", "F10")
+        pin, _ = wait_for(lambda: titled_window(PIN_TITLE), "swapped pin shortcut did not trigger")
+        desktop.request_close(pin)
+        wait_for(lambda: not titled_window(PIN_TITLE), "pin from the swapped shortcut did not close")
+        close()
+        print("PASS exchanging active clipboard and pin chords routes both keys to the new actions", flush=True)
 
         second = subprocess.run([binary, "--open"], env=env, timeout=4)
         assert second.returncode == 0

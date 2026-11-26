@@ -107,11 +107,16 @@ fn write_private_with_permissions(
 /// Unix `rename` 可以覆盖目标；Windows 必须显式传 `MOVEFILE_REPLACE_EXISTING`，否则配置和
 /// Portal restore token 从第二次保存开始就会失败。
 pub fn replace_private_file(source: &Path, destination: &Path) -> io::Result<()> {
-    #[cfg(target_os = "windows")]
-    windows::replace(source, destination)?;
-    #[cfg(not(target_os = "windows"))]
-    fs::rename(source, destination)?;
+    commit_private_replacement(source, destination)?;
     restrict_file(destination)
+}
+
+/// 提交同目录且已收紧权限的暂存文件，确保报告写入失败时旧配置还在。
+pub fn commit_private_replacement(source: &Path, destination: &Path) -> io::Result<()> {
+    #[cfg(target_os = "windows")]
+    return windows::replace(source, destination);
+    #[cfg(not(target_os = "windows"))]
+    fs::rename(source, destination)
 }
 
 pub fn commit_new_file(source: &Path, destination: &Path) -> io::Result<()> {

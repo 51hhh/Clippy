@@ -515,6 +515,22 @@ UUID。重启隔离 Shell 后，从设置看到可用并实际悬停、选择及
 
 **Out of Scope** 系统 UI 的冻结和全局截图快捷键依旧按 v5 采集计划单独验收。扩展的贴图摆位能力按贴图任务接入。
 
+#### 阶段 6 · 保存后立即应用全局快捷键
+
+**Goal** 用户保存剪贴板、贴图和截图快捷键后，当场使用新按键。保存失败时仍可用原来的按键。
+
+**Requirements** X11、Windows 和 macOS 继续使用已有的原生管理器。在提交新配置前先尝试新增按键，保留仍被任一
+动作使用的注册。平台注册或配置原子写入失败时撤销本次改动，设置保留旧配置，允许用户修正草稿重试。GNOME
+Wayland 在原 v5 路径上更新自己的 GSettings 条目并保留其他条目。其余 Wayland 由现有 Global Shortcuts Portal
+会话管理实体键位，按会话版本接入桌面的配置入口和状态。
+[Global Shortcuts Portal](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.GlobalShortcuts.html)
+
+**Acceptance Criteria** 录制和手填都使用同一保存流程。验证不重启即可触发新按键，旧按键停止触发，并支持两个
+动作交换按键。同一应用的重复按键、其他应用占用、写入失败均保留旧配置及可用按键。修复输入后可直接重试。
+用隔离 X11 和 GNOME 实测，Windows/macOS 与非 GNOME Portal 在对应原生桌面验收。
+
+**Out of Scope** 新增全局动作、改变快捷键默认值及替换 v5 截图入口。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -1096,6 +1112,26 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   证据位于 `target/test-artifacts/slint-stage6-gnome-helper/`，包括 `gnome-fresh-login.log`、
   `gnome-window-regression.log`、`helper-awaiting-login.png`、`helper-ready.png`、`helper-window-pick.png`、
   `ci-local-final.log`、`windows-gnu-qa.log` 和 `macos-platform.log`。
+
+#### 阶段 6 · 原生快捷键保存与回滚结果
+
+- X11、Windows 和 macOS 保持同一个原生管理器。先尝试注册新增按键，再释放不再使用的按键，原子提交配置后
+  切换动作分派。中途失败反向恢复本次注册变化。交换动作时保留仍在使用的物理按键。
+- 同一目录写入临时配置并提前收紧权限，以原子替换作为提交点。避免替换后再做可能失败的权限操作，导致磁盘与
+  运行状态分别落在两版配置。Windows 保留同卷 `MoveFileExW` 路径。
+  [MoveFileExW 合同](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw)
+- 隔离 X11 从真实设置按钮保存。验证录制及手填、重复键校验、新剪贴板和截图键可用、旧键静默，以及剪贴板和
+  贴图键互换后均触发新动作。另一个 X11 客户端占用第二个拟注册的组合时，第一组新注册也被撤销，旧配置字节及
+  旧键保持。人为阻止临时文件写入后同样保留旧状态，移除故障后成功重试。
+- 完整 Linux 门禁 11 项通过、0 失败、0 跳过。Windows GNU 平台层严格 Clippy 和默认录屏特性的 Slint QA
+  入口交叉检查通过，macOS Intel 和 Apple Silicon 平台层严格交叉 Clippy 通过。Windows/macOS 原生桌面继续验收。
+- 隔离 GNOME 50.1 原生服务探针确认，修改 `binding` 后同一个 `gsd-media-keys` 进程能分派新键并停止旧键，
+  只交换 `command` 可复用已注册的物理键。Slint 的 GNOME 批量保存和其他 Wayland 的系统配置入口仍待接入。
+  [GNOME 媒体键变更处理](https://github.com/GNOME/gnome-settings-daemon/blob/50.0/plugins/media-keys/gsd-media-keys-manager.c#L773-L805)
+- QA 二进制 SHA-256 为 `12fb7a40c2de2c200d5ff25053127de31671504968d52eed36bae382a61ea263`。
+  证据位于 `target/test-artifacts/slint-stage6-live-shortcuts/`，包括 `ci-local-final.log`、
+  `native-shortcut-conflict.png`、`native-shortcut-write-error.png`、`windows-gnu-qa.log`、
+  `macos-platform.log` 和 `gnome-key-update-probe.log`。
 
 ## Acceptance Criteria
 

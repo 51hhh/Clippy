@@ -422,7 +422,7 @@ impl App {
         let panel = value.panel_shortcut.trim();
         let pin = value.pin_shortcut.trim();
         let capture = value.capture_shortcut.trim();
-        shortcuts::validate(panel, pin, capture)?;
+        let shortcuts = shortcuts::validate(panel, pin, capture)?;
         let theme = THEMES.get(value.theme as usize).context("Select a theme")?;
         let shortcuts_changed = self.config.global_shortcut != panel
             || self.config.pin_shortcut != pin
@@ -439,12 +439,22 @@ impl App {
             enhanced_ocr_manifest_path: value.ocr_manifest.trim().into(),
             ..self.config.clone()
         };
-        self.save_config(&next)?;
+        let wayland = clippy_platform::session::is_wayland();
+        if shortcuts_changed && !wayland {
+            let path = &self.paths.config_file;
+            self.shortcuts
+                .as_mut()
+                .context("Global shortcuts are unavailable on this desktop")?
+                .rebind_native(shortcuts, || Self::write_config(path, &next))?;
+            self.handle(Event::ShortcutStatus(String::new()));
+        } else {
+            self.save_config(&next)?;
+        }
         self.clipboard.set_limit(max_history);
         clippy_vision::set_manifest_setting(&next.enhanced_ocr_manifest_path);
         self.config = next;
         populate(self.window.as_ref().expect("设置窗口已打开"), &self.config);
-        Ok(if shortcuts_changed {
+        Ok(if shortcuts_changed && wayland {
             "Settings saved. Restart Clippy to apply shortcuts."
         } else {
             "Settings saved"
