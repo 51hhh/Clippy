@@ -91,6 +91,8 @@
 
 ### Slint 区域录屏
 
+- 修复 Windows 在录屏库读取状态时可能无法提交新分段的问题。同一会话的清单读取与原子替换已协调。
+  Wine 定向回归已通过，原生 Windows 的文件权限和恢复验收待复测。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 - Windows QA 安装包启用轻量录屏播放器，用系统默认 WASAPI 输出。隔离 Wine 已验证原件、分段和恢复件的有声
   播放，以及定位、暂停和关闭后的流回收。Windows 安装和实体设备继续验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 - macOS 12.3 起可用录屏浮窗暂停、继续和停止。ScreenCaptureKit 按本次录制的窗口编号排除浮窗，捕获启动后

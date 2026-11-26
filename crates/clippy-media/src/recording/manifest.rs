@@ -1596,6 +1596,13 @@ fn discard_uncommitted_partial(
 }
 
 fn read_manifest(path: &Path) -> Result<RecordingManifest, String> {
+    let bytes = read_manifest_bytes(path)?;
+    serde_json::from_slice(&bytes).map_err(|error| format!("清单格式错误: {error}"))
+}
+
+pub(super) fn read_manifest_bytes(path: &Path) -> Result<Vec<u8>, String> {
+    #[cfg(target_os = "windows")]
+    let _reading = windows_sharing::lock_manifest(path);
     let metadata = fs::symlink_metadata(path).map_err(|error| format!("读取清单失败: {error}"))?;
     if metadata.file_type().is_symlink() || !metadata.is_file() {
         return Err("清单不是普通文件".to_string());
@@ -1611,7 +1618,7 @@ fn read_manifest(path: &Path) -> Result<RecordingManifest, String> {
     if bytes.len() as u64 > MAX_MANIFEST_BYTES {
         return Err("清单超过 1 MiB 上限".to_string());
     }
-    serde_json::from_slice(&bytes).map_err(|error| format!("清单格式错误: {error}"))
+    Ok(bytes)
 }
 
 fn validate_manifest(manifest: &RecordingManifest, directory_id: &str) -> Result<(), String> {
@@ -2014,7 +2021,12 @@ fn write_manifest(session_directory: &Path, manifest: &RecordingManifest) -> Res
     ));
     let destination = session_directory.join(MANIFEST_FILE);
     let result = write_private(&temporary, &bytes)
-        .and_then(|_| replace_recording_file(&temporary, &destination))
+        .and_then(|_| {
+            // MoveFileExW 在同进程持有允许删除共享的读句柄时仍可能拒绝替换。
+            #[cfg(target_os = "windows")]
+            let _writing = windows_sharing::lock_manifest(&destination);
+            replace_recording_file(&temporary, &destination)
+        })
         .and_then(|_| sync_directory(session_directory));
     if result.is_err() {
         let _ = fs::remove_file(&temporary);

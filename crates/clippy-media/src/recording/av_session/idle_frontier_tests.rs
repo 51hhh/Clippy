@@ -1,4 +1,5 @@
 use super::*;
+use crate::recording::manifest::read_manifest_bytes;
 use std::sync::atomic::{AtomicU64, Ordering};
 include!("../idle_frontier_read_tests.rs");
 
@@ -104,7 +105,7 @@ fn run_idle(id: &str, fps: u32, count: u64, initial_bound: u64) {
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         loop {
             let value: Value = serde_json::from_slice(
-                &fs::read(session.session_directory().join("manifest.json")).unwrap(),
+                &read_manifest_bytes(&session.session_directory().join("manifest.json")).unwrap(),
             )
             .unwrap();
             let segments = value["segments"].as_array().unwrap();

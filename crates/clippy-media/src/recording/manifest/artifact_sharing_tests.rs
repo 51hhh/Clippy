@@ -3,7 +3,12 @@ use super::*;
 use crate::recording::mux::avi_mjpeg::AviMjpegWriter;
 use std::fs::OpenOptions;
 use std::os::windows::fs::OpenOptionsExt;
-use windows_sys::Win32::Storage::FileSystem::{FILE_SHARE_READ, FILE_SHARE_WRITE};
+use std::sync::mpsc;
+use std::thread;
+use std::time::{Duration, Instant};
+use windows_sys::Win32::Storage::FileSystem::{
+    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+};
 
 fn avi_config(id: &str) -> RecordingJournalConfig {
     RecordingJournalConfig {
@@ -42,6 +47,60 @@ fn verify_segment(directory: &Path, segment: &SegmentManifest) {
         sha256: segment.sha256.clone(),
     })
     .unwrap();
+}
+
+#[test]
+fn manifest_commit_waits_for_a_reader_that_shares_delete_access() {
+    let temporary = tempfile::tempdir().unwrap();
+    let mut journal =
+        RecordingJournal::create(temporary.path(), avi_config("manifest-reader")).unwrap();
+    let directory = journal.session_directory().to_path_buf();
+    let path = directory.join(MANIFEST_FILE);
+    let (pending, file) = avi_segment(&journal);
+    thread::scope(|scope| {
+        let reading = windows_sharing::lock_manifest(&path);
+        let reader = OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+            .open(&path)
+            .unwrap();
+        let (finished, completion) = mpsc::channel();
+        let writer = scope.spawn(move || {
+            let result = journal.commit_segment(pending, file, 200_000_000, 2, 0);
+            finished.send(()).unwrap();
+            result.and_then(|_| journal.complete())
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !writer.is_finished()
+            && !fs::read_dir(&directory).unwrap().any(|entry| {
+                entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".manifest-recovery-")
+            })
+        {
+            assert!(Instant::now() < deadline, "录屏清单暂存文件没有出现");
+            thread::sleep(Duration::from_millis(1));
+        }
+        let early = completion.recv_timeout(Duration::from_millis(100));
+        drop(reader);
+        drop(reading);
+        let result = writer.join().unwrap();
+        assert!(
+            matches!(early, Err(mpsc::RecvTimeoutError::Timeout)),
+            "录屏清单替换没有等待读取句柄关闭：{result:?}"
+        );
+        result.unwrap();
+    });
+    let manifest = read_manifest(&path).unwrap();
+    assert_eq!(manifest.state, RecordingState::Complete);
+    assert_eq!(manifest.segments.len(), 1);
+    let segment = &manifest.segments[0];
+    assert_eq!(segment.frame_count, 2);
+    let contents = fs::read(directory.join(&segment.file_name)).unwrap();
+    assert_eq!(contents.len() as u64, segment.byte_length);
+    assert_eq!(format!("{:x}", Sha256::digest(contents)), segment.sha256);
 }
 
 #[test]

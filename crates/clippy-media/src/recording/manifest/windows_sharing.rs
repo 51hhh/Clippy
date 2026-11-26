@@ -1,8 +1,10 @@
 //! 仅录屏清单与已提交产物提升容忍短暂共享冲突，保留原权限与错误合同。
 
+use std::hash::{DefaultHasher, Hasher};
 use std::io;
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::Storage::FileSystem::{
@@ -13,6 +15,22 @@ use windows_sys::Win32::Storage::FileSystem::{
 const RETRY_BUDGET: Duration = Duration::from_millis(500);
 const RETRY_INTERVAL: Duration = Duration::from_millis(25);
 const MAX_ATTEMPTS: usize = 21;
+
+pub(super) fn lock_manifest(path: &Path) -> MutexGuard<'static, ()> {
+    // 按会话目录名协调读写，避免绝对路径的不同写法分散同一会话的锁，也无需保留历史会话的锁。
+    static LOCKS: [Mutex<()>; 64] = [const { Mutex::new(()) }; 64];
+    let session = path
+        .parent()
+        .and_then(Path::file_name)
+        .expect("录屏清单路径包含会话目录");
+    let mut key = DefaultHasher::new();
+    for byte in session.as_encoded_bytes() {
+        key.write_u8(byte.to_ascii_lowercase());
+    }
+    LOCKS[key.finish() as usize % LOCKS.len()]
+        .lock()
+        .expect("录屏清单读写锁被污染")
+}
 
 pub fn replace(source: &Path, destination: &Path) -> io::Result<()> {
     retry(

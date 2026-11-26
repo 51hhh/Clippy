@@ -1,6 +1,6 @@
 //! 用真实文件共享句柄控制已提交产物提升，不替换生产文件 I/O。
 
-use std::fs::{self, File, OpenOptions};
+use std::fs::{File, OpenOptions};
 use std::os::windows::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -76,8 +76,9 @@ impl FileHold {
                 return false;
             };
             let deadline = Instant::now() + Duration::from_secs(30);
+            let manifest = directory.join(super::MANIFEST_FILE);
             while !stop.load(Ordering::Acquire) && Instant::now() < deadline {
-                if fs::read(directory.join("manifest.json"))
+                if super::read_manifest_bytes(&manifest)
                     .ok()
                     .and_then(|bytes| serde_json::from_slice(&bytes).ok())
                     .is_some_and(|value| ready(&value))

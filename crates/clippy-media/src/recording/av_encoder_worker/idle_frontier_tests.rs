@@ -5,7 +5,8 @@ fn wait_commit(session: &std::path::Path, minimum_end: u64) -> Value {
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     loop {
         let value: Value =
-            serde_json::from_slice(&fs::read(session.join("manifest.json")).unwrap()).unwrap();
+            serde_json::from_slice(&read_manifest_bytes(&session.join("manifest.json")).unwrap())
+                .unwrap();
         let end = value["segments"]
             .as_array()
             .unwrap()
@@ -82,7 +83,8 @@ fn unsupported_source_without_bound_keeps_waiting_for_real_video_or_eos() {
     thread::sleep(Duration::from_millis(100));
     assert!(!worker.is_finished());
     let value: Value =
-        serde_json::from_slice(&fs::read(session.join("manifest.json")).unwrap()).unwrap();
+        serde_json::from_slice(&read_manifest_bytes(&session.join("manifest.json")).unwrap())
+            .unwrap();
     assert!(value["segments"].as_array().unwrap().is_empty());
     video.finish(600_000_000).unwrap();
     audio_pipeline.finish(600_000_000).unwrap();

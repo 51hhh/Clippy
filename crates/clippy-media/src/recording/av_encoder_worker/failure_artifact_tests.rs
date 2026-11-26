@@ -23,7 +23,8 @@ fn recording_artifacts_av_unwind_joins_before_retaining_committed_prefix() {
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         loop {
             let value: Value =
-                serde_json::from_slice(&fs::read(path.join("manifest.json")).unwrap()).unwrap();
+                serde_json::from_slice(&read_manifest_bytes(&path.join("manifest.json")).unwrap())
+                    .unwrap();
             if !value["segments"].as_array().unwrap().is_empty() {
                 break;
             }

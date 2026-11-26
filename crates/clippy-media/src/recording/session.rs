@@ -470,7 +470,9 @@ mod tests {
     }
 
     fn manifest_value(directory: &Path) -> serde_json::Value {
-        serde_json::from_slice(&std::fs::read(directory.join("manifest.json")).unwrap()).unwrap()
+        let path = directory.join("manifest.json");
+        serde_json::from_slice(&crate::recording::manifest::read_manifest_bytes(&path).unwrap())
+            .unwrap()
     }
 
     fn wait_for_committed_segment(

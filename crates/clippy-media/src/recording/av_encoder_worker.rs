@@ -574,7 +574,7 @@ mod tests {
     use crate::recording::av_segmenting::SegmentedAvRecordingWriter;
     use crate::recording::frame::CapturedFrame;
     use crate::recording::manifest::{
-        RecordingJournal, RecordingJournalAudioConfig, RecordingJournalConfig,
+        read_manifest_bytes, RecordingJournal, RecordingJournalAudioConfig, RecordingJournalConfig,
     };
     use crate::recording::mux::opus_webm::OpusPacketEncoder;
     use serde_json::Value;

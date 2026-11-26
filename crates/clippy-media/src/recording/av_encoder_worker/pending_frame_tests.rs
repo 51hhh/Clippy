@@ -74,7 +74,8 @@ fn interrupted_reserved(drop_owner: bool) {
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     let prefix = loop {
         let value: Value =
-            serde_json::from_slice(&fs::read(path.join("manifest.json")).unwrap()).unwrap();
+            serde_json::from_slice(&read_manifest_bytes(&path.join("manifest.json")).unwrap())
+                .unwrap();
         let segments = value["segments"].as_array().unwrap();
         if segments.len() == 2
             && segments

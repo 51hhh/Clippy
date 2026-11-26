@@ -1253,6 +1253,29 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
 - 首次本地门禁在 X11 文本工具的结果复制断言失败。同一应用源码在录屏探针结束后串行重跑，文本用例通过，完整
   Linux 门禁 11 通过、0 失败、0 跳过。日志为同目录的 `ci-local-windows-player-intel-ort-serial.log`。
 
+#### 阶段 4 · Windows 录屏库读写清单交错
+
+**Goal** 录屏库在 Windows 读取会话状态时，可以与同进程录屏的周期分段并行工作。读到的清单是一份完整快照。
+
+**Requirements** Windows 按会话目录名协调清单读取句柄与最终替换。同一会话的读句柄关闭后才替换清单，
+用固定数量的锁槽，临时文件写入、JSON 解析和已提交产物提升在这个临界区之外完成。Windows 测试的清单观察器
+也通过生产读取路径打开和关闭句柄。外部共享冲突继续使用原有探针、重试预算和原子提交顺序。
+[既有清单共享合同](../specs/2026-10-02-recording-manifest-sharing.md) ·
+[原生 CI 复现](https://github.com/51hhh/Clippy/actions/runs/45891503734/job/140155066481)
+
+**Acceptance Criteria** 用生产 journal 和允许 `FILE_SHARE_DELETE` 的读取句柄重现错误 5。固定同一会话内的
+读取与提交交错，读句柄关闭后核对真实分段、最终清单、私有权限和文件哈希。复验永久共享冲突、只读目标和
+已有恢复测试。Windows 原生门禁与 Wine 结果分别记录。
+
+**Out of Scope** 扩大权限错误重试、替换 Win32 原子提交接口、修改媒体格式以及改变 Linux/macOS 的文件行为。
+
+- Windows GNU 的生产 journal 回归在隔离 Wine 中用同一清单的共享读取句柄复现错误 5。协调句柄后，
+  实际 AVI 分段提交完成，最终清单、帧数和文件摘要符合预期。只读目标及未经证实的权限错误沿用原处理。
+  定向用例 3 项通过。Wine 全组中仍有私有 ACL 断言失败，Windows 原生共享和权限继续按原要求验收。
+- AVI 和双轨测试实际轮询运行中清单的路径统一使用生产读取函数，保留 Stop 前提交及已提升产物的断言。
+  原始证据位于 `target/test-artifacts/slint-stage4-windows-manifest/` 的 `manifest-overlap-before.log`、
+  `manifest-overlap-verified.log` 和 `manifest-overlap-after.log`。
+
 #### Linux 音频时间戳提案 · 待实测和审批
 
 - PipeWire 1.6.2 的虚拟系统输出持续播放 620 Hz 时，产品采集路径连上明确目标，首包缺少 SPA 帧头并中止。
