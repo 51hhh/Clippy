@@ -36,7 +36,7 @@ export component LongshotWindow inherits Window {
     in property <int> frames;
     in property <int> capture-width;
     in property <int> capture-height;
-    in property <string> status: "Opening the capture source…";
+    in property <string> status: @tr("Opening the capture source…");
     callback append();
     callback undo();
     callback finish();
@@ -47,7 +47,7 @@ export component LongshotWindow inherits Window {
     callback authorize-scroll();
     callback auto-scroll(LongshotDirection);
 
-    title: "Clippy Scrolling Capture";
+    title: @tr("Clippy Scrolling Capture");
     no-frame: true;
     resize-border-width: 6px;
     background: #17191f;
@@ -73,16 +73,16 @@ export component LongshotWindow inherits Window {
         }
         VerticalLayout {
             padding: 20px; spacing: 14px;
-            Text { text: "Scrolling Capture"; color: #f3f4f6; font-size: 16px; font-weight: 650; }
+            Text { text: @tr("Scrolling Capture"); color: #f3f4f6; font-size: 16px; font-weight: 650; }
             Text {
                 text: root.status;
                 color: #d1d5db; font-size: 13px; wrap: word-wrap;
             }
             HorizontalLayout {
                 spacing: 8px;
-                CaptureStatistic { caption: "Frames"; value: "" + root.frames; }
-                CaptureStatistic { caption: "Width"; value: "" + root.capture-width + " px"; }
-                CaptureStatistic { caption: "Height"; value: "" + root.capture-height + " px"; }
+                CaptureStatistic { caption: @tr("Frames"); value: "" + root.frames; }
+                CaptureStatistic { caption: @tr("Width"); value: "" + root.capture-width + " px"; }
+                CaptureStatistic { caption: @tr("Height"); value: "" + root.capture-height + " px"; }
             }
             Rectangle {
                 vertical-stretch: 1;
@@ -94,28 +94,28 @@ export component LongshotWindow inherits Window {
             }
             HorizontalLayout {
                 spacing: 8px;
-                LongshotButton { label: "Copy"; enabled: !root.busy; clicked => { root.copy(); } }
-                LongshotButton { label: "Save PNG"; enabled: !root.busy; clicked => { root.save(); } }
-                LongshotButton { label: "Pin"; enabled: !root.busy; clicked => { root.pin(); } }
+                LongshotButton { label: @tr("Copy"); enabled: !root.busy; clicked => { root.copy(); } }
+                LongshotButton { label: @tr("Save PNG"); enabled: !root.busy; clicked => { root.save(); } }
+                LongshotButton { label: @tr("Pin"); enabled: !root.busy; clicked => { root.pin(); } }
             }
             if root.scroll-permission-required : LongshotButton {
-                label: "Authorize scrolling";
+                label: @tr("Authorize scrolling");
                 enabled: !root.busy;
                 clicked => { root.authorize-scroll(); }
             }
             if root.auto-scroll-available : HorizontalLayout {
                 spacing: 8px;
-                LongshotButton { label: "Auto down"; enabled: !root.busy; clicked => { root.auto-scroll(LongshotDirection.down); } }
-                LongshotButton { label: "Auto up"; enabled: !root.busy; clicked => { root.auto-scroll(LongshotDirection.up); } }
-                LongshotButton { label: "Auto left"; enabled: !root.busy; clicked => { root.auto-scroll(LongshotDirection.left); } }
-                LongshotButton { label: "Auto right"; enabled: !root.busy; clicked => { root.auto-scroll(LongshotDirection.right); } }
+                LongshotButton { label: @tr("Auto down"); enabled: !root.busy; clicked => { root.auto-scroll(LongshotDirection.down); } }
+                LongshotButton { label: @tr("Auto up"); enabled: !root.busy; clicked => { root.auto-scroll(LongshotDirection.up); } }
+                LongshotButton { label: @tr("Auto left"); enabled: !root.busy; clicked => { root.auto-scroll(LongshotDirection.left); } }
+                LongshotButton { label: @tr("Auto right"); enabled: !root.busy; clicked => { root.auto-scroll(LongshotDirection.right); } }
             }
             HorizontalLayout {
                 spacing: 8px;
-                LongshotButton { label: "Add frame"; enabled: !root.busy; clicked => { root.append(); } }
-                LongshotButton { label: "Undo"; enabled: !root.busy && root.can-undo; clicked => { root.undo(); } }
-                LongshotButton { label: "Finish"; enabled: !root.busy; clicked => { root.finish(); } }
-                LongshotButton { label: "Cancel"; clicked => { root.cancel(); } }
+                LongshotButton { label: @tr("Add frame"); enabled: !root.busy; clicked => { root.append(); } }
+                LongshotButton { label: @tr("Undo"); enabled: !root.busy && root.can-undo; clicked => { root.undo(); } }
+                LongshotButton { label: @tr("Finish"); enabled: !root.busy; clicked => { root.finish(); } }
+                LongshotButton { label: @tr("Cancel"); clicked => { root.cancel(); } }
             }
         }
     }

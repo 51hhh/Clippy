@@ -24,7 +24,7 @@ export component WorkspaceWindow inherits Window {
 
     private property <bool> confirm-group;
 
-    title: "Clippy Pinned Workspace";
+    title: @tr("Clippy Pinned Workspace");
     preferred-width: 820px;
     preferred-height: 640px;
     min-width: 460px;
@@ -44,8 +44,8 @@ export component WorkspaceWindow inherits Window {
     VerticalLayout {
         x: 0px; y: 0px; width: root.width; height: root.height;
         titlebar := LibraryHeader {
-            title: "Pin Workspaces";
-            subtitle: "Return to saved pins and organize them without changing clipboard history.";
+            title: @tr("Pin Workspaces");
+            subtitle: @tr("Return to saved pins and organize them without changing clipboard history.");
             dismiss => { root.close-workspace(); }
         }
         HorizontalLayout {
@@ -61,7 +61,7 @@ export component WorkspaceWindow inherits Window {
                         for group in root.groups: Rectangle {
                             height: 41px;
                             SurfaceButton {
-                                label: group.label + ", " + group.count + " pins";
+                                label: group.label + ", " + @tr("{0} pins", group.count);
                                 caption: "";
                                 y: 0px; width: parent.width; height: 38px;
                                 selected: group.key == root.group-filter;
@@ -86,11 +86,11 @@ export component WorkspaceWindow inherits Window {
                     HorizontalLayout {
                         spacing: 6px; height: 36px;
                         name := LineEdit {
-                            placeholder-text: "New group"; accessible-label: "New group name";
+                            placeholder-text: @tr("New group"); accessible-label: @tr("New group name");
                             accepted => { if self.text != "" { root.create-group(self.text); self.text = ""; } }
                         }
                         SurfaceButton {
-                            label: "Create group"; caption: "+";
+                            label: @tr("Create group"); caption: "+";
                             width: 36px; enabled: name.text != "";
                             border-width: 1px; border-color: ClippyTheme.border;
                             clicked => { root.create-group(name.text); name.text = ""; }
@@ -99,32 +99,32 @@ export component WorkspaceWindow inherits Window {
                     if root.group-name != "": VerticalLayout {
                         spacing: 7px;
                         Rectangle { height: 1px; background: ClippyTheme.border; }
-                        Text { text: "Manage group"; color: ClippyTheme.muted; font-size: 11px; }
+                        Text { text: @tr("Manage group"); color: ClippyTheme.muted; font-size: 11px; }
                         rename := LineEdit {
                             text: root.group-name;
-                            accessible-label: "Group name";
+                            accessible-label: @tr("Group name");
                             accepted => { if self.text != "" { root.rename-group(root.group-filter, self.text); } }
                         }
                         if !root.confirm-group: HorizontalLayout {
                             spacing: 5px;
                             SurfaceButton {
-                                label: "Rename"; enabled: rename.text != "" && rename.text != root.group-name;
+                                label: @tr("Rename"); enabled: rename.text != "" && rename.text != root.group-name;
                                 border-width: 1px; border-color: ClippyTheme.border;
                                 clicked => { root.rename-group(root.group-filter, rename.text); }
                             }
                             SurfaceButton {
-                                label: "Delete"; danger: true;
+                                label: @tr("Delete"); danger: true;
                                 border-width: 1px; border-color: ClippyTheme.border;
                                 clicked => { root.confirm-group = true; }
                             }
                         }
                         if root.confirm-group: VerticalLayout {
                             spacing: 4px;
-                            Text { text: "Delete this group? Its pins will be ungrouped."; color: ClippyTheme.danger; wrap: word-wrap; font-size: 11px; }
+                            Text { text: @tr("Delete this group? Its pins will be ungrouped."); color: ClippyTheme.danger; wrap: word-wrap; font-size: 11px; }
                             HorizontalLayout {
                                 spacing: 4px;
-                                SurfaceButton { label: "Cancel"; clicked => { root.confirm-group = false; } }
-                                SurfaceButton { label: "Delete"; danger: true; clicked => { root.delete-group(root.group-filter); root.confirm-group = false; } }
+                                SurfaceButton { label: @tr("Cancel"); clicked => { root.confirm-group = false; } }
+                                SurfaceButton { label: @tr("Delete"); danger: true; clicked => { root.delete-group(root.group-filter); root.confirm-group = false; } }
                             }
                         }
                     }

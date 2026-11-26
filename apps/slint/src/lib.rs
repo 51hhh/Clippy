@@ -2,10 +2,12 @@ slint::include_modules!();
 
 use clippy_core::models::{ClipItem, ContentType};
 use clippy_platform::identity::DeploymentIdentity;
+use locale::{message, tr};
 use slint::SharedString;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod app;
+mod locale;
 
 pub const UI_BACKEND: &str = "Slint";
 pub const FRAMEWORK_VERSION: &str = "1.19.0";
@@ -21,16 +23,16 @@ fn clip_row(clip: ClipItem) -> ClipRow {
         ContentType::Image => "Image",
     };
     let preview = if clip.is_sensitive {
-        "Sensitive content hidden".to_string()
+        tr("Sensitive content hidden").to_owned()
     } else {
         clip.text_content
             .as_deref()
             .map(|text| truncate_preview(text, 160))
             .filter(|text| !text.is_empty())
             .unwrap_or_else(|| match &clip.content_type {
-                ContentType::Image => "Image content".to_string(),
-                ContentType::Html => "Rich text content".to_string(),
-                ContentType::Text => "Empty text".to_string(),
+                ContentType::Image => tr("Image content").to_owned(),
+                ContentType::Html => tr("Rich text content").to_owned(),
+                ContentType::Text => tr("Empty text").to_owned(),
             })
     };
     ClipRow {
@@ -55,11 +57,11 @@ fn clip_metadata(bytes: i64, created_at: i64) -> String {
         .map_or(0, |duration| duration.as_secs() as i64);
     let minutes = now.saturating_sub(created_at) / 60;
     let age = match minutes {
-        ..=0 => "just now".to_owned(),
-        1..=59 => format!("{minutes}m ago"),
-        60..=1439 => format!("{}h ago", minutes / 60),
-        1440..=2879 => "yesterday".to_owned(),
-        _ => format!("{}d ago", minutes / 1440),
+        ..=0 => tr("just now").to_owned(),
+        1..=59 => message("{0}m ago", &[&minutes]),
+        60..=1439 => message("{0}h ago", &[&(minutes / 60)]),
+        1440..=2879 => tr("yesterday").to_owned(),
+        _ => message("{0}d ago", &[&(minutes / 1440)]),
     };
     format!("{size} · {age}")
 }

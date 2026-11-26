@@ -7,6 +7,7 @@ export struct GeneralSettings {
     pin-shortcut: string,
     capture-shortcut: string,
     theme: int,
+    language: int,
     save-directory: string,
     filename-template: string,
     ocr-enabled: bool,
@@ -90,19 +91,25 @@ component DesktopShortcuts inherits VerticalLayout {
     in property <bool> screenshot-only;
     callback configure();
     spacing: 8px;
-    FieldLabel { text: root.screenshot-only ? "Screenshot Shortcut" : "Global Shortcuts"; }
+    FieldLabel { text: root.screenshot-only ? @tr("Screenshot Shortcut") : @tr("Global Shortcuts"); }
     SettingHint { text: root.view.detail; }
     if root.view.available && !root.screenshot-only: CapabilityLine {
-        label: "Open Clipboard"; value: root.view.open; desktop-permission: true;
+        label: @tr("Open Clipboard");
+        value: root.view.open == "" ? @tr("Not assigned") : root.view.open;
+        desktop-permission: true;
     }
     if root.view.available && !root.screenshot-only: CapabilityLine {
-        label: "Pin Item"; value: root.view.pin; desktop-permission: true;
+        label: @tr("Pin Item");
+        value: root.view.pin == "" ? @tr("Not assigned") : root.view.pin;
+        desktop-permission: true;
     }
     if root.view.available: CapabilityLine {
-        label: "Screenshot"; value: root.view.capture; desktop-permission: true;
+        label: @tr("Screenshot");
+        value: root.view.capture == "" ? @tr("Not assigned") : root.view.capture;
+        desktop-permission: true;
     }
     if root.view.configurable: Button {
-        text: "Configure Desktop Shortcuts";
+        text: @tr("Configure Desktop Shortcuts");
         clicked => { root.configure(); }
     }
 }
@@ -121,20 +128,20 @@ component ShortcutInput inherits VerticalLayout {
         spacing: 8px;
         SettingInput { text <=> root.value; accessible-label: root.label; read-only: root.recording; }
         SurfaceButton {
-            label: root.recording ? "Cancel" : "Record";
+            label: root.recording ? @tr("Cancel") : @tr("Record");
             selected: root.recording;
             width: 71px; height: 42px;
             clicked => { root.record(); }
         }
         SurfaceButton {
-            label: "Reset"; width: 64px; height: 42px;
+            label: @tr("Reset"); width: 64px; height: 42px;
             border-width: 1px; border-color: ClippyTheme.border; border-radius: 8px;
             enabled: !root.recording;
             clicked => { root.value = root.reset-value; }
         }
     }
     SettingHint {
-        text: root.recording ? "Press a shortcut. Esc cancels." : root.hint;
+        text: root.recording ? @tr("Press a shortcut. Esc cancels.") : root.hint;
         color: root.recording ? ClippyTheme.accent : ClippyTheme.subtle;
     }
 }
@@ -222,9 +229,10 @@ export component SettingsPane inherits Rectangle {
     callback refresh-ocr-status();
     private property <int> page;
     private property <bool> desktop-managed-shortcuts: root.wayland-session && !root.gnome-session;
-    private property <[string]> pages: ["General", "Screenshot", "Translation", "About"];
-    private property <[string]> themes: ["Light", "Dark", "Nord", "Solarized Light", "Rose", "Midnight"];
+    private property <[string]> pages: [@tr("General"), @tr("Screenshot"), @tr("Translation"), @tr("About")];
+    private property <[string]> themes: [@tr("Light"), @tr("Dark"), "Nord", @tr("Solarized Light"), @tr("Rose"), @tr("Midnight")];
     private property <int> selected-theme: root.general.theme;
+    private property <int> selected-language: root.general.language;
     private property <int> theme-columns: root.width >= 590px ? 4 : 3;
     changed general => {
         if root.page == 1 { root.refresh-ocr-status(); }
@@ -277,8 +285,8 @@ export component SettingsPane inherits Rectangle {
                         configure => { root.configure-portal-shortcuts(); }
                     }
                     if !root.desktop-managed-shortcuts: ShortcutInput {
-                        label: "Global Shortcut";
-                        hint: "Click Record, then press your desired key combination.";
+                        label: @tr("Global Shortcut");
+                        hint: @tr("Click Record, then press your desired key combination.");
                         reset-value: root.shortcut-defaults[0];
                         value <=> root.panel-shortcut;
                         recording: root.recording-shortcut == ShortcutField.clipboard;
@@ -286,15 +294,15 @@ export component SettingsPane inherits Rectangle {
                     }
                     if !root.desktop-managed-shortcuts: SettingDivider { }
                     if !root.desktop-managed-shortcuts: ShortcutInput {
-                        label: "Pin Shortcut";
-                        hint: "Pin the focused clipboard item to the desktop.";
+                        label: @tr("Pin Shortcut");
+                        hint: @tr("Pin the focused clipboard item to the desktop.");
                         reset-value: root.shortcut-defaults[1];
                         value <=> root.pin-shortcut;
                         recording: root.recording-shortcut == ShortcutField.pin;
                         record => { root.recording-shortcut = self.recording ? ShortcutField.none : ShortcutField.pin; }
                     }
                     SettingDivider { }
-                    FieldLabel { text: "Theme"; }
+                    FieldLabel { text: @tr("Theme"); }
                     HorizontalLayout {
                         spacing: 10px;
                         for index in root.theme-columns: ThemeCard {
@@ -315,29 +323,35 @@ export component SettingsPane inherits Rectangle {
                         for item in 2 * root.theme-columns - 6: Rectangle { horizontal-stretch: 1; }
                     }
                     SettingDivider { }
-                    FieldLabel { text: "History Limit"; }
-                    history := SettingInput { text: root.general.max-history; input-type: number; accessible-label: "History Limit"; }
-                    SettingHint { text: "0 = unlimited. Favorites are kept."; }
+                    FieldLabel { text: @tr("History Limit"); }
+                    history := SettingInput { text: root.general.max-history; input-type: number; accessible-label: @tr("History Limit"); }
+                    SettingHint { text: @tr("0 = unlimited. Favorites are kept."); }
+                    FieldLabel { text: @tr("Interface language"); }
+                    ComboBox {
+                        accessible-label: @tr("Interface language");
+                        model: [@tr("Follow system"), "English", "简体中文"];
+                        current-index <=> root.selected-language;
+                    }
                     SettingDivider { }
                     CheckBox {
-                        text: "Enable automatic paste";
+                        text: @tr("Enable automatic paste");
                         checked: root.auto-paste;
                         enabled: !root.busy && !root.save-pending;
                         toggled => { root.paste-setting(self.checked); }
                     }
                     HorizontalLayout {
                         spacing: 8px;
-                        Button { text: "Authorize paste"; enabled: root.auto-paste && !root.busy; clicked => { root.authorize-paste(); } }
-                        Button { text: "Forget paste permission"; enabled: !root.busy; clicked => { root.forget-paste(); } }
+                        Button { text: @tr("Authorize paste"); enabled: root.auto-paste && !root.busy; clicked => { root.authorize-paste(); } }
+                        Button { text: @tr("Forget paste permission"); enabled: !root.busy; clicked => { root.forget-paste(); } }
                     }
                     CheckBox {
-                        text: "Start at login";
+                        text: @tr("Start at login");
                         checked: root.autostart;
                         enabled: root.autostart-available;
                         toggled => { root.set-autostart(self.checked); }
                     }
                     Button {
-                        text: "Save general settings";
+                        text: @tr("Save general settings");
                         enabled: !root.save-pending;
                         clicked => {
                             root.recording-shortcut = ShortcutField.none;
@@ -345,6 +359,7 @@ export component SettingsPane inherits Rectangle {
                                 max-history: history.text, panel-shortcut: root.panel-shortcut,
                                 pin-shortcut: root.pin-shortcut,
                                 theme: root.selected-theme, capture-shortcut: root.general.capture-shortcut,
+                                language: root.selected-language,
                                 save-directory: root.general.save-directory, filename-template: root.general.filename-template,
                                 ocr-enabled: root.general.ocr-enabled, ocr-manifest: root.general.ocr-manifest,
                             });
@@ -353,7 +368,7 @@ export component SettingsPane inherits Rectangle {
                 }
                 if root.page == 1: VerticalLayout {
                     spacing: 8px;
-                    FieldLabel { text: "Screen Capture Service"; }
+                    FieldLabel { text: @tr("Screen Capture Service"); }
                     Rectangle {
                         height: 113px; border-radius: 12px; border-width: 1px;
                         border-color: ClippyTheme.border; background: ClippyTheme.surface;
@@ -361,32 +376,32 @@ export component SettingsPane inherits Rectangle {
                         VerticalLayout {
                             padding: 15px; spacing: 8px; alignment: start;
                             FieldLabel {
-                                text: !root.wayland-session ? "Not needed on this desktop"
-                                    : root.gnome-session ? "GNOME capture is selected" : "Using the desktop portal";
+                                text: !root.wayland-session ? @tr("Not needed on this desktop")
+                                    : root.gnome-session ? @tr("GNOME capture is selected") : @tr("Using the desktop portal");
                             }
                             Text {
                                 color: ClippyTheme.muted; font-size: 13px; wrap: word-wrap;
-                                text: !root.wayland-session ? "Clippy reads the screen with the native desktop API."
-                                    : "The compositor provides the screen pixels. Your desktop controls capture permissions.";
+                                text: !root.wayland-session ? @tr("Clippy reads the screen with the native desktop API.")
+                                    : @tr("The compositor provides the screen pixels. Your desktop controls capture permissions.");
                             }
                             SurfaceButton {
-                                label: "Diagnostics"; width: 88px; height: 28px;
+                                label: @tr("Diagnostics"); width: 88px; height: 28px;
                                 border-width: 1px; border-color: ClippyTheme.border;
                                 clicked => { root.page = 3; page-scroll.content-y = 0px; root.data-action(4, ""); }
                             }
                         }
                     }
-                    SettingHint { text: "The screenshot shortcut uses the fast native capture path. System Screenshot opens the desktop’s own selector on Wayland."; }
+                    SettingHint { text: @tr("The screenshot shortcut uses the fast native capture path. System Screenshot opens the desktop’s own selector on Wayland."); }
                     if root.wayland-session && root.gnome-session: VerticalLayout {
                         spacing: 8px;
-                        FieldLabel { text: "GNOME Window Picking"; }
+                        FieldLabel { text: @tr("GNOME Window Picking"); }
                         Rectangle {
                             height: 116px; border-radius: 12px; border-width: 1px;
                             border-color: ClippyTheme.border; background: ClippyTheme.surface;
                             VerticalLayout {
                                 padding: 15px; spacing: 6px; alignment: start;
                                 FieldLabel {
-                                    text: root.gnome-helper-busy ? "Checking helper…" : root.gnome-helper.title;
+                                    text: root.gnome-helper-busy ? @tr("Checking helper…") : root.gnome-helper.title;
                                 }
                                 SettingHint { text: root.gnome-helper.detail; }
                                 HorizontalLayout {
@@ -397,12 +412,12 @@ export component SettingsPane inherits Rectangle {
                                         clicked => { root.gnome-helper-action(root.gnome-helper.action); }
                                     }
                                     SurfaceButton {
-                                        label: "Refresh"; height: 28px;
+                                        label: @tr("Refresh"); height: 28px;
                                         enabled: !root.gnome-helper-busy;
                                         clicked => { root.gnome-helper-action(GnomeHelperAction.refresh); }
                                     }
                                     if root.gnome-helper.removable: SurfaceButton {
-                                        label: "Remove"; height: 28px; danger: true;
+                                        label: @tr("Remove"); height: 28px; danger: true;
                                         enabled: !root.gnome-helper-busy;
                                         clicked => { root.gnome-helper-action(GnomeHelperAction.remove); }
                                     }
@@ -417,32 +432,32 @@ export component SettingsPane inherits Rectangle {
                         configure => { root.configure-portal-shortcuts(); }
                     }
                     if !root.desktop-managed-shortcuts: ShortcutInput {
-                        label: "Screenshot Shortcut";
-                        hint: "Shortcut to start a screenshot.";
+                        label: @tr("Screenshot Shortcut");
+                        hint: @tr("Shortcut to start a screenshot.");
                         reset-value: root.shortcut-defaults[2];
                         value <=> root.capture-shortcut;
                         recording: root.recording-shortcut == ShortcutField.screenshot;
                         record => { root.recording-shortcut = self.recording ? ShortcutField.none : ShortcutField.screenshot; }
                     }
                     SettingDivider { }
-                    FieldLabel { text: "Screenshots"; }
-                    FieldLabel { text: "Screenshot directory"; }
+                    FieldLabel { text: @tr("Screenshots"); }
+                    FieldLabel { text: @tr("Screenshot directory"); }
                     HorizontalLayout {
                         spacing: 8px;
                         SettingInput {
                             text <=> root.save-directory-draft;
-                            placeholder-text: "System Pictures/Screenshots";
+                            placeholder-text: @tr("System Pictures/Screenshots");
                             enabled: !root.file-dialog-pending;
                         }
                         SurfaceButton {
-                            label: "Browse screenshot directory"; caption: "Browse…";
+                            label: @tr("Browse screenshot directory"); caption: @tr("Browse…");
                             enabled: !root.file-dialog-pending && !root.save-pending;
                             clicked => { root.choose-path(FileChoice.screenshot-directory, root.save-directory-draft); }
                         }
                     }
-                    FieldLabel { text: "Screenshot filename template"; }
+                    FieldLabel { text: @tr("Screenshot filename template"); }
                     filename := SettingInput { text: root.general.filename-template; placeholder-text: "{prefix}-{date}-{time}"; }
-                    ocr := CheckBox { text: "Enable OCR"; checked: root.general.ocr-enabled; }
+                    ocr := CheckBox { text: @tr("Enable OCR"); checked: root.general.ocr-enabled; }
                     HorizontalLayout {
                         spacing: 8px;
                         FieldLabel {
@@ -450,32 +465,32 @@ export component SettingsPane inherits Rectangle {
                             vertical-alignment: center; horizontal-stretch: 1;
                         }
                         SurfaceButton {
-                            label: "Recheck OCR";
+                            label: @tr("Recheck OCR");
                             enabled: root.general.ocr-enabled && !root.ocr-status.checking;
                             clicked => { root.refresh-ocr-status(); }
                         }
                     }
                     if root.ocr-status.detail != "": SettingHint { text: root.ocr-status.detail; }
-                    FieldLabel { text: "Enhanced OCR manifest"; }
+                    FieldLabel { text: @tr("Enhanced OCR manifest"); }
                     HorizontalLayout {
                         spacing: 8px;
                         SettingInput {
                             text <=> root.ocr-manifest-draft;
-                            placeholder-text: "Optional path to model manifest";
-                            accessible-label: "Enhanced OCR manifest";
+                            placeholder-text: @tr("Optional path to model manifest");
+                            accessible-label: @tr("Enhanced OCR manifest");
                             enabled: !root.file-dialog-pending;
                         }
                         SurfaceButton {
-                            label: "Browse OCR manifest"; caption: "Browse…";
+                            label: @tr("Browse OCR manifest"); caption: @tr("Browse…");
                             enabled: !root.file-dialog-pending && !root.save-pending;
                             clicked => { root.choose-path(FileChoice.ocr-manifest, root.ocr-manifest-draft); }
                         }
                     }
                     if ocr.checked != root.general.ocr-enabled || root.ocr-manifest-draft != root.general.ocr-manifest: SettingHint {
-                        text: "Save to apply the OCR changes.";
+                        text: @tr("Save to apply the OCR changes.");
                     }
                     Button {
-                        text: "Save screenshot settings";
+                        text: @tr("Save screenshot settings");
                         enabled: !root.save-pending && !root.file-dialog-pending;
                         clicked => {
                             root.recording-shortcut = ShortcutField.none;
@@ -483,6 +498,7 @@ export component SettingsPane inherits Rectangle {
                                 max-history: root.general.max-history, panel-shortcut: root.general.panel-shortcut,
                                 pin-shortcut: root.general.pin-shortcut,
                                 theme: root.general.theme, capture-shortcut: root.capture-shortcut,
+                                language: root.general.language,
                                 save-directory: root.save-directory-draft, filename-template: filename.text,
                                 ocr-enabled: ocr.checked, ocr-manifest: root.ocr-manifest-draft,
                             });
@@ -491,15 +507,15 @@ export component SettingsPane inherits Rectangle {
                 }
                 if root.page == 2: VerticalLayout {
                     spacing: 11px;
-                    FieldLabel { text: "Translation"; }
+                    FieldLabel { text: @tr("Translation"); }
                     HorizontalLayout {
                         spacing: 14px;
                         VerticalLayout {
                             spacing: 5px; horizontal-stretch: 1;
-                            SettingHint { text: "Provider"; color: ClippyTheme.muted; }
+                            SettingHint { text: @tr("Provider"); color: ClippyTheme.muted; }
                             ComboBox {
                                 height: 42px;
-                                model: ["LibreTranslate-compatible", "OpenAI-compatible", "DeepL", "Google", "Bing", "Youdao"];
+                                model: [@tr("LibreTranslate-compatible"), @tr("OpenAI-compatible"), "DeepL", "Google", "Bing", @tr("Youdao")];
                                 current-index: root.provider-index;
                                 selected => {
                                     key.text = "";
@@ -510,54 +526,54 @@ export component SettingsPane inherits Rectangle {
                         }
                         VerticalLayout {
                             spacing: 5px; horizontal-stretch: 1;
-                            SettingHint { text: "Enable"; color: ClippyTheme.muted; }
+                            SettingHint { text: @tr("Enable"); color: ClippyTheme.muted; }
                             HorizontalLayout {
                                 spacing: 8px; height: 42px;
                                 preferred := Switch { checked: root.translation.enabled; }
-                                SettingHint { text: "Use this service for quick translation."; vertical-alignment: center; horizontal-stretch: 1; }
+                                SettingHint { text: @tr("Use this service for quick translation."); vertical-alignment: center; horizontal-stretch: 1; }
                             }
                         }
                     }
-                    SettingHint { text: "Endpoint"; color: ClippyTheme.muted; }
-                    endpoint := SettingInput { text: root.translation.endpoint; placeholder-text: "Provider default"; }
-                    SettingHint { text: "Requests are sent only to this service endpoint."; }
+                    SettingHint { text: @tr("Endpoint"); color: ClippyTheme.muted; }
+                    endpoint := SettingInput { text: root.translation.endpoint; placeholder-text: @tr("Provider default"); }
+                    SettingHint { text: @tr("Requests are sent only to this service endpoint."); }
                     HorizontalLayout {
                         spacing: 14px;
                         VerticalLayout {
                             spacing: 6px;
-                            SettingHint { text: "Source Language"; color: ClippyTheme.muted; }
-                            source := SettingInput { text: root.translation.source; placeholder-text: "Detect automatically"; }
+                            SettingHint { text: @tr("Source Language"); color: ClippyTheme.muted; }
+                            source := SettingInput { text: root.translation.source; placeholder-text: @tr("Detect automatically"); }
                         }
                         VerticalLayout {
                             spacing: 6px;
-                            SettingHint { text: "Target Language"; color: ClippyTheme.muted; }
-                            target := SettingInput { text: root.translation.target; placeholder-text: "English (en)"; }
+                            SettingHint { text: @tr("Target Language"); color: ClippyTheme.muted; }
+                            target := SettingInput { text: root.translation.target; placeholder-text: @tr("English (en)"); }
                         }
                     }
-                    SettingHint { text: "Use a language code such as en, zh-Hans or ja."; }
+                    SettingHint { text: @tr("Use a language code such as en, zh-Hans or ja."); }
                     SettingDivider { }
-                    if root.provider-index == 1: FieldLabel { text: "Model"; }
+                    if root.provider-index == 1: FieldLabel { text: @tr("Model"); }
                     model := SettingInput {
                         text: root.translation.model;
                         visible: root.provider-index == 1;
                         height: self.visible ? 42px : 0px;
                     }
-                    if root.provider-index == 4 || root.provider-index == 5: FieldLabel { text: "Region / project"; }
+                    if root.provider-index == 4 || root.provider-index == 5: FieldLabel { text: @tr("Region / project"); }
                     HorizontalLayout {
                         spacing: 6px;
                         region := SettingInput {
-                            text: root.translation.region; placeholder-text: "Region";
+                            text: root.translation.region; placeholder-text: @tr("Region");
                             visible: root.provider-index == 4 || root.provider-index == 5;
                             height: self.visible ? 42px : 0px;
                         }
                         project := SettingInput {
-                            text: root.translation.project; placeholder-text: "Project";
+                            text: root.translation.project; placeholder-text: @tr("Project");
                             visible: region.visible;
                             height: self.visible ? 42px : 0px;
                         }
                     }
                     Button {
-                        text: "Save provider settings";
+                        text: @tr("Save provider settings");
                         enabled: !root.save-pending;
                         clicked => {
                             root.apply-translation(root.provider-index, {
@@ -566,25 +582,25 @@ export component SettingsPane inherits Rectangle {
                             });
                         }
                     }
-                    FieldLabel { text: "System keychain"; }
-                    key := LineEdit { placeholder-text: "API key"; input-type: password; }
-                    secret := LineEdit { placeholder-text: "API secret · Youdao"; input-type: password; }
+                    FieldLabel { text: @tr("System keychain"); }
+                    key := LineEdit { placeholder-text: @tr("API key"); input-type: password; }
+                    secret := LineEdit { placeholder-text: @tr("API secret · Youdao"); input-type: password; }
                     HorizontalLayout {
                         spacing: 6px;
                         Button {
-                            text: "Store credentials"; enabled: !key.text.is-empty && !root.busy;
+                            text: @tr("Store credentials"); enabled: !key.text.is-empty && !root.busy;
                             clicked => {
                                 root.store-credentials(root.provider-index, key.text, secret.text);
                                 key.text = "";
                                 secret.text = "";
                             }
                         }
-                        Button { text: "Delete stored credentials"; enabled: !root.busy; clicked => { root.delete-credentials(root.provider-index); } }
+                        Button { text: @tr("Delete stored credentials"); enabled: !root.busy; clicked => { root.delete-credentials(root.provider-index); } }
                     }
                 }
                 if root.page == 3: VerticalLayout {
                     spacing: 7px;
-                    FieldLabel { text: "About"; }
+                    FieldLabel { text: @tr("About"); }
                     HorizontalLayout {
                         spacing: 8px;
                         Rectangle {
@@ -598,33 +614,33 @@ export component SettingsPane inherits Rectangle {
                         }
                     }
                     SettingDivider { }
-                    FieldLabel { text: "Platform Capabilities"; }
-                    SettingHint { text: root.wayland-session ? "Wayland · desktop permissions apply" : "Native desktop session"; }
-                    CapabilityLine { label: "Text clipboard"; value: "Available"; }
-                    CapabilityLine { label: "Image clipboard"; value: "Available"; }
+                    FieldLabel { text: @tr("Platform Capabilities"); }
+                    SettingHint { text: root.wayland-session ? @tr("Wayland · desktop permissions apply") : @tr("Native desktop session"); }
+                    CapabilityLine { label: @tr("Text clipboard"); value: @tr("Available"); }
+                    CapabilityLine { label: @tr("Image clipboard"); value: @tr("Available"); }
                     CapabilityLine {
-                        label: "Automatic paste"; value: root.wayland-session ? "Desktop permission" : "Native input";
+                        label: @tr("Automatic paste"); value: root.wayland-session ? @tr("Desktop permission") : @tr("Native input");
                         desktop-permission: root.wayland-session;
                     }
                     CapabilityLine {
-                        label: "Global shortcuts";
-                        value: root.wayland-session && !root.gnome-session ? "Desktop permission" : "Native registration";
+                        label: @tr("Global shortcuts");
+                        value: root.wayland-session && !root.gnome-session ? @tr("Desktop permission") : @tr("Native registration");
                         desktop-permission: root.wayland-session && !root.gnome-session;
                     }
-                    CapabilityLine { label: "Screen capture"; value: "Native capture"; }
+                    CapabilityLine { label: @tr("Screen capture"); value: @tr("Native capture"); }
                     SettingDivider { }
                     AboutSlint { height: 38px; }
                     SectionRule { }
-                    FieldLabel { text: "Data and Backups"; }
+                    FieldLabel { text: @tr("Data and Backups"); }
                     FieldLabel { text: root.data-status; wrap: word-wrap; }
                     archive := LineEdit {
-                        placeholder-text: "Optional absolute .clippy.zip path";
+                        placeholder-text: @tr("Optional absolute .clippy.zip path");
                         enabled: !root.file-dialog-pending;
                     }
                     HorizontalLayout {
                         spacing: 8px;
                         Button {
-                            text: "Export archive"; enabled: !root.busy && !root.file-dialog-pending;
+                            text: @tr("Export archive"); enabled: !root.busy && !root.file-dialog-pending;
                             clicked => {
                                 if archive.text.is-empty {
                                     root.choose-path(FileChoice.export-archive, "");
@@ -634,7 +650,7 @@ export component SettingsPane inherits Rectangle {
                             }
                         }
                         Button {
-                            text: "Import archive"; enabled: !root.busy && !root.file-dialog-pending;
+                            text: @tr("Import archive"); enabled: !root.busy && !root.file-dialog-pending;
                             clicked => {
                                 if archive.text.is-empty {
                                     root.choose-path(FileChoice.import-archive, "");
@@ -644,8 +660,8 @@ export component SettingsPane inherits Rectangle {
                             }
                         }
                     }
-                    if root.tmux-available: Button { text: "Capture active tmux pane"; enabled: !root.busy; clicked => { root.data-action(3, ""); } }
-                    Button { text: "Diagnostics"; clicked => { root.data-action(4, ""); } }
+                    if root.tmux-available: Button { text: @tr("Capture active tmux pane"); enabled: !root.busy; clicked => { root.data-action(3, ""); } }
+                    Button { text: @tr("Diagnostics"); clicked => { root.data-action(4, ""); } }
                 }
             }
         }

@@ -182,30 +182,30 @@ export component CaptureWindow inherits Window {
             ? root.toolbar-y - root.chip-height - 4px
             : min(root.height - root.chip-height - root.gap, root.toolbar-y + root.toolbar-height + 4px);
     private property <[ToolButton]> tools: [
-        { label: "Select", tool: CaptureTool.select, drawing: "M4 8h12v12M8 4v12h12" },
-        { label: "Rectangle", tool: CaptureTool.rectangle, drawing: "M3 5h18v14H3Z" },
-        { label: "Ellipse", tool: CaptureTool.ellipse, drawing: "M12 3a9 9 0 1 1 0 18 9 9 0 1 1 0-18" },
-        { label: "Line", tool: CaptureTool.line, drawing: "M4 12h16" },
-        { label: "Arrow", tool: CaptureTool.arrow, drawing: "M5 19 19 5M8 5h11v11" },
-        { label: "Highlight", tool: CaptureTool.highlight, drawing: "M4 14 15 3l5 5-11 11-5 1Z M4 14l5 5M4 22h16" },
-        { label: "Pen", tool: CaptureTool.pen, drawing: "M4 15 15 4l5 5L9 20H4Z M12 7l5 5" },
-        { label: "Text", tool: CaptureTool.text, drawing: "M4 6V4h16v2M12 4v16m-4 0h8" },
-        { label: "Mosaic", tool: CaptureTool.mosaic, drawing: "M4 4h16v16H4Z M12 4v16M4 12h16M5 5l6 6m2 2 6 6" },
+        { label: @tr("Select"), tool: CaptureTool.select, drawing: "M4 8h12v12M8 4v12h12" },
+        { label: @tr("Rectangle"), tool: CaptureTool.rectangle, drawing: "M3 5h18v14H3Z" },
+        { label: @tr("Ellipse"), tool: CaptureTool.ellipse, drawing: "M12 3a9 9 0 1 1 0 18 9 9 0 1 1 0-18" },
+        { label: @tr("Line"), tool: CaptureTool.line, drawing: "M4 12h16" },
+        { label: @tr("Arrow"), tool: CaptureTool.arrow, drawing: "M5 19 19 5M8 5h11v11" },
+        { label: @tr("Highlight"), tool: CaptureTool.highlight, drawing: "M4 14 15 3l5 5-11 11-5 1Z M4 14l5 5M4 22h16" },
+        { label: @tr("Pen"), tool: CaptureTool.pen, drawing: "M4 15 15 4l5 5L9 20H4Z M12 7l5 5" },
+        { label: @tr("Text"), tool: CaptureTool.text, drawing: "M4 6V4h16v2M12 4v16m-4 0h8" },
+        { label: @tr("Mosaic"), tool: CaptureTool.mosaic, drawing: "M4 4h16v16H4Z M12 4v16M4 12h16M5 5l6 6m2 2 6 6" },
     ];
     private property <[CaptureCommand]> commands: [
-        { label: "Edit image", action: CaptureAction.edit, drawing: "M4 19l1-5L17 2l5 5L10 19Z M14 5l5 5 M3 22h18" },
-        { label: "Scrolling capture", action: CaptureAction.longshot, drawing: "M4 4h16v16H4Z M8 8h8 M8 12h5 M14 16h4 M16 14v4" },
-        { label: "Record", action: CaptureAction.record, drawing: "M3 5h13v14H3Z M16 10l5-4v12l-5-4Z" },
+        { label: @tr("Edit image"), action: CaptureAction.edit, drawing: "M4 19l1-5L17 2l5 5L10 19Z M14 5l5 5 M3 22h18" },
+        { label: @tr("Scrolling capture"), action: CaptureAction.longshot, drawing: "M4 4h16v16H4Z M8 8h8 M8 12h5 M14 16h4 M16 14v4" },
+        { label: @tr("Record"), action: CaptureAction.record, drawing: "M3 5h13v14H3Z M16 10l5-4v12l-5-4Z" },
     ];
     private property <[OverlayInk]> inks: [
-        { ink: #ff3b30, label: "Red" }, { ink: #ffcf36, label: "Yellow" }, { ink: #38c875, label: "Green" },
-        { ink: #0a84ff, label: "Blue" }, { ink: #ffffff, label: "White" }, { ink: #17191f, label: "Black" },
+        { ink: #ff3b30, label: @tr("Red") }, { ink: #ffcf36, label: @tr("Yellow") }, { ink: #38c875, label: @tr("Green") },
+        { ink: #0a84ff, label: @tr("Blue") }, { ink: #ffffff, label: @tr("White") }, { ink: #17191f, label: @tr("Black") },
     ];
     private property <string> cancel-icon: "M5 5l14 14 M19 5L5 19";
     private property <string> save-icon: "M4 3h13l4 4v14H3V3Z M7 3v7h10V3 M7 21v-7h10v7";
     private property <string> copy-icon: "M5 12l4 4L19 6";
 
-    title: "Clippy Screenshot";
+    title: @tr("Clippy Screenshot");
     no-frame: true;
     background: #161616;
     forward-focus: keys;
@@ -560,14 +560,14 @@ export component CaptureWindow inherits Window {
             padding: 8px;
             spacing: 6px;
             Text {
-                text: root.window-targets.length > 0 ? "Click a window or drag an area" : "Drag to select an area";
+                text: root.window-targets.length > 0 ? @tr("Click a window or drag an area") : @tr("Drag to select an area");
                 color: #ffffff;
                 font-size: 13px;
                 vertical-alignment: center;
                 horizontal-alignment: center;
                 horizontal-stretch: 1;
             }
-            OverlayButton { label: "Cancel"; width: 32px; drawing: root.cancel-icon; clicked => { root.cancel(); } }
+            OverlayButton { label: @tr("Cancel"); width: 32px; drawing: root.cancel-icon; clicked => { root.cancel(); } }
         }
     }
 
@@ -616,12 +616,12 @@ export component CaptureWindow inherits Window {
         }
         if root.toolbar-width >= 380px: Text {
             x: 126px; y: 45px; width: 28px; height: 24px;
-            text: "Size"; font-size: 11px; color: #e5e7eb; vertical-alignment: center;
+            text: @tr("Size"); font-size: 11px; color: #e5e7eb; vertical-alignment: center;
         }
         if root.toolbar-width >= 380px: Rectangle {
             x: 157px; y: 45px; width: min(100px, history-actions.x - self.x - 8px); height: 24px;
             accessible-role: slider;
-            accessible-label: "Stroke width";
+            accessible-label: @tr("Stroke width");
             accessible-value: "" + round(root.stroke);
             Rectangle { width: parent.width; height: 4px; border-radius: 2px; background: #535967; }
             Rectangle { x: 0px; width: (root.stroke - 1) / 11 * parent.width; height: 4px; border-radius: 2px; background: #2f8cff; }
@@ -636,32 +636,32 @@ export component CaptureWindow inherits Window {
         history-actions := HorizontalLayout {
             x: parent.width - 6px - 6 * root.tool-width; y: 42px; width: 6 * root.tool-width; height: 30px;
             OverlayButton {
-                label: "Undo"; drawing: "M9 5l-6 6 6 6 M3 11h12a5 5 0 0 1 5 5v3";
+                label: @tr("Undo"); drawing: "M9 5l-6 6 6 6 M3 11h12a5 5 0 0 1 5 5v3";
                 width: root.tool-width; enabled: root.marks.length > 0 && !root.entering-text && !root.mosaic-pending;
                 clicked => { root.undo-mark(); keys.focus(); }
             }
             OverlayButton {
-                label: "Redo"; drawing: "M15 5l6 6-6 6 M21 11H9a5 5 0 0 0-5 5v3";
+                label: @tr("Redo"); drawing: "M15 5l6 6-6 6 M21 11H9a5 5 0 0 0-5 5v3";
                 width: root.tool-width; enabled: root.undone-marks.length > 0 && !root.entering-text && !root.mosaic-pending;
                 clicked => { root.redo-mark(); keys.focus(); }
             }
             OverlayButton {
-                label: "Clear marks"; drawing: "M4 6h16m-6 0V3h-4v3M6 6l1 15h10l1-15M10 10v7m4-7v7";
+                label: @tr("Clear marks"); drawing: "M4 6h16m-6 0V3h-4v3M6 6l1 15h10l1-15M10 10v7m4-7v7";
                 width: root.tool-width;
                 enabled: (root.marks.length > 0 || root.undone-marks.length > 0) && !root.entering-text && !root.mosaic-pending;
                 clicked => { root.clear-marks(); keys.focus(); }
             }
             OverlayButton {
-                label: "Save PNG"; drawing: root.save-icon;
+                label: @tr("Save PNG"); drawing: root.save-icon;
                 width: root.tool-width; enabled: !root.mosaic-pending;
                 clicked => { root.commit(CaptureAction.save); }
             }
             OverlayButton {
-                label: "Copy"; drawing: root.copy-icon; ink: #6ee7a8;
+                label: @tr("Copy"); drawing: root.copy-icon; ink: #6ee7a8;
                 width: root.tool-width; enabled: !root.mosaic-pending;
                 clicked => { root.commit(CaptureAction.copy); }
             }
-            OverlayButton { label: "Cancel"; drawing: root.cancel-icon; width: root.tool-width; clicked => { root.cancel(); } }
+            OverlayButton { label: @tr("Cancel"); drawing: root.cancel-icon; width: root.tool-width; clicked => { root.cancel(); } }
         }
     }
 
@@ -674,18 +674,18 @@ export component CaptureWindow inherits Window {
         HorizontalLayout {
             padding: 8px;
             OverlayButton {
-                label: "Edit image"; drawing: root.commands[0].drawing; enabled: root.desktop-valid;
+                label: @tr("Edit image"); drawing: root.commands[0].drawing; enabled: root.desktop-valid;
                 clicked => { root.confirm-desktop(CaptureAction.edit); }
             }
             OverlayButton {
-                label: "Save PNG"; drawing: root.save-icon; enabled: root.desktop-valid;
+                label: @tr("Save PNG"); drawing: root.save-icon; enabled: root.desktop-valid;
                 clicked => { root.confirm-desktop(CaptureAction.save); }
             }
             OverlayButton {
-                label: "Copy"; drawing: root.copy-icon; ink: #6ee7a8; enabled: root.desktop-valid;
+                label: @tr("Copy"); drawing: root.copy-icon; ink: #6ee7a8; enabled: root.desktop-valid;
                 clicked => { root.confirm-desktop(CaptureAction.copy); }
             }
-            OverlayButton { label: "Cancel"; drawing: root.cancel-icon; clicked => { root.cancel(); } }
+            OverlayButton { label: @tr("Cancel"); drawing: root.cancel-icon; clicked => { root.cancel(); } }
         }
         Rectangle {
             x: clamp(root.desktop-bounds.left - parent.x, root.gap - parent.x,
@@ -695,7 +695,7 @@ export component CaptureWindow inherits Window {
             border-radius: 5px; background: #202124;
             desktop-size := Text {
                 text: root.desktop-valid ? "" + root.desktop-preview.pixel-width + " × " + root.desktop-preview.pixel-height
-                    : "Selection is too large";
+                    : @tr("Selection is too large");
                 font-size: 12px; color: white;
                 horizontal-alignment: center; vertical-alignment: center;
             }
@@ -719,7 +719,7 @@ export component CaptureWindow inherits Window {
         caption-input := LineEdit {
             width: parent.width; height: parent.height;
             text <=> root.draft-text;
-            placeholder-text: "Annotation text";
+            placeholder-text: @tr("Annotation text");
             accepted => { root.finish-caption(); }
         }
     }
@@ -728,7 +728,7 @@ export component CaptureWindow inherits Window {
         width: annotation-status.preferred-width + 20px; height: 28px;
         background: #202124; border-radius: 6px;
         annotation-status := Text {
-            text: root.mosaic-pending ? "Applying mosaic…" : root.annotation-error;
+            text: root.mosaic-pending ? @tr("Applying mosaic…") : root.annotation-error;
             color: #ffffff; font-size: 12px;
             horizontal-alignment: center; vertical-alignment: center;
         }

@@ -176,11 +176,11 @@ export component HistoryPane inherits Rectangle {
                         horizontal-stretch: 1;
                         height: 32px;
                         text <=> root.query;
-                        placeholder-text: "Search clipboard";
+                        placeholder-text: @tr("Search clipboard");
                         edited => { root.reset-query(); }
                         accepted => { if !root.loading && !root.busy && root.selected-id != "" { root.copy-item(root.selected-id, true); } }
                     }
-                    SurfaceButton { label: "Close search"; caption: "Esc"; height: 28px; clicked => {
+                    SurfaceButton { label: @tr("Close search"); caption: "Esc"; height: 28px; clicked => {
                         root.search-visible = false;
                         if root.query != "" { root.query = ""; root.reset-query(); }
                         keys.focus();
@@ -270,7 +270,7 @@ export component HistoryPane inherits Rectangle {
                                     }
                                 }
                             }
-                            SurfaceButton { label: "Item actions"; caption: "…"; width: 32px; height: 32px; y: (parent.height - self.height) / 2; selected: root.expanded-id == clip.id; clicked => {
+                            SurfaceButton { label: @tr("Item actions"); caption: "…"; width: 32px; height: 32px; y: (parent.height - self.height) / 2; selected: root.expanded-id == clip.id; clicked => {
                                 root.select-row(index);
                                 root.expanded-id = root.expanded-id == clip.id ? "" : clip.id;
                             } }
@@ -287,16 +287,16 @@ export component HistoryPane inherits Rectangle {
                             actions := HorizontalLayout {
                                 padding: 4px;
                                 spacing: 1px;
-                                SurfaceButton { label: "Copy"; enabled: !root.busy; clicked => { root.copy-item(clip.id, false); } }
-                                if root.auto-paste: SurfaceButton { label: "Paste"; enabled: !root.busy; clicked => { root.copy-item(clip.id, true); } }
-                                SurfaceButton { label: "Preview"; caption: "View"; clicked => {
+                                SurfaceButton { label: @tr("Copy"); enabled: !root.busy; clicked => { root.copy-item(clip.id, false); } }
+                                if root.auto-paste: SurfaceButton { label: @tr("Paste"); enabled: !root.busy; clicked => { root.copy-item(clip.id, true); } }
+                                SurfaceButton { label: @tr("Preview"); caption: @tr("View"); clicked => {
                                     root.select-row(index);
                                     root.expanded-id = "";
                                     keys.focus();
                                     root.show-preview(true);
                                 } }
-                                SurfaceButton { label: clip.favorite ? "Remove favorite" : "Add favorite"; caption: clip.favorite ? "★" : "☆"; width: 32px; clicked => { root.modify-item(clip.id, true); } }
-                                SurfaceButton { label: "Delete"; caption: "×"; danger: true; width: 32px; clicked => { root.modify-item(clip.id, false); } }
+                                SurfaceButton { label: clip.favorite ? @tr("Remove favorite") : @tr("Add favorite"); caption: clip.favorite ? "★" : "☆"; width: 32px; clicked => { root.modify-item(clip.id, true); } }
+                                SurfaceButton { label: @tr("Delete"); caption: "×"; danger: true; width: 32px; clicked => { root.modify-item(clip.id, false); } }
                             }
                         }
                     }
@@ -311,7 +311,7 @@ export component HistoryPane inherits Rectangle {
                 }
             }
             if root.can-load-more: SurfaceButton {
-                label: "Load more";
+                label: @tr("Load more");
                 clicked => { root.load-more(); }
             }
 
@@ -321,12 +321,12 @@ export component HistoryPane inherits Rectangle {
                 Rectangle { y: 0px; width: parent.width; height: 1px; background: ClippyTheme.border; }
                 HistoryFilter {
                     x: 8px; y: 7px; width: parent.width / 2 - 8px;
-                    label: "Favorites"; count: root.favorite-count; selected: root.favorites-only;
+                    label: @tr("Favorites"); count: root.favorite-count; selected: root.favorites-only;
                     clicked => { root.switch-filter(true); }
                 }
                 HistoryFilter {
                     x: parent.width / 2; y: 7px; width: parent.width / 2 - 8px;
-                    label: "All"; count: root.all-count; selected: !root.favorites-only;
+                    label: @tr("All"); count: root.all-count; selected: !root.favorites-only;
                     clicked => { root.switch-filter(false); }
                 }
             }

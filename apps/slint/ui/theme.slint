@@ -212,9 +212,9 @@ export component WindowHeader inherits Rectangle {
         width: 104px;
         height: 32px;
         spacing: 4px;
-        SurfaceButton { label: "Minimize"; caption: "−"; width: 32px; height: 32px; clicked => { root.minimize(); } }
-        SurfaceButton { label: root.maximized ? "Restore" : "Maximize"; caption: root.maximized ? "▣" : "□"; width: 32px; height: 32px; clicked => { root.maximize(); } }
-        SurfaceButton { label: "Close window"; caption: "×"; danger: true; width: 32px; height: 32px; clicked => { root.dismiss(); } }
+        SurfaceButton { label: @tr("Minimize"); caption: "−"; width: 32px; height: 32px; clicked => { root.minimize(); } }
+        SurfaceButton { label: root.maximized ? @tr("Restore") : @tr("Maximize"); caption: root.maximized ? "▣" : "□"; width: 32px; height: 32px; clicked => { root.maximize(); } }
+        SurfaceButton { label: @tr("Close window"); caption: "×"; danger: true; width: 32px; height: 32px; clicked => { root.dismiss(); } }
     }
 }
 
@@ -233,7 +233,7 @@ export component LibraryHeader inherits Rectangle {
     }
     SurfaceButton {
         x: parent.width - 53px; y: 15px; width: 32px; height: 32px;
-        label: "Close window"; caption: ""; danger: true;
+        label: @tr("Close window"); caption: ""; danger: true;
         ClippyIcon { ink: parent.hovered ? #ffffff : ClippyTheme.foreground; drawing: "M6 6l12 12M18 6 6 18"; }
         clicked => { root.dismiss(); }
     }

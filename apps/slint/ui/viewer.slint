@@ -17,6 +17,7 @@ component ViewerButton inherits SurfaceButton {
 export component ViewerPane inherits Rectangle {
     in property <image> picture;
     in property <[string]> tools;
+    in property <int> text-tool-index;
     in property <bool> busy;
     in property <bool> can-undo;
     in property <bool> can-redo;
@@ -157,37 +158,37 @@ export component ViewerPane inherits Rectangle {
                                 double-clicked => { root.bar-offset-x = 0px; root.bar-offset-y = 0px; }
                             }
                         }
-                        ViewerButton { label: "Pan"; drawing: "M12 4v16 M4 12h16 M9 7l3-3 3 3 M9 17l3 3 3-3 M7 9l-3 3 3 3 M17 9l3 3-3 3"; selected: !root.drawing; clicked => { root.drawing = false; } }
-                        ViewerButton { label: "Draw"; drawing: "M4 19l1-5L17 2l5 5L10 19Z M14 5l5 5 M3 22h18"; selected: root.drawing; clicked => { root.drawing = !root.drawing; } }
-                        ViewerButton { label: "Recognize text"; drawing: "M4 9V4h5 M15 4h5v5 M20 15v5h-5 M9 20H4v-5 M8 9h8 M8 12h8 M8 15h5"; enabled: root.output-ready && !root.busy; clicked => { root.recognize(); } }
-                        ViewerButton { label: "Scan code"; drawing: "M3 3h6v6H3Z M15 3h6v6h-6Z M3 15h6v6H3Z M15 15h3v3h-3Z M21 15v6h-6"; enabled: root.output-ready && !root.busy; clicked => { root.scan-code(); } }
-                        ViewerButton { label: "Copy image"; drawing: "M9 9h12v12H9Z M15 9V3H3v12h6"; enabled: root.output-ready && !root.busy; clicked => { root.copy(); } }
-                        ViewerButton { label: "Save PNG"; drawing: "M3 3h14l4 4v14H3Z M7 3v7h10V3 M7 21v-7h10v7"; enabled: root.output-ready && !root.busy; clicked => { root.save(); } }
-                        ViewerButton { label: "Pin image"; drawing: "M9 4h6v3l-1 1v4l3 3v2H7v-2l3-3V8L9 7Z M12 17v5"; enabled: root.output-ready && !root.busy; clicked => { root.pin(); } }
+                        ViewerButton { label: @tr("Pan"); drawing: "M12 4v16 M4 12h16 M9 7l3-3 3 3 M9 17l3 3 3-3 M7 9l-3 3 3 3 M17 9l3 3-3 3"; selected: !root.drawing; clicked => { root.drawing = false; } }
+                        ViewerButton { label: @tr("Draw"); drawing: "M4 19l1-5L17 2l5 5L10 19Z M14 5l5 5 M3 22h18"; selected: root.drawing; clicked => { root.drawing = !root.drawing; } }
+                        ViewerButton { label: @tr("Recognize text"); drawing: "M4 9V4h5 M15 4h5v5 M20 15v5h-5 M9 20H4v-5 M8 9h8 M8 12h8 M8 15h5"; enabled: root.output-ready && !root.busy; clicked => { root.recognize(); } }
+                        ViewerButton { label: @tr("Scan code"); drawing: "M3 3h6v6H3Z M15 3h6v6h-6Z M3 15h6v6H3Z M15 15h3v3h-3Z M21 15v6h-6"; enabled: root.output-ready && !root.busy; clicked => { root.scan-code(); } }
+                        ViewerButton { label: @tr("Copy image"); drawing: "M9 9h12v12H9Z M15 9V3H3v12h6"; enabled: root.output-ready && !root.busy; clicked => { root.copy(); } }
+                        ViewerButton { label: @tr("Save PNG"); drawing: "M3 3h14l4 4v14H3Z M7 3v7h10V3 M7 21v-7h10v7"; enabled: root.output-ready && !root.busy; clicked => { root.save(); } }
+                        ViewerButton { label: @tr("Pin image"); drawing: "M9 4h6v3l-1 1v4l3 3v2H7v-2l3-3V8L9 7Z M12 17v5"; enabled: root.output-ready && !root.busy; clicked => { root.pin(); } }
                     }
                     HorizontalLayout {
                         visible: root.drawing;
                         height: root.drawing ? 48px : 0px;
                         spacing: 5px;
                         tool := ComboBox { model: root.tools; current-index: 2; }
-                        shade := ComboBox { model: ["Red", "Orange", "Green", "Blue", "White", "Black"]; }
+                        shade := ComboBox { model: [@tr("Red"), @tr("Orange"), @tr("Green"), @tr("Blue"), @tr("White"), @tr("Black")]; }
                         stroke := Slider { minimum: 1; maximum: 24; value: 3; width: 60px; }
-                        SurfaceButton { label: "Undo"; caption: "↶"; enabled: root.can-undo && !root.busy; clicked => { root.undo(); } }
-                        SurfaceButton { label: "Redo"; caption: "↷"; enabled: root.can-redo && !root.busy; clicked => { root.redo(); } }
+                        SurfaceButton { label: @tr("Undo"); caption: "↶"; enabled: root.can-undo && !root.busy; clicked => { root.undo(); } }
+                        SurfaceButton { label: @tr("Redo"); caption: "↷"; enabled: root.can-redo && !root.busy; clicked => { root.redo(); } }
                     }
                     entry := LineEdit {
-                        visible: root.drawing && tool.current-value == "Text";
+                        visible: root.drawing && tool.current-index == root.text-tool-index;
                         height: self.visible ? 26px : 0px;
-                        placeholder-text: "Text to place on the image";
+                        placeholder-text: @tr("Text to place on the image");
                     }
                     Rectangle { height: 1px; background: ClippyTheme.border; }
                     HorizontalLayout {
                         spacing: 7px; alignment: center;
-                        SurfaceButton { label: "Zoom out"; caption: "−"; clicked => { root.zoom-by(0.8); } }
+                        SurfaceButton { label: @tr("Zoom out"); caption: "−"; clicked => { root.zoom-by(0.8); } }
                         Text { text: "" + round(root.display-scale * 100) + "%"; color: ClippyTheme.foreground; font-size: 12px; vertical-alignment: center; width: 54px; horizontal-alignment: center; }
-                        SurfaceButton { label: "Zoom in"; caption: "+"; clicked => { root.zoom-by(1.25); } }
-                        SurfaceButton { label: "Fit"; selected: root.fit-to-view; clicked => { root.fit-to-view = true; root.recenter(); } }
-                        SurfaceButton { label: "Actual size"; caption: "1:1"; clicked => { root.zoom = 1; root.fit-to-view = false; root.recenter(); } }
+                        SurfaceButton { label: @tr("Zoom in"); caption: "+"; clicked => { root.zoom-by(1.25); } }
+                        SurfaceButton { label: @tr("Fit"); selected: root.fit-to-view; clicked => { root.fit-to-view = true; root.recenter(); } }
+                        SurfaceButton { label: @tr("Actual size"); caption: "1:1"; clicked => { root.zoom = 1; root.fit-to-view = false; root.recenter(); } }
                     }
                 }
             }
@@ -197,7 +198,7 @@ export component ViewerPane inherits Rectangle {
             Rectangle { x: 0px; y: 0px; height: 1px; background: ClippyTheme.border; }
             Text {
                 x: 12px; width: parent.width - 24px; height: parent.height;
-                text: root.status != "" ? root.status : "Wheel to zoom · Drag to pan · Image tools use the opened snapshot";
+                text: root.status != "" ? root.status : @tr("Wheel to zoom · Drag to pan · Image tools use the opened snapshot");
                 color: ClippyTheme.muted; font-size: 11px; vertical-alignment: center; overflow: elide;
             }
         }

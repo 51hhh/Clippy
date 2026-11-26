@@ -60,8 +60,8 @@ export component ImageTextWindow inherits ClippyWindow {
     callback translate();
     callback dismiss();
 
-    title: "Clippy Image Text";
-    heading: "Image Text";
+    title: @tr("Clippy Image Text");
+    heading: @tr("Image Text");
     dismiss-window => { root.dismiss(); }
     preferred-width: 1000px;
     preferred-height: 640px;
@@ -147,19 +147,19 @@ export component ImageTextWindow inherits ClippyWindow {
                 wrap: word-wrap;
                 height: 110px;
             }
-            CheckBox { text: "Show translation on image"; checked <=> root.show-translation; }
+            CheckBox { text: @tr("Show translation on image"); checked <=> root.show-translation; }
             HorizontalLayout {
                 spacing: 7px;
-                Button { text: "Copy"; enabled: root.original != ""; clicked => { root.copy-result(); } }
+                Button { text: @tr("Copy"); enabled: root.original != ""; clicked => { root.copy-result(); } }
                 Button {
-                    text: root.selected-line >= 0 ? "Translate Line" : "Translate Paragraph";
-                    accessible-description: "Translate with " + root.service;
+                    text: root.selected-line >= 0 ? @tr("Translate Line") : @tr("Translate Paragraph");
+                    accessible-description: @tr("Translate with {0}", root.service);
                     horizontal-stretch: 1;
                     visible: root.service != "";
                     enabled: !root.busy && root.selected-paragraph >= 0;
                     clicked => { root.translate(); }
                 }
-                Button { text: "Close"; clicked => { root.dismiss(); } }
+                Button { text: @tr("Close"); clicked => { root.dismiss(); } }
             }
         }
     }

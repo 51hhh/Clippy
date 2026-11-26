@@ -1,5 +1,5 @@
 use super::{decode_revision, editor, parse_id, send, Library, Message, View};
-use crate::{ClippyTheme, WorkspaceGroupRow, WorkspaceRow, WorkspaceWindow};
+use crate::{locale::tr, ClippyTheme, WorkspaceGroupRow, WorkspaceRow, WorkspaceWindow};
 use anyhow::Result;
 use clippy_core::models::ContentType;
 use clippy_storage::{StorageClient, StoredPinWorkspaceContent};
@@ -91,12 +91,12 @@ impl Workspace {
         let mut group_rows = vec![
             WorkspaceGroupRow {
                 key: "".into(),
-                label: "All".into(),
+                label: tr("All").into(),
                 count: self.rows.len() as i32,
             },
             WorkspaceGroupRow {
                 key: UNGROUPED.into(),
-                label: "Ungrouped".into(),
+                label: tr("Ungrouped").into(),
                 count: counts.get(&None).copied().unwrap_or(0),
             },
         ];

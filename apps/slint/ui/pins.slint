@@ -34,6 +34,7 @@ export component PinnedWindow inherits Window {
 
     private property <bool> opacity-open;
 
+    // 原生截图的窗口速选用此标题识别本应用的贴图窗。
     title: "Clippy Pin";
     no-frame: true;
     resize-border-width: ClippyTheme.window-resize-border;
@@ -102,7 +103,7 @@ export component PinnedWindow inherits Window {
                     VerticalLayout {
                         padding: 4px; spacing: 2px; alignment: start;
                         PinButton {
-                            label: "Zoom in"; icon: "M5 12h14m-7-7v14";
+                            label: @tr("Zoom in"); icon: "M5 12h14m-7-7v14";
                             enabled: root.zoom < 4 && !root.locked;
                             clicked => { root.resize-pin(min(4, root.zoom + 0.1)); }
                         }
@@ -112,40 +113,40 @@ export component PinnedWindow inherits Window {
                             horizontal-alignment: center; vertical-alignment: center;
                         }
                         PinButton {
-                            label: "Zoom out"; icon: "M5 12h14";
+                            label: @tr("Zoom out"); icon: "M5 12h14";
                             enabled: root.zoom > 0.25 && !root.locked;
                             clicked => { root.resize-pin(max(0.25, root.zoom - 0.1)); }
                         }
                         Rectangle { height: 1px; width: 20px; background: #424650; }
                         PinButton {
-                            label: root.above ? "Unpin top" : "Keep on top"; selected: root.above;
+                            label: root.above ? @tr("Unpin top") : @tr("Keep on top"); selected: root.above;
                             icon: "M9 4h6v3l-1 1v4l3 3v2H7v-2l3-3V8L9 7Z M12 17v5";
                             clicked => { root.above = !root.above; root.update-pin(); }
                         }
                         PinButton {
-                            label: root.locked ? "Unlock size" : "Lock size"; selected: root.locked;
+                            label: root.locked ? @tr("Unlock size") : @tr("Lock size"); selected: root.locked;
                             icon: root.locked ? "M5 10h14v10H5Z M8 10V7a4 4 0 0 1 8 0v3 M12 14v2"
                                 : "M5 10h14v10H5Z M8 10V7a4 4 0 0 1 7.5-2 M12 14v2";
                             clicked => { root.locked = !root.locked; root.update-pin(); }
                         }
                         if root.has-image: PinButton {
-                            label: "Edit"; icon: "M4 16v4h4L20 8l-4-4Z M14 6l4 4";
+                            label: @tr("Edit"); icon: "M4 16v4h4L20 8l-4-4Z M14 6l4 4";
                             clicked => { root.edit-pin(); }
                         }
                         PinButton {
-                            label: "Opacity"; icon: "M4 7h16m-16 10h16M9 4v6m6 4v6"; selected: root.opacity-open;
+                            label: @tr("Opacity"); icon: "M4 7h16m-16 10h16M9 4v6m6 4v6"; selected: root.opacity-open;
                             clicked => { root.opacity-open = !root.opacity-open; }
                         }
                         PinButton {
-                            label: "Pinned Workspace"; icon: "M6 4h12v16l-6-4-6 4Z M9 10l2 2 4-4";
+                            label: @tr("Pinned Workspace"); icon: "M6 4h12v16l-6-4-6 4Z M9 10l2 2 4-4";
                             clicked => { root.workspace(); }
                         }
                         if root.has-image: PinButton {
-                            label: "Save PNG"; icon: "M5 4h11l4 4v12H4V4Z M8 4v6h8V4M8 20v-6h8v6";
+                            label: @tr("Save PNG"); icon: "M5 4h11l4 4v12H4V4Z M8 4v6h8V4M8 20v-6h8v6";
                             clicked => { root.save-pin(); }
                         }
-                        PinButton { label: "Copy"; icon: "M9 8h11v13H9ZM6 16H4V3h11v2"; clicked => { root.copy-pin(); } }
-                        PinButton { label: "Hide"; icon: "M6 6l12 12m0-12L6 18"; danger: true; clicked => { root.close-pin(); } }
+                        PinButton { label: @tr("Copy"); icon: "M9 8h11v13H9ZM6 16H4V3h11v2"; clicked => { root.copy-pin(); } }
+                        PinButton { label: @tr("Hide"); icon: "M6 6l12 12m0-12L6 18"; danger: true; clicked => { root.close-pin(); } }
                     }
                 }
             }
@@ -166,7 +167,7 @@ export component PinnedWindow inherits Window {
             padding-right: 8px;
             spacing: 6px;
             Slider {
-                accessible-label: "Pin opacity";
+                accessible-label: @tr("Pin opacity");
                 minimum: 0.15; maximum: 1; value <=> root.opacity-value;
                 released => { root.update-pin(); }
             }

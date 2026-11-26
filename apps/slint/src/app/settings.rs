@@ -1,6 +1,7 @@
 use super::{post, use_app, App, Event};
+use crate::locale::{message, tr};
 use crate::{
-    AppWindow, ClippyTheme, FileChoice, GeneralSettings, OcrStatus, ShortcutField,
+    locale, AppWindow, ClippyTheme, FileChoice, GeneralSettings, OcrStatus, ShortcutField,
     TranslationSettings,
 };
 use anyhow::{ensure, Context, Result};
@@ -227,7 +228,7 @@ pub(super) fn connect(window: &AppWindow, config: &AppConfig) {
         .enabled_translation_services()
         .first()
         .map(|service| service.provider.as_str())
-        .unwrap_or("No provider configured");
+        .unwrap_or_default();
     window.set_translation_destination(destination.into());
     let index = config
         .enabled_translation_services()
@@ -371,6 +372,7 @@ fn populate(window: &AppWindow, config: &AppConfig) {
         pin_shortcut: config.pin_shortcut.clone().into(),
         capture_shortcut: config.capture_shortcut.clone().into(),
         theme,
+        language: locale::preference_index(&config.language),
         save_directory: config.screenshot_save_dir.clone().into(),
         filename_template: config.screenshot_filename_template.clone().into(),
         ocr_enabled: config.ocr_enabled,
@@ -389,13 +391,6 @@ pub(super) fn portal_shortcut_view(
             ..Default::default()
         };
     };
-    let key = |value: String| -> SharedString {
-        if value.is_empty() {
-            "Not assigned".into()
-        } else {
-            value.into()
-        }
-    };
     let configurable = bindings.version >= 2;
     crate::PortalShortcutView {
         available: true,
@@ -406,17 +401,25 @@ pub(super) fn portal_shortcut_view(
             "Change these shortcuts in your desktop settings."
         }
         .into(),
-        open: key(bindings.open),
-        pin: key(bindings.pin),
-        capture: key(bindings.capture),
+        open: bindings.open.into(),
+        pin: bindings.pin.into(),
+        capture: bindings.capture.into(),
     }
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn show_portal_shortcuts(window: &AppWindow, view: &crate::PortalShortcutView) {
+    window.set_portal_shortcuts(crate::PortalShortcutView {
+        detail: tr(view.detail.as_str()).into(),
+        ..view.clone()
+    });
 }
 
 fn provider(index: i32) -> Result<TranslationProvider> {
     TranslationProvider::all()
         .get(index as usize)
         .copied()
-        .context("Select a translation provider")
+        .context(tr("Select a translation provider"))
 }
 
 fn translation(window: &AppWindow, config: &AppConfig, index: i32) -> Result<()> {
@@ -483,7 +486,7 @@ impl App {
             .max_history
             .trim()
             .parse::<u32>()
-            .context("Enter a history limit")?;
+            .context(tr("Enter a history limit"))?;
         let wayland = clippy_platform::session::is_wayland();
         let gnome = clippy_platform::session::is_gnome();
         let portal = wayland && !gnome;
@@ -503,7 +506,11 @@ impl App {
         let shortcuts = (!portal)
             .then(|| shortcuts::validate(panel, pin, capture))
             .transpose()?;
-        let theme = THEMES.get(value.theme as usize).context("Select a theme")?;
+        let theme = THEMES
+            .get(value.theme as usize)
+            .context(tr("Select a theme"))?;
+        let language =
+            locale::preference(value.language).context(tr("Select an interface language"))?;
         let shortcuts_changed = self.config.global_shortcut != panel
             || self.config.pin_shortcut != pin
             || self.config.capture_shortcut != capture;
@@ -513,6 +520,7 @@ impl App {
             pin_shortcut: pin.into(),
             capture_shortcut: capture.into(),
             theme: (*theme).into(),
+            language: language.into(),
             screenshot_save_dir: value.save_directory.trim().into(),
             screenshot_filename_template: value.filename_template.trim().into(),
             ocr_enabled: value.ocr_enabled,
@@ -544,11 +552,11 @@ impl App {
     fn configure_portal_shortcuts(&self) -> Result<()> {
         ensure!(
             self.portal_shortcuts.configurable,
-            "Open your desktop settings to manage shortcuts"
+            tr("Open your desktop settings to manage shortcuts")
         );
         self.shortcuts
             .as_ref()
-            .context("The desktop shortcut service is unavailable")?
+            .context(tr("The desktop shortcut service is unavailable"))?
             .configure_portal(|result| send(Message::PortalConfigured(result)))
     }
 
@@ -581,6 +589,19 @@ impl App {
     }
 
     fn apply_saved_general(&mut self, next: AppConfig) {
+        if next.language != self.config.language {
+            self.recordings.remember_audio();
+            locale::apply(&next.language);
+            self.launcher.refresh_language();
+            self.recordings.refresh_language();
+            #[cfg(target_os = "linux")]
+            if let Some(window) = &self.window {
+                show_portal_shortcuts(window, &self.portal_shortcuts);
+            }
+            if let Some(editor) = self.editor.as_ref() {
+                editor.refresh_language();
+            }
+        }
         self.clipboard.set_limit(next.max_history);
         clippy_vision::set_manifest_setting(&next.enhanced_ocr_manifest_path);
         self.config = next;
@@ -661,11 +682,11 @@ impl App {
                     send(Message::Stats(
                         result
                             .map(|stats| {
-                                format!(
-                    "{} history items · {} favorites · {} images · {:.2} MiB database",
-                    stats["total"], stats["favorites"], stats["image_count"],
-                    stats["db_size"].as_u64().unwrap_or(0) as f64 / 1024. / 1024.,
-                )
+                                let size_mib = stats["db_size"].as_u64().unwrap_or(0) as f64 / 1024. / 1024.;
+                                message(
+                                    "{0} history items · {1} favorites · {2} images · {3} MiB database",
+                                    &[&stats["total"], &stats["favorites"], &stats["image_count"], &format_args!("{size_mib:.2}")],
+                                )
                             })
                             .map_err(Into::into),
                     ));
@@ -674,12 +695,12 @@ impl App {
             1 | 2 => {
                 ensure!(
                     !self.busy && self.archive_export.is_none(),
-                    "Wait for the current operation"
+                    tr("Wait for the current operation")
                 );
                 let path = expand_user_path(path.trim());
                 ensure!(
                     path.is_absolute() && path.to_string_lossy().ends_with(".clippy.zip"),
-                    "Enter an absolute .clippy.zip path"
+                    tr("Enter an absolute .clippy.zip path")
                 );
                 if action == 1 {
                     let (ready, snapshot) = mpsc::sync_channel(1);
@@ -696,16 +717,16 @@ impl App {
                             .spawn(move || {
                                 let result = snapshot
                                     .recv()
-                                    .context("Archive snapshot unavailable")
+                                    .context(tr("Archive snapshot unavailable"))
                                     .and_then(|result| result.map_err(Into::into))
                                     .and_then(|snapshot| {
                                         write_new_archive(&path, &snapshot)
                                             .map_err(anyhow::Error::msg)
                                     })
                                     .map(|archive| {
-                                        format!(
-                                            "Exported {} clips and {} pins to {}",
-                                            archive.clips, archive.workspaces, archive.path
+                                        message(
+                                            "Exported {0} clips and {1} pins to {2}",
+                                            &[&archive.clips, &archive.workspaces, &archive.path],
                                         )
                                     });
                                 send(Message::Data(result));
@@ -715,9 +736,9 @@ impl App {
                     thread::Builder::new().name("clippy-archive-import".into()).spawn(move || {
                         let queued = read_archive(&path).map_err(anyhow::Error::msg).and_then(|snapshot| {
                             client.execute(move |storage| storage.import_archive_snapshot(&snapshot), |result| {
-                                send(Message::Data(result.map(|summary| format!(
-                                    "Imported {} clips and {} pins · {} clips merged",
-                                    summary.clips_added, summary.workspaces_added, summary.clips_merged,
+                                send(Message::Data(result.map(|summary| message(
+                                    "Imported {0} clips and {1} pins · {2} clips merged",
+                                    &[&summary.clips_added, &summary.workspaces_added, &summary.clips_merged],
                                 )).map_err(Into::into)));
                             }).map_err(Into::into)
                         });
@@ -729,11 +750,9 @@ impl App {
             #[cfg(target_os = "linux")]
             3 => self.capture_tmux()?,
             4 => {
-                let message = format!(
-                    "{} / {} · data directory {}",
-                    std::env::consts::OS,
-                    std::env::consts::ARCH,
-                    self.paths.data_dir.display(),
+                let message = message(
+                    "{0} / {1} · data directory {2}",
+                    &[&std::env::consts::OS, &std::env::consts::ARCH, &self.paths.data_dir.display()],
                 );
                 self.window
                     .as_ref()

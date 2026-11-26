@@ -1,5 +1,7 @@
 use super::{capture, pins, post, settings, tools, vision, App, Event};
-use crate::{AppWindow, ClipRow, ClippyTheme, LauncherAction, LauncherRow, LauncherWindow};
+use crate::{
+    locale::tr, AppWindow, ClipRow, ClippyTheme, LauncherAction, LauncherRow, LauncherWindow,
+};
 use anyhow::{bail, ensure, Context, Result};
 use clippy_capture::{editor::Editor, project};
 use clippy_core::image_output::SaveTarget;
@@ -52,6 +54,15 @@ impl Selection {
             }
         }
     }
+
+    fn source_title(self) -> Option<&'static str> {
+        match self.image {
+            ImageSource::Latest => Some("Latest clipboard image"),
+            ImageSource::Selected(_) => Some("Selected clipboard image"),
+            ImageSource::Unavailable if self.text.is_some() => Some("Selected clipboard text"),
+            ImageSource::Unavailable => None,
+        }
+    }
 }
 
 pub(super) enum Message {
@@ -87,6 +98,21 @@ impl Launcher {
         self.generation += 1;
         if let Some(view) = self.view.take() {
             let _ = view.window.hide();
+        }
+    }
+
+    pub(super) fn refresh_language(&self) {
+        if let Some(view) = &self.view {
+            view.window
+                .set_actions(ModelRc::new(VecModel::from(filtered_actions(
+                    view.window.get_query().as_str(),
+                    view.selection,
+                    view.system_capture,
+                ))));
+            if !view.window.get_source_title().is_empty() {
+                let title = view.selection.source_title().expect("已显示的来源有标题");
+                view.window.set_source_title(tr(title).into());
+            }
         }
     }
 
@@ -130,7 +156,7 @@ impl Launcher {
 
     fn status(&self, text: impl Into<slint::SharedString>, busy: bool) {
         if let Some(view) = &self.view {
-            view.window.set_status(text.into());
+            view.window.set_status(tr(text.into().as_str()).into());
             view.window.set_busy(busy);
         }
     }
@@ -226,13 +252,15 @@ fn filtered_actions(query: &str, selection: Selection, system_capture: bool) -> 
             (entry.action != SystemCapture || system_capture)
                 && (!image_action(entry.action) || selection.image != ImageSource::Unavailable)
                 && query.split_whitespace().all(|word| {
-                    entry.keywords.contains(word) || entry.label.to_ascii_lowercase().contains(word)
+                    entry.keywords.contains(word)
+                        || entry.label.to_ascii_lowercase().contains(word)
+                        || tr(entry.label).to_ascii_lowercase().contains(word)
                 })
         })
         .map(|entry| LauncherRow {
             action: entry.action,
-            label: entry.label.into(),
-            detail: entry.detail.into(),
+            label: tr(entry.label).into(),
+            detail: tr(entry.detail).into(),
         })
         .collect()
 }
@@ -243,11 +271,8 @@ fn send(message: Message) {
 
 impl App {
     fn describe_launcher_source(&self, selection: Selection) {
-        let title = match selection.image {
-            ImageSource::Latest => "Latest clipboard image",
-            ImageSource::Selected(_) => "Selected clipboard image",
-            ImageSource::Unavailable if selection.text.is_some() => "Selected clipboard text",
-            ImageSource::Unavailable => return,
+        let Some(title) = selection.source_title() else {
+            return;
         };
         let generation = self.launcher.generation;
         if let Err(error) = self.storage.client().execute(
@@ -306,7 +331,7 @@ impl App {
             }
             Message::Source(generation, title, Some(detail)) => {
                 if let Some(view) = self.launcher.current(generation) {
-                    view.window.set_source_title(title.into());
+                    view.window.set_source_title(tr(title).into());
                     view.window.set_source_detail(detail.into());
                 }
             }

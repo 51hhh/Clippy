@@ -27,8 +27,8 @@ export component ToolsWindow inherits ClippyWindow {
     private property <bool> confirm-clear;
     private property <int> action-index;
 
-    title: "Clippy Actions";
-    heading: root.show-history ? "Translation history" : "Text tools";
+    title: @tr("Clippy Actions");
+    heading: root.show-history ? @tr("Translation history") : @tr("Text tools");
     preferred-width: 800px;
     preferred-height: 520px;
     min-height: 380px;
@@ -46,18 +46,18 @@ export component ToolsWindow inherits ClippyWindow {
         spacing: 8px;
         HorizontalLayout {
             spacing: 6px;
-            if !root.show-history: SurfaceButton { label: "Screenshot"; clicked => { root.screenshot(); } }
+            if !root.show-history: SurfaceButton { label: @tr("Screenshot"); clicked => { root.screenshot(); } }
             if !root.show-history && root.system-screenshot-available: SurfaceButton {
-                label: "System Screenshot…";
+                label: @tr("System Screenshot…");
                 enabled: !root.busy && !root.system-screenshot-pending;
                 clicked => { root.system-screenshot(); }
             }
             if !root.show-history: SurfaceButton {
-                label: "Open latest image"; enabled: !root.busy; clicked => { root.use-image(); }
+                label: @tr("Open latest image"); enabled: !root.busy; clicked => { root.use-image(); }
             }
             Rectangle { horizontal-stretch: 1; }
             SurfaceButton {
-                label: root.show-history ? "Back to text tools" : "Translation history";
+                label: root.show-history ? @tr("Back to text tools") : @tr("Translation history");
                 enabled: !root.busy;
                 clicked => {
                     root.show-history = !root.show-history;
@@ -87,7 +87,7 @@ export component ToolsWindow inherits ClippyWindow {
             }
         }
         if root.show-history: SurfaceButton {
-            label: root.confirm-clear ? "Confirm clearing history" : "Clear translation history";
+            label: root.confirm-clear ? @tr("Confirm clearing history") : @tr("Clear translation history");
             clicked => {
                 if root.confirm-clear {
                     root.clear-history();
@@ -103,49 +103,49 @@ export component ToolsWindow inherits ClippyWindow {
             VerticalLayout {
                 horizontal-stretch: 1;
                 spacing: 6px;
-                Text { text: "Source"; color: ClippyTheme.foreground; font-weight: 600; }
+                Text { text: @tr("Source"); color: ClippyTheme.foreground; font-weight: 600; }
                 TextEdit {
                     text <=> root.source;
-                    accessible-label: "Source text";
+                    accessible-label: @tr("Source text");
                     read-only: root.busy;
                     wrap: word-wrap;
                     vertical-stretch: 1;
                     edited => { root.clear-result(); }
                 }
-                SurfaceButton { label: "Copy source"; enabled: !root.busy && !root.source.is-empty; clicked => { root.copy-text(root.source); } }
+                SurfaceButton { label: @tr("Copy source"); enabled: !root.busy && !root.source.is-empty; clicked => { root.copy-text(root.source); } }
             }
             VerticalLayout {
                 horizontal-stretch: 1;
                 spacing: 6px;
-                Text { text: root.action-index == 0 ? "Translation" : "Result"; color: ClippyTheme.foreground; font-weight: 600; }
+                Text { text: root.action-index == 0 ? @tr("Translation") : @tr("Result"); color: ClippyTheme.foreground; font-weight: 600; }
                 if root.has-result-markup: RichDocumentView {
                     body: root.result-markup;
                 }
                 if !root.has-result-markup: TextEdit {
                     text <=> root.result;
-                    accessible-label: "Text result";
+                    accessible-label: @tr("Text result");
                     read-only: true;
                     wrap: word-wrap;
                     vertical-stretch: 1;
                 }
                 HorizontalLayout {
                     spacing: 6px;
-                    SurfaceButton { label: "Copy result"; enabled: !root.busy && !root.result.is-empty; clicked => { root.copy-text(root.result); } }
-                    SurfaceButton { label: "Read aloud online"; enabled: !root.busy && !root.result.is-empty; clicked => { root.speak(root.result); } }
+                    SurfaceButton { label: @tr("Copy result"); enabled: !root.busy && !root.result.is-empty; clicked => { root.copy-text(root.result); } }
+                    SurfaceButton { label: @tr("Read aloud online"); enabled: !root.busy && !root.result.is-empty; clicked => { root.speak(root.result); } }
                 }
             }
         }
         if !root.show-history: HorizontalLayout {
             spacing: 8px;
             ComboBox {
-                model: ["Translate", "Markdown preview", "Format JSON", "Encode Base64", "Decode Base64",
-                    "Encode URL component", "Decode URL component", "Encode hex", "Decode hex"];
+                model: [@tr("Translate"), @tr("Markdown preview"), @tr("Format JSON"), @tr("Encode Base64"), @tr("Decode Base64"),
+                    @tr("Encode URL component"), @tr("Decode URL component"), @tr("Encode hex"), @tr("Decode hex")];
                 current-index <=> root.action-index;
                 enabled: !root.busy;
                 selected => { root.clear-result(); }
             }
             SurfaceButton {
-                label: root.action-index == 0 ? "Translate" : "Run";
+                label: root.action-index == 0 ? @tr("Translate") : @tr("Run");
                 selected: true;
                 enabled: !root.busy && !root.source.is-empty;
                 clicked => { root.run-action(root.action-index, root.source); }

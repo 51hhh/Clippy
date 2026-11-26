@@ -1,4 +1,5 @@
 use super::{send, App, AppWindow, Message, OcrStatus};
+use crate::locale::{message, tr};
 use clippy_vision::{health_status, invalidate_executable_cache, NativeOcr};
 use slint::Weak;
 use std::{
@@ -36,7 +37,7 @@ pub(super) fn refresh(app: &mut App, owner: Weak<AppWindow>) {
         status("OCR disabled", "")
     } else {
         OcrStatus {
-            title: "Checking OCR…".into(),
+            title: tr("Checking OCR…").into(),
             checking: true,
             ..Default::default()
         }
@@ -102,7 +103,10 @@ fn check(target: Target) -> OcrStatus {
             ),
             Err(error) => status(
                 "Bundled OCR needs repair",
-                format!("{error}. Reinstall Clippy to restore the bundled files."),
+                message(
+                    "{0}. Reinstall Clippy to restore the bundled files.",
+                    &[&error],
+                ),
             ),
         },
         Target::System { manifest, bundled } => {
@@ -116,8 +120,9 @@ fn check(target: Target) -> OcrStatus {
                 };
                 return status(
                     "Enhanced OCR",
-                    format!(
-                        "The {source} configuration and its model checksums passed validation."
+                    message(
+                        "The {0} configuration and its model checksums passed validation.",
+                        &[&tr(source)],
                     ),
                 );
             }
@@ -156,15 +161,18 @@ fn check(target: Target) -> OcrStatus {
             } else {
                 " Review the enhanced manifest and recheck OCR."
             };
-            status(title, format!("{detail} {reason}{action}"))
+            status(
+                title,
+                format!("{} {}{}", tr(detail), tr(reason), tr(action)),
+            )
         }
     }
 }
 
 fn status(title: &str, detail: impl Into<slint::SharedString>) -> OcrStatus {
     OcrStatus {
-        title: title.into(),
-        detail: detail.into(),
+        title: tr(title).into(),
+        detail: tr(detail.into().as_str()).into(),
         checking: false,
     }
 }

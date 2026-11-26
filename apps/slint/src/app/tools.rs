@@ -1,5 +1,5 @@
 use super::{clipboard, pins, post, preview_document, settings, vision, App, Event};
-use crate::{ClippyTheme, ToolsWindow, TranslationRow};
+use crate::{locale::tr, ClippyTheme, ToolsWindow, TranslationRow};
 use anyhow::{ensure, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use clippy_core::{
@@ -133,7 +133,7 @@ impl Tools {
 
     fn note(&self, note: impl Into<slint::SharedString>) {
         if let Some(window) = &self.window {
-            window.set_note(note.into());
+            window.set_note(tr(note.into().as_str()).into());
         }
     }
 }

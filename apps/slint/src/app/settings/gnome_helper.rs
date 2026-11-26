@@ -1,4 +1,5 @@
 use super::{send, use_app, App, Message};
+use crate::locale::tr;
 use crate::{AppWindow, GnomeHelperAction, GnomeHelperView};
 use anyhow::Result;
 use clippy_platform::{
@@ -52,7 +53,7 @@ pub(super) fn completed(app: &mut App, result: Result<Status>) {
         window.set_gnome_helper(match result {
             Ok(status) => view(status),
             Err(error) => GnomeHelperView {
-                title: "GNOME helper unavailable".into(),
+                title: tr("GNOME helper unavailable").into(),
                 detail: error.to_string().into(),
                 ..Default::default()
             },
@@ -125,6 +126,7 @@ fn view(status: Status) -> GnomeHelperView {
             "",
         ),
     };
+    let title = tr(title);
     let title = if let Some(version) = status.version {
         format!("{title} · v{version}").into()
     } else {
@@ -132,9 +134,9 @@ fn view(status: Status) -> GnomeHelperView {
     };
     GnomeHelperView {
         title,
-        detail: detail.into(),
+        detail: tr(detail).into(),
         action,
-        action_label: label.into(),
+        action_label: tr(label).into(),
         removable: status.removable,
     }
 }

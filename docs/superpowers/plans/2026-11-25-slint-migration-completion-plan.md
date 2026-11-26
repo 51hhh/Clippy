@@ -17,7 +17,7 @@ GitHub `dev` 仍指向 #27 的合入提交 `abfdeb5`。之前的安装包、三�
 
 | 功能 | 当前 Slint | 收尾内容 |
 | --- | --- | --- |
-| 托盘、快捷键、设置 | 按需窗口、单实例、三类快捷键、六主题、平台权限入口。设置支持录制、即时改键、失败回滚、原生文件选择和 OCR 诊断，Portal 管理的键位同步到界面 | 原生托盘、快捷键、系统配置入口和权限态实机验收。补中英文及自动语言、清理与更新入口。 [设置调用](../../../apps/slint/src/app/settings.rs) · [旧设置](../../../apps/legacy-tauri/frontend/settings.html) |
+| 托盘、快捷键、设置 | 按需窗口、单实例、三类快捷键、六主题、平台权限入口。设置支持录制、即时改键、失败回滚、原生文件选择和 OCR 诊断，Portal 管理的键位同步到界面。跟随系统、简体中文和英文已接入 | 原生托盘、快捷键、系统配置入口、语言和权限态实机验收。补清理与更新入口。 [设置调用](../../../apps/slint/src/app/settings.rs) · [旧设置](../../../apps/legacy-tauri/frontend/settings.html) |
 | 剪贴板和自动粘贴 | Unicode、HTML、透明 PNG、检索、收藏、删除、敏感项保护。X11 已验证复制和焦点变化。Windows 使用序列号，macOS 使用 `changeCount`，X11 读取 XFixes 事件，应用循环间隔 250 ms | 核对 Wayland 原生应用间的读写和授权恢复。将能观察的变更改为事件唤醒。短时间多次复制、退出数据所有权及焦点失效要在安装包内验证。 [平台剪贴板](../../../crates/clippy-platform/src/clipboard.rs) · [剪贴板工作线程](../../../apps/slint/src/app/clipboard.rs) |
 | 冻结截图 | X11 root、GNOME Mutter 原始帧、其他 Wayland 的 wayshot、Windows xcap/WGC 单帧、macOS xcap/CoreGraphics。选区使用单输出源像素 | 复测 v5 速度与 GNOME 瞬时菜单。补窗口速选、旋转和混合 DPI 验收。跨屏选区和合成是原生计划中的新增目标，先固定输出坐标尺度。保留系统截图导入和延时截图。 [平台采集](../../../crates/clippy-platform/src/capture.rs) · [GNOME v5 合同](../specs/2026-10-23-gnome-capture-fast-path-rollback.md) |
 | 标注、查看器、贴图 | 截图层有五个内联工具。编辑器可做更多标注。查看器支持缩放拖动。贴图、修订、工作区分组和缩略图已接入 | 恢复高频内联笔、文字、马赛克等实际入口与撤销/重做。窗口速选和扫码结果交互按旧操作验证。贴图跨屏缩放、层级和重启位置恢复做原生验证。独立查看器持久化工程按现有修订合同接入。 [截图窗](../../../apps/slint/ui/capture.slint) · [编辑器控制](../../../apps/slint/src/app/editor.rs) · [贴图状态](../../../apps/slint/src/app/pins.rs) |
@@ -582,6 +582,20 @@ Tesseract 状态、停用及清除自定义路径后恢复内置引擎。真实�
 并观察哈希校验不启动识别进程。重建独立 OCR worker，并以真实模型复测识别输出。
 
 **Out of Scope** 从系统安装 OCR 工具、替换模型或改变识别和降级策略。
+
+#### 阶段 6 · 界面语言
+
+**Goal** 新版可跟随系统语言，也可显式选择简体中文或英文，接续旧版用户的语言设置。
+
+**Requirements** 复用 `AppConfig.language` 的 `auto`、`zh-CN` 和 `en`。启动按保存值选择语言，点击保存后
+当场更新原生界面和托盘，保存失败时保留当前语言。静态界面用 Slint 自带的编译翻译，Rust 生成的界面文本
+共用同一词表。剪贴板内容、快捷键、路径、翻译语言代码与屏幕来源等数据按原含义处理。
+
+**Acceptance Criteria** 真实桌面验证中文系统跟随、显式英文优先、简体中文切换与重启恢复。在设置页核对
+失败保存与重试。检查托盘、剪贴板和操作面板、截图标注、贴图、录屏、OCR 和文本工具的主要入口、键盘操作、
+中文字体及布局。记录 Linux 实际窗口和 Windows/macOS 检查的范围。
+
+**Out of Scope** 翻译后端的源/目标语言设置、系统自身提供的对话框与第三方诊断文本。
 
 ## 实施记录
 
@@ -1266,6 +1280,22 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   证据位于 `target/test-artifacts/slint-stage6-ocr-status/`，包括 `x11-ocr-status.log`、`ocr-exec.trace`、
   `package-ocr-x11.log`、`prepare-bundle.log`、`worker-tests.log`、`worker-clippy.log`、`ci-local.log`、
   `windows-gnu-qa.log` 和 `macos-vision.log`。
+
+#### 阶段 6 · 界面语言接入结果
+
+- 沿用 `AppConfig.language`。Slint 界面和 Rust 生成的标签共用随二进制编译的词表。保存成功后在同一进程内
+  更新托盘、窗口和动作搜索。主题、实体快捷键、路径、剪贴板原文与翻译服务参数沿用原数据。
+- 同一个 QA 二进制在 100% 和 125% 隔离 X11 各通过 9 个场景。覆盖跟随中文系统、模拟写入失败并重试、
+  中文系统重启后仍用显式英文、切回中文且在英文系统重启后保留、重新跟随当前系统。托盘、设置、OCR 诊断、
+  剪贴板搜索和原文、动作搜索与键盘打开、贴图、录屏音源和截图标注均实际操作。已查看 125% 的中英文设置
+  与中文搜索截图。GNOME 50.1 隔离 Wayland 确认窗口速选状态和说明可显示中文并保留实际扩展版本。
+- 新版完整 Linux 门禁 11 通过、0 失败、0 跳过。Windows GNU Slint QA 入口交叉检查通过，macOS Intel
+  和 Apple Silicon 的系统语言检测库交叉检查通过。macOS 整应用交叉检查需要 Apple 工具链，Windows/macOS
+  原生桌面语言、字体和安装包继续验收。
+- QA 二进制 SHA-256 为 `7ac16fcdf733d62247dd6c315f0e24206cbffae904dc083861e8f340bec88171`。
+  证据位于 `target/test-artifacts/slint-stage6-language/`，包括 `ci-local-final.log`、`x11-language-final.log`、
+  `x11-language-scale125.log`、`gnome-language.log`、`windows-gnu-qa-final.log`、`macos-locale-arm64.log`、
+  `macos-locale-intel.log` 与两种缩放的窗口截图。
 
 ## Acceptance Criteria
 

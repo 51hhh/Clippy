@@ -35,25 +35,25 @@ export component ClippyTray inherits SystemTrayIcon {
     clicked => { root.open-panel(); }
 
     Menu {
-        MenuItem { title: "Open Clipboard"; activated => { root.open-panel(); } }
-        MenuItem { title: "Screenshot"; activated => { root.screenshot(); } }
-        MenuItem { title: "Screenshot in 3 seconds"; activated => { root.delayed-screenshot(); } }
-        MenuItem { title: "Save screens to PNG"; activated => { root.save-screens(); } }
-        MenuItem { title: "Actions"; activated => { root.open-actions(); } }
-        MenuItem { title: "Pinned Workspace"; activated => { root.open-workspace(); } }
-        MenuItem { title: "Recordings"; activated => { root.recordings(); } }
-        MenuItem { title: "Pause / Resume recording"; activated => { root.recording-pause(); } }
-        MenuItem { title: "Stop recording"; activated => { root.recording-stop(); } }
-        if root.scrolling : MenuItem { title: "Stop scrolling capture"; activated => { root.stop-scrolling(); } }
-        MenuItem { title: "Settings"; activated => { root.open-settings(); } }
-        MenuItem { title: "Quit"; activated => { root.quit(); } }
+        MenuItem { title: @tr("Open Clipboard"); activated => { root.open-panel(); } }
+        MenuItem { title: @tr("Screenshot"); activated => { root.screenshot(); } }
+        MenuItem { title: @tr("Screenshot in 3 seconds"); activated => { root.delayed-screenshot(); } }
+        MenuItem { title: @tr("Save screens to PNG"); activated => { root.save-screens(); } }
+        MenuItem { title: @tr("Actions"); activated => { root.open-actions(); } }
+        MenuItem { title: @tr("Pinned Workspace"); activated => { root.open-workspace(); } }
+        MenuItem { title: @tr("Recordings"); activated => { root.recordings(); } }
+        MenuItem { title: @tr("Pause / Resume recording"); activated => { root.recording-pause(); } }
+        MenuItem { title: @tr("Stop recording"); activated => { root.recording-stop(); } }
+        if root.scrolling : MenuItem { title: @tr("Stop scrolling capture"); activated => { root.stop-scrolling(); } }
+        MenuItem { title: @tr("Settings"); activated => { root.open-settings(); } }
+        MenuItem { title: @tr("Quit"); activated => { root.quit(); } }
     }
 }
 
 export component AppWindow inherits Window {
     in property <string> product-name;
     in property <string> build-label;
-    in property <string> history-status: "Loading history…";
+    in property <string> history-status: @tr("Loading history…");
     in property <string> action-status;
     in property <string> shortcut-status;
     in property <GeneralSettings> general-settings;
@@ -69,7 +69,7 @@ export component AppWindow inherits Window {
     in property <bool> gnome-session;
     in property <bool> settings-save-pending;
     in property <bool> gnome-helper-busy;
-    in property <GnomeHelperView> gnome-helper: { title: "Checking helper…" };
+    in property <GnomeHelperView> gnome-helper: { title: @tr("Checking helper…") };
     in property <PortalShortcutView> portal-shortcuts;
     in property <OcrStatus> ocr-status;
     in property <TranslationSettings> translation-settings;
@@ -135,7 +135,7 @@ export component AppWindow inherits Window {
         root.ocr-manifest-draft = root.general-settings.ocr-manifest;
     }
 
-    title: root.show-settings ? "Clippy Settings" : root.product-name;
+    title: root.show-settings ? @tr("Clippy Settings") : root.product-name;
     preferred-width: root.panel-width;
     preferred-height: root.show-settings ? 560px : 500px;
     min-width: root.show-settings ? 480px : root.preview-open ? 540px : 340px;
@@ -152,7 +152,7 @@ export component AppWindow inherits Window {
 
     VerticalLayout {
         if root.show-settings: WindowHeader {
-            title: "Settings";
+            title: @tr("Settings");
             maximized: root.maximized;
             minimize => { root.minimized = true; }
             maximize => { root.maximized = !root.maximized; }
@@ -209,8 +209,9 @@ export component AppWindow inherits Window {
                     loading: root.loading-history;
                     busy: root.busy;
                     ocr-enabled: root.general-settings.ocr-enabled;
-                    target-language: root.translation-settings.target == "en" ? "English" : root.translation-settings.target;
-                    destination: root.translation-destination;
+                    target-language: root.translation-settings.target == "en" ? @tr("English") : root.translation-settings.target;
+                    destination: root.translation-destination == "" ? @tr("No provider configured")
+                        : root.translation-destination;
                     dismiss => { root.show-preview(false); }
                     copy => { root.copy-item(root.preview.clip-id, false); }
                     copy-text(text) => { root.copy-preview-text(text); }

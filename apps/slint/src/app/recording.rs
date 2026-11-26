@@ -1,5 +1,5 @@
 use super::{editor, post, settings, App, Event};
-use crate::{ClippyTheme, RecordingFile, RecordingLibrary, RecordingRow};
+use crate::{locale::tr, ClippyTheme, RecordingFile, RecordingLibrary, RecordingRow};
 use anyhow::{Context, Result};
 use audio::{AudioOptions, AudioTrack};
 use clippy_core::image_output::{expand_user_path, unique_image_id};
@@ -392,10 +392,17 @@ impl Recordings {
         Ok(())
     }
 
-    fn remember_audio(&mut self) {
+    pub(super) fn remember_audio(&mut self) {
         if let Some(window) = self.window.as_ref() {
             self.audio.remember(window.get_audio_value().as_str());
         }
+    }
+
+    pub(super) fn refresh_language(&self) {
+        if let Some(window) = self.window.as_ref() {
+            self.audio.show(window);
+        }
+        self.sync_controls();
     }
 
     fn note(&mut self, result: Result<String>) {
@@ -409,7 +416,7 @@ impl Recordings {
             window.set_paused(self.paused);
             window.set_toggle_pending(self.toggle_pending);
             window.set_finishing(self.finishing);
-            window.set_status(self.status.clone().into());
+            window.set_status(tr(&self.status).into());
         }
         if let Some(control) = self.control.as_ref() {
             control.sync(self.paused, self.toggle_pending, self.finishing);
@@ -491,7 +498,7 @@ fn library_rows(items: Vec<RecordingLibraryItem>) -> Vec<RecordingRow> {
             };
             RecordingRow {
                 session: item.session_id.into(),
-                title: SharedString::from("Screen recording"),
+                title: SharedString::from(tr("Screen recording")),
                 detail: format!(
                     "{} × {} · {:.1} s · {} frames · {}",
                     item.width,
@@ -501,7 +508,7 @@ fn library_rows(items: Vec<RecordingLibraryItem>) -> Vec<RecordingRow> {
                     item.container.to_ascii_uppercase()
                 )
                 .into(),
-                state: state.into(),
+                state: tr(state).into(),
                 complete: item.state == "complete",
                 can_merge: cfg!(feature = "vp9-recording") && item.can_merge,
                 can_preview: cfg!(feature = "vp9-recording") && item.can_thumbnail,

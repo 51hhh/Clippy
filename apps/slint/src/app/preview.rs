@@ -193,7 +193,7 @@ impl App {
                         eprintln!("Clipboard preview unavailable: {error}");
                         ClipPreview {
                             clip_id: request.id.to_string().into(),
-                            status: "Preview unavailable".into(),
+                            status: crate::locale::tr("Preview unavailable").into(),
                             ..Default::default()
                         }
                     }
@@ -265,8 +265,10 @@ impl App {
                 if let Err(error) = self.clipboard.submit(clipboard::Request::WriteText {
                     text,
                     finish: Box::new(|result| {
-                        let status =
-                            result.map_or_else(|error| error.to_string(), |()| "Copied".into());
+                        let status = result.map_or_else(
+                            |error| error.to_string(),
+                            |()| crate::locale::tr("Copied").into(),
+                        );
                         post(Event::ClipboardStatus(status));
                     }),
                 }) {

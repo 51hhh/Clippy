@@ -1,3 +1,4 @@
+use crate::locale::{message, tr};
 use crate::{build_label, clip_row, AppWindow, CaptureAction, ClippyTray, ShortcutField};
 use anyhow::{Context, Result};
 use clippy_core::{
@@ -77,6 +78,7 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
     let clipboard =
         clipboard::Worker::start(storage.client(), paths.data_dir.clone(), config.max_history)?;
     let tray = ClippyTray::new()?;
+    crate::locale::apply(&config.language);
     tray.set_product_name(identity.product_name.into());
     tray.on_open_panel(|| handle(Event::Open(false)));
     tray.on_screenshot(|| handle(Event::CaptureStart));
@@ -382,14 +384,15 @@ impl App {
                             window.set_can_load_more(count == window.get_history_limit() as usize);
                             window.set_clips(ModelRc::new(VecModel::from(rows)));
                             window.set_history_status(match count {
-                                0 => "No matching items".into(),
-                                1 => "1 item".into(),
-                                _ => format!("{count} items").into(),
+                                0 => tr("No matching items").into(),
+                                1 => tr("1 item").into(),
+                                _ => message("{0} items", &[&count]).into(),
                             });
                             self.refresh_thumbnails();
                         }
-                        Err(error) => window
-                            .set_history_status(format!("History unavailable: {error}").into()),
+                        Err(error) => window.set_history_status(
+                            message("History unavailable: {0}", &[&error]).into(),
+                        ),
                     }
                 }
             }
@@ -405,7 +408,7 @@ impl App {
             Event::ShortcutStatus(ShortcutStatus::Portal(bindings)) => {
                 self.portal_shortcuts = settings::portal_shortcut_view(bindings);
                 if let Some(window) = &self.window {
-                    window.set_portal_shortcuts(self.portal_shortcuts.clone());
+                    settings::show_portal_shortcuts(window, &self.portal_shortcuts);
                 }
             }
             Event::Copied(Ok((Some(target), generation))) if self.config.auto_paste => {
@@ -606,9 +609,9 @@ impl App {
         #[cfg(target_os = "linux")]
         {
             window.set_settings_save_pending(self.gnome_settings_pending.is_some());
-            window.set_portal_shortcuts(self.portal_shortcuts.clone());
+            settings::show_portal_shortcuts(&window, &self.portal_shortcuts);
         }
-        window.set_action_status(self.action_status.clone());
+        window.set_action_status(tr(self.action_status.as_str()).into());
         window.set_shortcut_status(self.shortcut_status.clone().into());
         settings::connect(&window, &self.config);
         if settings {
@@ -699,7 +702,7 @@ impl App {
         });
         if let Err(error) = result {
             window.set_loading_history(false);
-            self.status(format!("History unavailable: {error}"));
+            self.status(message("History unavailable: {0}", &[&error]));
         }
     }
 
@@ -752,7 +755,7 @@ impl App {
             ..self.config.clone()
         };
         if let Err(error) = self.save_config(&next) {
-            self.status(format!("Could not save settings: {error}"));
+            self.status(message("Could not save settings: {0}", &[&error]));
             return;
         }
         self.config = next;
@@ -800,7 +803,7 @@ impl App {
     fn status(&mut self, message: impl Into<SharedString>) {
         self.action_status = message.into();
         if let Some(window) = &self.window {
-            window.set_action_status(self.action_status.clone());
+            window.set_action_status(tr(self.action_status.as_str()).into());
         }
     }
 

@@ -42,7 +42,7 @@ export component RecordingLibrary inherits Window {
     private property <string> confirm-delete;
     private property <string> export-directory;
 
-    title: "Clippy Recordings";
+    title: @tr("Clippy Recordings");
     no-frame: true;
     resize-border-width: ClippyTheme.window-resize-border;
     background: ClippyTheme.background;
@@ -61,8 +61,8 @@ export component RecordingLibrary inherits Window {
         x: 0px; y: 0px; width: root.width; height: root.height;
         heading := LibraryHeader {
             height: 84px;
-            title: "Recordings";
-            subtitle: root.playback-visible ? "" : "Export completed recordings or recover committed segments.";
+            title: @tr("Recordings");
+            subtitle: root.playback-visible ? "" : @tr("Export completed recordings or recover committed segments.");
             dismiss => { root.dismiss(); }
         }
         if root.playback-visible: VerticalLayout {
@@ -71,7 +71,7 @@ export component RecordingLibrary inherits Window {
             HorizontalLayout {
                 height: 34px; spacing: 10px;
                 SurfaceButton {
-                    label: "Back to recordings";
+                    label: @tr("Back to recordings");
                     border-width: 1px; border-color: ClippyTheme.control-border;
                     clicked => { root.back-to-recordings(); }
                 }
@@ -92,12 +92,12 @@ export component RecordingLibrary inherits Window {
                 height: 34px; spacing: 12px;
                 SurfaceButton {
                     width: 76px; enabled: root.playback-ready;
-                    label: root.playback-paused ? "Resume" : "Pause";
+                    label: root.playback-paused ? @tr("Resume") : @tr("Pause");
                     border-width: 1px; border-color: ClippyTheme.control-border;
                     clicked => { root.toggle-playback(); }
                 }
                 Slider {
-                    accessible-label: "Playback position";
+                    accessible-label: @tr("Playback position");
                     maximum: max(1, root.playback-duration); step: 1000;
                     value: root.playback-position;
                     horizontal-stretch: 1;
@@ -116,13 +116,13 @@ export component RecordingLibrary inherits Window {
             if root.recording: HorizontalLayout {
                 spacing: 8px; height: 36px;
                 if root.recording: SurfaceButton {
-                    label: root.paused ? "Resume" : "Pause"; width: 76px;
+                    label: root.paused ? @tr("Resume") : @tr("Pause"); width: 76px;
                     border-width: 1px; border-color: ClippyTheme.control-border;
                     enabled: !root.toggle-pending && !root.finishing;
                     clicked => { root.pause(); }
                 }
                 if root.recording: SurfaceButton {
-                    label: root.finishing ? "Finalizing…" : "Stop"; width: 96px;
+                    label: root.finishing ? @tr("Finalizing…") : @tr("Stop"); width: 96px;
                     danger: true; enabled: !root.finishing;
                     border-width: 1px; border-color: ClippyTheme.control-border;
                     clicked => { root.stop(); }
@@ -135,8 +135,8 @@ export component RecordingLibrary inherits Window {
             }
             if root.recordings.length > 0: HorizontalLayout {
                 height: 32px; spacing: 8px;
-                LineEdit { text <=> root.export-directory; placeholder-text: "Optional export destination directory"; }
-                SurfaceButton { label: "Refresh"; border-width: 1px; border-color: ClippyTheme.control-border; clicked => { root.reload(); } }
+                LineEdit { text <=> root.export-directory; placeholder-text: @tr("Optional export destination directory"); }
+                SurfaceButton { label: @tr("Refresh"); border-width: 1px; border-color: ClippyTheme.control-border; clicked => { root.reload(); } }
             }
             if root.recordings.length == 0: Rectangle {
                 vertical-stretch: 1;
@@ -151,11 +151,11 @@ export component RecordingLibrary inherits Window {
                         }
                     }
                     Text {
-                        text: root.loaded ? "No recordings yet" : "Loading recordings…";
+                        text: root.loaded ? @tr("No recordings yet") : @tr("Loading recordings…");
                         color: ClippyTheme.muted; font-size: 18px; font-weight: 650; horizontal-alignment: center;
                     }
                     if root.loaded: Text {
-                        text: "Completed recordings and recoverable segments will appear here.";
+                        text: @tr("Completed recordings and recoverable segments will appear here.");
                         color: ClippyTheme.muted; font-size: 13px; horizontal-alignment: center; wrap: word-wrap;
                     }
                 }
@@ -198,7 +198,7 @@ export component RecordingLibrary inherits Window {
                                             }
                                         }
                                         SurfaceButton {
-                                            label: "Delete session"; caption: "Delete"; danger: true; enabled: !root.recording;
+                                            label: @tr("Delete session"); caption: @tr("Delete"); danger: true; enabled: !root.recording;
                                             clicked => { root.confirm-delete = row.session; }
                                         }
                                     }
@@ -207,8 +207,8 @@ export component RecordingLibrary inherits Window {
                             }
                             if row.can-merge: HorizontalLayout {
                                 height: 43px; spacing: 8px;
-                                Text { text: "Committed segments can be recovered."; color: ClippyTheme.muted; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; }
-                                SurfaceButton { label: "Recover"; primary: true; enabled: !root.recording; clicked => { root.merge-recording(row.session + ":"); } }
+                                Text { text: @tr("Committed segments can be recovered."); color: ClippyTheme.muted; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; }
+                                SurfaceButton { label: @tr("Recover"); primary: true; enabled: !root.recording; clicked => { root.merge-recording(row.session + ":"); } }
                             }
                             for file in row.files: Rectangle {
                                 height: 53px;
@@ -220,19 +220,19 @@ export component RecordingLibrary inherits Window {
                                         Text { text: file.title; font-size: 13px; font-weight: 650; color: ClippyTheme.foreground; overflow: elide; }
                                         Text { text: file.detail; font-size: 11px; color: ClippyTheme.subtle; overflow: elide; }
                                     }
-                                    SurfaceButton { label: "Play"; width: 61px; border-width: 1px; border-color: ClippyTheme.control-border; clicked => { root.play(file.key); } }
+                                    SurfaceButton { label: @tr("Play"); width: 61px; border-width: 1px; border-color: ClippyTheme.control-border; clicked => { root.play(file.key); } }
                                     SurfaceButton {
-                                        label: "Export"; width: 70px; primary: true;
+                                        label: @tr("Export"); width: 70px; primary: true;
                                         clicked => { root.export-recording(file.key, root.export-directory); }
                                     }
                                 }
                             }
                             if root.confirm-delete == row.session: HorizontalLayout {
                                 height: 43px; spacing: 6px;
-                                Text { text: "Delete this recording and its saved segments?"; color: ClippyTheme.danger; font-size: 11px; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
-                                SurfaceButton { label: "Cancel"; clicked => { root.confirm-delete = ""; } }
+                                Text { text: @tr("Delete this recording and its saved segments?"); color: ClippyTheme.danger; font-size: 11px; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
+                                SurfaceButton { label: @tr("Cancel"); clicked => { root.confirm-delete = ""; } }
                                 SurfaceButton {
-                                    label: "Delete permanently"; caption: "Delete"; danger: true; enabled: !root.recording;
+                                    label: @tr("Delete permanently"); caption: @tr("Delete"); danger: true; enabled: !root.recording;
                                     clicked => { root.remove-recording(row.session + ":"); root.confirm-delete = ""; }
                                 }
                             }
@@ -247,15 +247,15 @@ export component RecordingLibrary inherits Window {
                     vertical-alignment: center; horizontal-stretch: 1; overflow: elide;
                 }
                 if root.recordings.length == 0: SurfaceButton {
-                    label: "Refresh audio devices"; caption: "Refresh";
+                    label: @tr("Refresh audio devices"); caption: @tr("Refresh");
                     border-width: 1px; border-color: ClippyTheme.control-border;
                     clicked => { root.reload(); }
                 }
-                Text { text: "Next recording"; color: ClippyTheme.subtle; font-size: 11px; vertical-alignment: center; }
+                Text { text: @tr("Next recording"); color: ClippyTheme.subtle; font-size: 11px; vertical-alignment: center; }
                 ComboBox {
                     width: 224px;
                     model: root.audio-options; current-value <=> root.audio-value;
-                    accessible-label: "Audio for the next recording";
+                    accessible-label: @tr("Audio for the next recording");
                 }
             }
         }
@@ -281,7 +281,7 @@ export component RecordingControlWindow inherits Window {
     callback pause();
     callback stop();
 
-    title: "Clippy Recording Control";
+    title: @tr("Clippy Recording Control");
     no-frame: true;
     preferred-width: 280px; preferred-height: 56px;
     min-width: 280px; min-height: 56px;
@@ -303,18 +303,18 @@ export component RecordingControlWindow inherits Window {
                 }
             }
             Text {
-                text: root.finishing ? "Finalizing…" : !root.started ? "Starting…" : root.elapsed;
+                text: root.finishing ? @tr("Finalizing…") : !root.started ? @tr("Starting…") : root.elapsed;
                 font-size: 14px; font-weight: 650; color: #f8fafc;
                 vertical-alignment: center; horizontal-stretch: 1;
             }
             RecordingControlButton {
-                label: root.paused ? "Resume recording" : "Pause recording";
+                label: root.paused ? @tr("Resume recording") : @tr("Pause recording");
                 icon: root.paused ? "M8 4v16l12-8Z" : "M8 5v14m8-14v14";
                 enabled: root.started && !root.finishing && !root.pending;
                 clicked => { root.pause(); }
             }
             RecordingControlButton {
-                label: "Stop recording"; danger: true;
+                label: @tr("Stop recording"); danger: true;
                 icon: "M6 6h12v12H6Z";
                 enabled: root.started && !root.finishing;
                 clicked => { root.stop(); }

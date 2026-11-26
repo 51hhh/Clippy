@@ -1,4 +1,5 @@
 use super::{send, App, AppWindow, FileChoice, Message};
+use crate::locale::tr;
 use anyhow::{ensure, Context, Result};
 use clippy_core::image_output::expand_user_path;
 use clippy_platform::file_dialog::{select, Mode, Request};
@@ -18,7 +19,7 @@ pub(super) fn start(app: &mut App, kind: FileChoice, path: &str) -> Result<()> {
     let request = match kind {
         FileChoice::ScreenshotDirectory => Request {
             mode: Mode::Directory,
-            title: "Choose screenshot directory",
+            title: tr("Choose screenshot directory"),
             directory: Some(if path.is_absolute() {
                 path
             } else {
@@ -27,10 +28,10 @@ pub(super) fn start(app: &mut App, kind: FileChoice, path: &str) -> Result<()> {
         },
         FileChoice::OcrManifest => Request {
             mode: Mode::Open {
-                label: "JSON files",
+                label: tr("JSON files"),
                 extension: "json",
             },
-            title: "Choose OCR manifest",
+            title: tr("Choose OCR manifest"),
             directory: path
                 .parent()
                 .filter(|path| path.is_absolute())
@@ -40,22 +41,22 @@ pub(super) fn start(app: &mut App, kind: FileChoice, path: &str) -> Result<()> {
             mode: Mode::Save {
                 suggested_name: "Clippy-backup.clippy.zip",
             },
-            title: "Export Clippy archive",
+            title: tr("Export Clippy archive"),
             directory: None,
         },
         FileChoice::ImportArchive => Request {
             mode: Mode::Open {
-                label: "Clippy archives",
+                label: tr("Clippy archives"),
                 extension: "zip",
             },
-            title: "Import Clippy archive",
+            title: tr("Import Clippy archive"),
             directory: None,
         },
     };
     slint::spawn_local(async move {
         let result = choose(&requester, request)
             .await
-            .context("Could not open the file chooser");
+            .context(tr("Could not open the file chooser"));
         send(Message::FileChosen(kind, requester, result));
     })?;
     app.file_dialog_pending = true;

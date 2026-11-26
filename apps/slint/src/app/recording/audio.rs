@@ -3,7 +3,7 @@
     any(target_os = "linux", target_os = "windows")
 ))]
 use super::{send, Message};
-use crate::RecordingLibrary;
+use crate::{locale::tr, RecordingLibrary};
 use anyhow::{Context, Result};
 #[cfg(all(
     feature = "native-recording-audio",
@@ -97,7 +97,11 @@ impl Default for AudioOptions {
 
 impl AudioOptions {
     pub(super) fn remember(&mut self, value: &str) {
-        if let Some(choice) = self.choices.iter().find(|choice| choice.label == value) {
+        if let Some(choice) = self
+            .choices
+            .iter()
+            .find(|choice| tr(&choice.label) == value)
+        {
             self.selection = choice.track.clone();
         }
     }
@@ -111,21 +115,21 @@ impl AudioOptions {
     pub(super) fn selected(&self) -> Result<AudioTrack> {
         self.selected_index()
             .map(|_| self.selection.clone())
-            .context(
+            .context(tr(
                 "The selected audio device is unavailable. Choose an audio source in Recordings.",
-            )
+            ))
     }
 
     pub(super) fn show(&self, window: &RecordingLibrary) {
         let mut labels = self
             .choices
             .iter()
-            .map(|choice| choice.label.as_str().into())
+            .map(|choice| tr(&choice.label).into())
             .collect::<Vec<_>>();
         let value = if let Some(index) = self.selected_index() {
-            self.choices[index].label.as_str()
+            tr(&self.choices[index].label)
         } else {
-            let unavailable = "Selected device unavailable";
+            let unavailable = tr("Selected device unavailable");
             labels.push(unavailable.into());
             unavailable
         };
@@ -135,7 +139,7 @@ impl AudioOptions {
     }
 
     pub(super) fn show_status(&self, window: &RecordingLibrary) {
-        window.set_audio_status(self.status.into());
+        window.set_audio_status(tr(self.status).into());
     }
 
     pub(super) fn refresh(&mut self) -> io::Result<()> {

@@ -1,0 +1,1394 @@
+msgid ""
+msgstr ""
+"Language: zh-CN\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid " Clear the enhanced manifest and save to use bundled OCR."
+msgstr "清空增强清单并保存，即可使用内置 OCR。"
+
+msgid " Review the enhanced manifest and recheck OCR."
+msgstr "请检查增强清单，再重查 OCR。"
+
+msgid " Update or remove CLIPPY_OCR_MANIFEST."
+msgstr "修改或移除 CLIPPY_OCR_MANIFEST。"
+
+msgid "0 = unlimited. Favorites are kept."
+msgstr "填 0 表示不限数量。收藏的记录会保留。"
+
+msgid "1 item"
+msgstr "1 条记录"
+
+msgid "A model listed in the enhanced manifest is missing."
+msgstr "缺少增强清单中列出的模型。"
+
+msgid "API key"
+msgstr "API 密钥"
+
+msgid "API secret · Youdao"
+msgstr "API 密钥 · 有道"
+
+msgid "About"
+msgstr "关于"
+
+msgid "Actions"
+msgstr "动作"
+
+msgid "Actual size"
+msgstr "实际大小"
+
+msgid "Add favorite"
+msgstr "收藏"
+
+msgid "Add frame"
+msgstr "追加一帧"
+
+msgid "All"
+msgstr "全部"
+
+msgid "An enhanced OCR model failed checksum validation."
+msgstr "增强 OCR 模型的摘要校验失败。"
+
+msgid "An enhanced OCR script or module is missing."
+msgstr "缺少增强 OCR 的脚本或模块。"
+
+msgid "Annotation text"
+msgstr "标注文字"
+
+msgid "Applying mosaic…"
+msgstr "正在生成马赛克…"
+
+msgid "Applying shortcuts…"
+msgstr "正在应用快捷键…"
+
+msgid "Archive snapshot unavailable"
+msgstr "无法读取备份快照"
+
+msgid "Arrow"
+msgstr "箭头"
+
+msgid "Audio for the next recording"
+msgstr "下次录屏的音源"
+
+msgid "Authorize paste"
+msgstr "授权粘贴"
+
+msgid "Authorize scrolling"
+msgstr "授权自动滚动"
+
+msgid "Auto down"
+msgstr "自动向下"
+
+msgid "Auto left"
+msgstr "自动向左"
+
+msgid "Auto right"
+msgstr "自动向右"
+
+msgid "Auto up"
+msgstr "自动向上"
+
+msgid "Auto-paste disabled"
+msgstr "已关闭自动粘贴"
+
+msgid "Auto-paste enabled"
+msgstr "已启用自动粘贴"
+
+msgid "Automatic paste"
+msgstr "自动粘贴"
+
+msgid "Available"
+msgstr "可用"
+
+msgid "Back to recordings"
+msgstr "返回录屏结果"
+
+msgid "Back to text tools"
+msgstr "返回文本工具"
+
+msgid "Black"
+msgstr "黑色"
+
+msgid "Blue"
+msgstr "蓝色"
+
+msgid "Blur"
+msgstr "模糊"
+
+msgid "Browse OCR manifest"
+msgstr "选择 OCR 清单"
+
+msgid "Browse screenshot directory"
+msgstr "选择截图目录"
+
+msgid "Browse…"
+msgstr "浏览…"
+
+msgid "Bundled OCR needs repair"
+msgstr "内置 OCR 需要修复"
+
+msgid "Bundled PP-OCRv6"
+msgstr "内置 PP-OCRv6"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Capture active tmux pane"
+msgstr "复制当前 tmux 窗格"
+
+msgid "Change these shortcuts in your desktop settings."
+msgstr "请在系统设置中修改这些快捷键。"
+
+msgid "Checking OCR…"
+msgstr "正在检查 OCR…"
+
+msgid "Checking helper…"
+msgstr "正在检查扩展…"
+
+msgid "Choose OCR manifest"
+msgstr "选择 OCR 清单"
+
+msgid "Choose screenshot directory"
+msgstr "选择截图目录"
+
+msgid "Clear marks"
+msgstr "清除标注"
+
+msgid "Clear translation history"
+msgstr "清空翻译历史"
+
+msgid "Click Record, then press your desired key combination."
+msgstr "点击录制，再按下要使用的组合键。"
+
+msgid "Click a window or drag an area"
+msgstr "单击选择窗口，或拖动框选区域"
+
+msgid "Clipboard image"
+msgstr "剪贴板图片"
+
+msgid "Clippy Actions"
+msgstr "Clippy 动作"
+
+msgid "Clippy Image Editor"
+msgstr "Clippy 图片编辑器"
+
+msgid "Clippy Image Text"
+msgstr "Clippy 图片识字"
+
+msgid "Clippy Image Viewer"
+msgstr "Clippy 图片查看器"
+
+msgid "Clippy Launcher"
+msgstr "Clippy 动作面板"
+
+msgid "Clippy Pinned Workspace"
+msgstr "Clippy 贴图工作区"
+
+msgid "Clippy Recording Control"
+msgstr "Clippy 录屏控制"
+
+msgid "Clippy Recordings"
+msgstr "Clippy 录屏结果"
+
+msgid "Clippy Screenshot"
+msgstr "Clippy 截图"
+
+msgid "Clippy Scrolling Capture"
+msgstr "Clippy 长截图"
+
+msgid "Clippy Settings"
+msgstr "Clippy 设置"
+
+msgid "Clippy archives"
+msgstr "Clippy 备份"
+
+msgid "Clippy reads the screen with the native desktop API."
+msgstr "Clippy 使用桌面原生接口读取屏幕。"
+
+msgid "Close"
+msgstr "关闭"
+
+msgid "Close actions"
+msgstr "关闭动作面板"
+
+msgid "Close preview"
+msgstr "关闭预览"
+
+msgid "Close search"
+msgstr "关闭搜索"
+
+msgid "Close window"
+msgstr "关闭窗口"
+
+msgid "Committed segments can be recovered."
+msgstr "已写入的片段可以恢复。"
+
+msgid "Complete"
+msgstr "已完成"
+
+msgid "Completed recordings and recoverable segments will appear here."
+msgstr "这里会显示已完成的录像和可恢复的片段。"
+
+msgid "Configure Desktop Shortcuts"
+msgstr "配置桌面快捷键"
+
+msgid "Configure shortcuts, themes and translation"
+msgstr "配置快捷键、主题和翻译"
+
+msgid "Confirm clearing history"
+msgstr "确认清空历史"
+
+msgid "Copied"
+msgstr "已复制"
+
+msgid "Copied to clipboard"
+msgstr "已复制到剪贴板"
+
+msgid "Copy"
+msgstr "复制"
+
+msgid "Copy image"
+msgstr "复制图片"
+
+msgid "Copy result"
+msgstr "复制结果"
+
+msgid "Copy source"
+msgstr "复制原文"
+
+msgid "Copy text"
+msgstr "复制文字"
+
+msgid "Copy translation"
+msgstr "复制译文"
+
+msgid "Copy, translate, format JSON or convert encodings"
+msgstr "复制、翻译、格式化 JSON 或转换编码"
+
+msgid "Corners"
+msgstr "圆角"
+
+msgid "Could not check OCR"
+msgstr "无法检查 OCR"
+
+msgid "Could not open the file chooser"
+msgstr "无法打开文件选择器"
+
+msgid "Could not refresh audio devices"
+msgstr "无法刷新音频设备"
+
+msgid "Could not save settings: {0}"
+msgstr "无法保存设置，{0}"
+
+msgid "Create group"
+msgstr "创建分组"
+
+msgid "Credentials saved to the system keychain"
+msgstr "凭据已保存到系统密钥库"
+
+msgid "Dark"
+msgstr "深色"
+
+msgid "Data and Backups"
+msgstr "数据与备份"
+
+msgid "Decode Base64"
+msgstr "Base64 解码"
+
+msgid "Decode URL component"
+msgstr "URL 组件解码"
+
+msgid "Decode codes in an image"
+msgstr "识别图片中的二维码和条码"
+
+msgid "Decode hex"
+msgstr "十六进制解码"
+
+msgid "Default microphone"
+msgstr "默认麦克风"
+
+msgid "Default system audio"
+msgstr "默认系统声音"
+
+msgid "Delete"
+msgstr "删除"
+
+msgid "Delete permanently"
+msgstr "永久删除"
+
+msgid "Delete session"
+msgstr "删除录像"
+
+msgid "Delete stored credentials"
+msgstr "删除已保存的凭据"
+
+msgid "Delete this group? Its pins will be ungrouped."
+msgstr "删除此分组？其中的贴图会移到未分组。"
+
+msgid "Delete this recording and its saved segments?"
+msgstr "删除这段录像及其已保存的片段？"
+
+msgid "Desktop permission"
+msgstr "桌面授权"
+
+msgid "Desktop shortcut settings requested"
+msgstr "已请求打开桌面快捷键设置"
+
+msgid "Detect automatically"
+msgstr "自动检测"
+
+msgid "Diagnostics"
+msgstr "诊断"
+
+msgid "Disable"
+msgstr "停用"
+
+msgid "Done"
+msgstr "完成"
+
+msgid "Drag to select an area"
+msgstr "拖动框选区域"
+
+msgid "Draw"
+msgstr "标注"
+
+msgid "Edit"
+msgstr "编辑"
+
+msgid "Edit image"
+msgstr "编辑图片"
+
+msgid "Ellipse"
+msgstr "椭圆"
+
+msgid "Empty text"
+msgstr "空白文本"
+
+msgid "Enable"
+msgstr "启用"
+
+msgid "Enable OCR"
+msgstr "启用 OCR"
+
+msgid "Enable automatic paste"
+msgstr "启用自动粘贴"
+
+msgid "Enable it to bring back window picking."
+msgstr "启用扩展后可在截图中速选窗口。"
+
+msgid "Encode Base64"
+msgstr "Base64 编码"
+
+msgid "Encode URL component"
+msgstr "URL 组件编码"
+
+msgid "Encode hex"
+msgstr "十六进制编码"
+
+msgid "Endpoint"
+msgstr "接口地址"
+
+msgid "English"
+msgstr "英语"
+
+msgid "English (en)"
+msgstr "英语（en）"
+
+msgid "Enhanced OCR"
+msgstr "增强 OCR"
+
+msgid "Enhanced OCR manifest"
+msgstr "增强 OCR 清单"
+
+msgid "Enter a history limit"
+msgstr "请输入历史记录上限"
+
+msgid "Enter an absolute .clippy.zip path"
+msgstr "请输入 .clippy.zip 的绝对路径"
+
+msgid "Export"
+msgstr "导出"
+
+msgid "Export Clippy archive"
+msgstr "导出 Clippy 备份"
+
+msgid "Export archive"
+msgstr "导出备份"
+
+msgid "Export completed recordings or recover committed segments."
+msgstr "可导出已完成的录像，或恢复已保存的片段。"
+
+msgid "Exported {0} clips and {1} pins to {2}"
+msgstr "已将 {0} 条记录和 {1} 张贴图导出到 {2}"
+
+msgid "Favorites"
+msgstr "收藏"
+
+msgid "Fetching speech…"
+msgstr "正在获取朗读音频…"
+
+msgid "Finalizing recording…"
+msgstr "正在完成录屏…"
+
+msgid "Finalizing…"
+msgstr "正在收尾…"
+
+msgid "Find or restore saved pins"
+msgstr "查找或恢复已保存的贴图"
+
+msgid "Finding audio devices…"
+msgstr "正在查找音频设备…"
+
+msgid "Finish"
+msgstr "完成"
+
+msgid "Fit"
+msgstr "适应窗口"
+
+msgid "Follow system"
+msgstr "跟随系统"
+
+msgid "Forget paste permission"
+msgstr "撤销粘贴授权"
+
+msgid "Format JSON"
+msgstr "格式化 JSON"
+
+msgid "Frames"
+msgstr "帧数"
+
+msgid "Freeze all displays and select an area"
+msgstr "冻结所有屏幕并框选区域"
+
+msgid "GNOME Window Picking"
+msgstr "GNOME 窗口速选"
+
+msgid "GNOME capture is selected"
+msgstr "已选择 GNOME 截图接口"
+
+msgid "GNOME has not loaded the helper"
+msgstr "GNOME 尚未加载窗口速选扩展"
+
+msgid "GNOME helper unavailable"
+msgstr "无法使用 GNOME 窗口速选扩展"
+
+msgid "GNOME user extensions are off"
+msgstr "GNOME 用户扩展已关闭"
+
+msgid "GNOME will load the installed helper the next time you sign in."
+msgstr "下次登录时 GNOME 会加载已安装的扩展。"
+
+msgid "General"
+msgstr "通用"
+
+msgid "Global Shortcut"
+msgstr "全局快捷键"
+
+msgid "Global Shortcuts"
+msgstr "全局快捷键"
+
+msgid "Global shortcuts"
+msgstr "全局快捷键"
+
+msgid "Global shortcuts are unavailable on this desktop."
+msgstr "当前桌面无法使用全局快捷键。"
+
+msgid "Grayscale"
+msgstr "灰度"
+
+msgid "Green"
+msgstr "绿色"
+
+msgid "Group name"
+msgstr "分组名称"
+
+msgid "Height"
+msgstr "高度"
+
+msgid "Helper disabled"
+msgstr "扩展已停用"
+
+msgid "Helper managed outside this copy of Clippy"
+msgstr "此扩展由其他方式管理"
+
+msgid "Helper needs repair"
+msgstr "扩展需要修复"
+
+msgid "Helper not installed"
+msgstr "尚未安装扩展"
+
+msgid "Helper unavailable on this Shell version"
+msgstr "当前 GNOME Shell 版本不支持此扩展"
+
+msgid "Helper update available"
+msgstr "扩展有可用更新"
+
+msgid "Hide"
+msgstr "隐藏"
+
+msgid "Highlight"
+msgstr "高亮"
+
+msgid "History Limit"
+msgstr "历史记录上限"
+
+msgid "History unavailable: {0}"
+msgstr "无法读取剪贴板历史，{0}"
+
+msgid "Hover over an open window during capture to highlight it."
+msgstr "截图时，将鼠标移到打开的窗口上即可高亮。"
+
+msgid "IMAGE"
+msgstr "图片"
+
+msgid "Image"
+msgstr "图片"
+
+msgid "Image Editor"
+msgstr "图片编辑器"
+
+msgid "Image Text"
+msgstr "图片识字"
+
+msgid "Image clipboard"
+msgstr "图片剪贴板"
+
+msgid "Image content"
+msgstr "图片内容"
+
+msgid "Image preview"
+msgstr "图片预览"
+
+msgid "Image viewer"
+msgstr "图片查看器"
+
+msgid "Import Clippy archive"
+msgstr "导入 Clippy 备份"
+
+msgid "Import archive"
+msgstr "导入备份"
+
+msgid "Imported {0} clips and {1} pins · {2} clips merged"
+msgstr "已导入 {0} 条记录和 {1} 张贴图，合并了 {2} 条重复记录"
+
+msgid "Install a Clippy package with OCR or configure system Tesseract."
+msgstr "请安装带 OCR 的 Clippy 安装包，或配置系统 Tesseract。"
+
+msgid "Install and Enable"
+msgstr "安装并启用"
+
+msgid "Install the bundled helper to select open windows during a screenshot."
+msgstr "安装随应用提供的扩展，截图时就能速选打开的窗口。"
+
+msgid "Install the bundled version. GNOME loads updated code when you sign in."
+msgstr "安装随应用提供的版本。重新登录时 GNOME 会加载新版。"
+
+msgid "Interface language"
+msgstr "界面语言"
+
+msgid "Interrupted"
+msgstr "已中断"
+
+msgid "Item actions"
+msgstr "记录操作"
+
+msgid "JSON files"
+msgstr "JSON 文件"
+
+msgid "Keep a clipboard image on the desktop"
+msgstr "把剪贴板图片贴到桌面"
+
+msgid "Keep on top"
+msgstr "保持置顶"
+
+msgid "Latest clipboard image"
+msgstr "最新剪贴板图片"
+
+msgid "LibreTranslate-compatible"
+msgstr "兼容 LibreTranslate"
+
+msgid "Light"
+msgstr "浅色"
+
+msgid "Line"
+msgstr "直线"
+
+msgid "Load more"
+msgstr "加载更多"
+
+msgid "Loading history…"
+msgstr "正在加载剪贴板历史…"
+
+msgid "Loading preview…"
+msgstr "正在加载预览…"
+
+msgid "Loading recordings…"
+msgstr "正在加载录屏结果…"
+
+msgid "Lock size"
+msgstr "锁定大小"
+
+msgid "Login startup updated"
+msgstr "已更新登录启动设置"
+
+msgid "Magnifier"
+msgstr "放大镜"
+
+msgid "Manage group"
+msgstr "管理分组"
+
+msgid "Manage this installation in the GNOME Extensions app."
+msgstr "请在 GNOME 扩展应用中管理此扩展。"
+
+msgid "Managed by your desktop."
+msgstr "快捷键由桌面系统管理。"
+
+msgid "Markdown preview"
+msgstr "Markdown 预览"
+
+msgid "Marker"
+msgstr "记号笔"
+
+msgid "Maximize"
+msgstr "最大化"
+
+msgid "Measure"
+msgstr "测量"
+
+msgid "Midnight"
+msgstr "午夜"
+
+msgid "Minimize"
+msgstr "最小化"
+
+msgid "Model"
+msgstr "模型"
+
+msgid "Mosaic"
+msgstr "马赛克"
+
+msgid "Move a saved pin here using its group menu."
+msgstr "可通过贴图的分组菜单移到这里。"
+
+msgid "Native capture"
+msgstr "原生截图"
+
+msgid "Native desktop session"
+msgstr "原生桌面会话"
+
+msgid "Native input"
+msgstr "原生输入"
+
+msgid "Native registration"
+msgstr "原生注册"
+
+msgid "Navigate"
+msgstr "移动选择"
+
+msgid "New group"
+msgstr "新建分组"
+
+msgid "New group name"
+msgstr "新分组名称"
+
+msgid "Next recording"
+msgstr "下次录屏"
+
+msgid "No audio"
+msgstr "无声"
+
+msgid "No matching actions"
+msgstr "没有匹配的动作"
+
+msgid "No matching items"
+msgstr "没有匹配的记录"
+
+msgid "No pins in this group"
+msgstr "这个分组没有贴图"
+
+msgid "No provider configured"
+msgstr "尚未配置翻译服务"
+
+msgid "No recordings yet"
+msgstr "暂无录屏结果"
+
+msgid "No saved pins"
+msgstr "暂无已保存的贴图"
+
+msgid "No text recognized."
+msgstr "未识别到文字。"
+
+msgid "Not assigned"
+msgstr "未设置"
+
+msgid "Not needed on this desktop"
+msgstr "当前桌面无需授权"
+
+msgid "OCR"
+msgstr "识字"
+
+msgid "OCR disabled"
+msgstr "OCR 已关闭"
+
+msgid "OCR is disabled in Settings."
+msgstr "设置中已关闭 OCR。"
+
+msgid "OCR unavailable"
+msgstr "OCR 不可用"
+
+msgid "Opacity"
+msgstr "不透明度"
+
+msgid "Open"
+msgstr "打开"
+
+msgid "Open Clipboard"
+msgstr "打开剪贴板"
+
+msgid "Open in Actions"
+msgstr "在动作面板打开"
+
+msgid "Open latest image"
+msgstr "打开最新图片"
+
+msgid "Open the clipboard image in the editor"
+msgstr "在编辑器打开剪贴板图片"
+
+msgid "Open the desktop screenshot dialog"
+msgstr "打开桌面截图工具"
+
+msgid "Open your desktop settings to manage shortcuts"
+msgstr "请在桌面设置中管理快捷键"
+
+msgid "OpenAI-compatible"
+msgstr "兼容 OpenAI"
+
+msgid "Opening native player…"
+msgstr "正在打开系统播放器…"
+
+msgid "Opening recording source…"
+msgstr "正在打开录屏来源…"
+
+msgid "Opening system screenshot…"
+msgstr "正在打开系统截图…"
+
+msgid "Opening the capture source…"
+msgstr "正在打开截图来源…"
+
+msgid "Optional absolute .clippy.zip path"
+msgstr "可填写 .clippy.zip 的绝对路径"
+
+msgid "Optional export destination directory"
+msgstr "可选的导出目录"
+
+msgid "Optional path to model manifest"
+msgstr "可填写模型清单路径"
+
+msgid "Orange"
+msgstr "橙色"
+
+msgid "Pan"
+msgstr "平移"
+
+msgid "Paste"
+msgstr "粘贴"
+
+msgid "Paste permission is ready"
+msgstr "粘贴授权已就绪"
+
+msgid "Pasted"
+msgstr "已粘贴"
+
+msgid "Pause"
+msgstr "暂停"
+
+msgid "Pause / Resume recording"
+msgstr "暂停或继续录屏"
+
+msgid "Pause recording"
+msgstr "暂停录屏"
+
+msgid "Pen"
+msgstr "画笔"
+
+msgid "Pick color"
+msgstr "取色"
+
+msgid "Pin"
+msgstr "贴图"
+
+msgid "Pin Item"
+msgstr "贴出记录"
+
+msgid "Pin Shortcut"
+msgstr "贴图快捷键"
+
+msgid "Pin Workspaces"
+msgstr "贴图工作区"
+
+msgid "Pin an image or clipboard item to keep it here."
+msgstr "贴出图片或剪贴板记录后可在这里查看。"
+
+msgid "Pin group"
+msgstr "贴图分组"
+
+msgid "Pin image"
+msgstr "贴图"
+
+msgid "Pin opacity"
+msgstr "贴图不透明度"
+
+msgid "Pin the focused clipboard item to the desktop."
+msgstr "把选中的剪贴板记录贴到桌面。"
+
+msgid "Pin to desktop"
+msgstr "贴到桌面"
+
+msgid "Pinned Workspace"
+msgstr "贴图工作区"
+
+msgid "Pinned workspace"
+msgstr "贴图工作区"
+
+msgid "Platform Capabilities"
+msgstr "平台能力"
+
+msgid "Play"
+msgstr "播放"
+
+msgid "Play or export saved screen recordings"
+msgstr "播放或导出已保存的录像"
+
+msgid "Playback finished"
+msgstr "播放结束"
+
+msgid "Playback position"
+msgstr "播放进度"
+
+msgid "Press a shortcut. Esc cancels."
+msgstr "按下快捷键，按 Esc 取消。"
+
+msgid "Preview"
+msgstr "预览"
+
+msgid "Preview unavailable"
+msgstr "无法预览"
+
+msgid "Project"
+msgstr "项目"
+
+msgid "Protected clipboard item"
+msgstr "受保护的剪贴板记录"
+
+msgid "Provider"
+msgstr "服务商"
+
+msgid "Provider default"
+msgstr "服务商默认值"
+
+msgid "Quit"
+msgstr "退出"
+
+msgid "Read aloud online"
+msgstr "在线朗读"
+
+msgid "Read text and its position in an image"
+msgstr "读取图片中的文字和位置"
+
+msgid "Recheck OCR"
+msgstr "重查 OCR"
+
+msgid "Recognize image text"
+msgstr "识别图片文字"
+
+msgid "Recognize text"
+msgstr "识别文字"
+
+msgid "Recognized text"
+msgstr "识别结果"
+
+msgid "Recognizing text locally…"
+msgstr "正在本地识字…"
+
+msgid "Record"
+msgstr "录制"
+
+msgid "Recording"
+msgstr "正在录屏"
+
+msgid "Recording deleted"
+msgstr "已删除录像"
+
+msgid "Recording paused"
+msgstr "录屏已暂停"
+
+msgid "Recording recovered"
+msgstr "已恢复录像"
+
+msgid "Recording resumed"
+msgstr "录屏已继续"
+
+msgid "Recordings"
+msgstr "录屏结果"
+
+msgid "Recover"
+msgstr "恢复"
+
+msgid "Rectangle"
+msgstr "矩形"
+
+msgid "Red"
+msgstr "红色"
+
+msgid "Redo"
+msgstr "重做"
+
+msgid "Refresh"
+msgstr "刷新"
+
+msgid "Refresh audio devices"
+msgstr "刷新音频设备"
+
+msgid "Refresh its status or sign out and back in to reload it."
+msgstr "请刷新状态，或注销后重新登录来加载扩展。"
+
+msgid "Region"
+msgstr "区域"
+
+msgid "Region / project"
+msgstr "区域与项目"
+
+msgid "Remove"
+msgstr "移除"
+
+msgid "Remove favorite"
+msgstr "取消收藏"
+
+msgid "Remove pin"
+msgstr "移除贴图"
+
+msgid "Remove pin?"
+msgstr "移除这张贴图？"
+
+msgid "Rename"
+msgstr "重命名"
+
+msgid "Repair and Enable"
+msgstr "修复并启用"
+
+msgid "Requests are sent only to this service endpoint."
+msgstr "请求只会发送到此服务地址。"
+
+msgid "Reset"
+msgstr "重置"
+
+msgid "Restore"
+msgstr "恢复窗口"
+
+msgid "Restore the bundled files and private token."
+msgstr "恢复随应用提供的文件和私有令牌。"
+
+msgid "Result"
+msgstr "结果"
+
+msgid "Resume"
+msgstr "继续"
+
+msgid "Resume recording"
+msgstr "继续录屏"
+
+msgid "Return to saved pins and organize them without changing clipboard history."
+msgstr "打开或整理已保存的贴图，剪贴板历史会保留。"
+
+msgid "Rich text"
+msgstr "富文本"
+
+msgid "Rich text content"
+msgstr "富文本内容"
+
+msgid "Rose"
+msgstr "玫瑰"
+
+msgid "Run"
+msgstr "运行"
+
+msgid "Save PNG"
+msgstr "保存 PNG"
+
+msgid "Save a clipboard image to the screenshot folder"
+msgstr "把剪贴板图片保存到截图目录"
+
+msgid "Save general settings"
+msgstr "保存通用设置"
+
+msgid "Save provider settings"
+msgstr "保存服务设置"
+
+msgid "Save screens to PNG"
+msgstr "保存屏幕截图"
+
+msgid "Save screenshot settings"
+msgstr "保存截图设置"
+
+msgid "Save to apply the OCR changes."
+msgstr "保存后应用 OCR 修改。"
+
+msgid "Saved paste permission removed"
+msgstr "已撤销保存的粘贴授权"
+
+msgid "Scan QR code or barcode"
+msgstr "扫描二维码或条码"
+
+msgid "Scan code"
+msgstr "扫码"
+
+msgid "Screen Capture Service"
+msgstr "截图服务"
+
+msgid "Screen capture"
+msgstr "屏幕截图"
+
+msgid "Screen recording"
+msgstr "屏幕录像"
+
+msgid "Screenshot"
+msgstr "截图"
+
+msgid "Screenshot Shortcut"
+msgstr "截图快捷键"
+
+msgid "Screenshot directory"
+msgstr "截图目录"
+
+msgid "Screenshot filename template"
+msgstr "截图命名模板"
+
+msgid "Screenshot in 3 seconds"
+msgstr "3 秒后截图"
+
+msgid "Screenshots"
+msgstr "截图文件"
+
+msgid "Scrolling Capture"
+msgstr "长截图"
+
+msgid "Scrolling capture"
+msgstr "长截图"
+
+msgid "Search actions"
+msgstr "搜索动作"
+
+msgid "Search actions…"
+msgstr "搜索动作…"
+
+msgid "Search clipboard"
+msgstr "搜索剪贴板"
+
+msgid "Select"
+msgstr "选择"
+
+msgid "Select a theme"
+msgstr "请选择主题"
+
+msgid "Select a translation provider"
+msgstr "请选择翻译服务商"
+
+msgid "Select an interface language"
+msgstr "请选择界面语言"
+
+msgid "Select an item to preview"
+msgstr "选择一条记录以预览"
+
+msgid "Selected clipboard image"
+msgstr "选中的剪贴板图片"
+
+msgid "Selected clipboard text"
+msgstr "选中的剪贴板文字"
+
+msgid "Selected device unavailable"
+msgstr "所选设备不可用"
+
+msgid "Selection is too large"
+msgstr "选区过大"
+
+msgid "Sensitive content hidden"
+msgstr "已隐藏敏感内容"
+
+msgid "Settings"
+msgstr "设置"
+
+msgid "Settings saved"
+msgstr "已保存设置"
+
+msgid "Shortcut to start a screenshot."
+msgstr "启动截图的快捷键。"
+
+msgid "Show"
+msgstr "显示"
+
+msgid "Show translation on image"
+msgstr "在图片上显示译文"
+
+msgid "Sign out to finish setup"
+msgstr "请重新登录以完成设置"
+
+msgid "Size"
+msgstr "大小"
+
+msgid "Solarized Light"
+msgstr "Solarized 浅色"
+
+msgid "Source"
+msgstr "原文"
+
+msgid "Source Language"
+msgstr "源语言"
+
+msgid "Source text"
+msgstr "原文"
+
+msgid "Spotlight"
+msgstr "聚光"
+
+msgid "Start at login"
+msgstr "登录时启动"
+
+msgid "Starting…"
+msgstr "正在启动…"
+
+msgid "Stop"
+msgstr "停止"
+
+msgid "Stop recording"
+msgstr "停止录屏"
+
+msgid "Stop scrolling capture"
+msgstr "停止长截图"
+
+msgid "Store credentials"
+msgstr "保存凭据"
+
+msgid "Stored credentials removed"
+msgstr "已移除已保存的凭据"
+
+msgid "Stroke width"
+msgstr "线宽"
+
+msgid "System Pictures/Screenshots"
+msgstr "默认截图目录"
+
+msgid "System Screenshot…"
+msgstr "系统截图…"
+
+msgid "System Tesseract passed its version check."
+msgstr "系统 Tesseract 已通过版本检查。"
+
+msgid "System keychain"
+msgstr "系统密钥库"
+
+msgid "System screenshot"
+msgstr "系统截图"
+
+msgid "System screenshot cancelled"
+msgstr "已取消系统截图"
+
+msgid "TEXT"
+msgstr "文本"
+
+msgid "Take screenshot"
+msgstr "截图"
+
+msgid "Target Language"
+msgstr "目标语言"
+
+msgid "Target: {0} · {1}"
+msgstr "目标语言 {0} · {1}"
+
+msgid "Text"
+msgstr "文字"
+
+msgid "Text clipboard"
+msgstr "文本剪贴板"
+
+msgid "Text result"
+msgstr "文本结果"
+
+msgid "Text to place on the image"
+msgstr "输入要添加到图片上的文字"
+
+msgid "Text tools"
+msgstr "文本工具"
+
+msgid "The bundled helper supports the GNOME versions listed in its manifest."
+msgstr "随应用提供的扩展仅支持清单中列出的 GNOME 版本。"
+
+msgid "The compositor provides the screen pixels. Your desktop controls capture permissions."
+msgstr "屏幕画面由合成器提供，截图权限由桌面系统管理。"
+
+msgid "The configured Python executable could not be found."
+msgstr "找不到配置的 Python 可执行文件。"
+
+msgid "The desktop shortcut service is unavailable"
+msgstr "桌面快捷键服务不可用"
+
+msgid "The enhanced OCR configuration could not be verified."
+msgstr "无法验证增强 OCR 配置。"
+
+msgid "The enhanced manifest contains invalid JSON or fields."
+msgstr "增强清单的 JSON 或字段无效。"
+
+msgid "The enhanced manifest file could not be found."
+msgstr "找不到增强清单文件。"
+
+msgid "The enhanced manifest has unsupported options."
+msgstr "增强清单包含不受支持的选项。"
+
+msgid "The enhanced manifest path must be absolute."
+msgstr "增强清单需要使用绝对路径。"
+
+msgid "The screenshot shortcut uses the fast native capture path. System Screenshot opens the desktop’s own selector on Wayland."
+msgstr "截图快捷键使用原生快速路径。Wayland 的「系统截图」会打开桌面自带的选择器。"
+
+msgid "The selected audio device is unavailable. Choose an audio source in Recordings."
+msgstr "所选音频设备不可用。请在录屏结果中重新选择音源。"
+
+msgid "The {0} configuration and its model checksums passed validation."
+msgstr "{0}中的配置和模型摘要均已通过校验。"
+
+msgid "Theme"
+msgstr "主题"
+
+msgid "Translate"
+msgstr "翻译"
+
+msgid "Translate Line"
+msgstr "翻译此行"
+
+msgid "Translate Paragraph"
+msgstr "翻译此段"
+
+msgid "Translate with {0}"
+msgstr "用 {0} 翻译"
+
+msgid "Translating…"
+msgstr "正在翻译…"
+
+msgid "Translation"
+msgstr "翻译"
+
+msgid "Translation history"
+msgstr "翻译历史"
+
+msgid "Translation runs only when requested."
+msgstr "点击翻译后才会发送文字。"
+
+msgid "Translation settings saved"
+msgstr "已保存翻译设置"
+
+msgid "Turn on User Extensions in the GNOME Extensions app."
+msgstr "请在 GNOME 扩展应用中启用用户扩展。"
+
+msgid "Undo"
+msgstr "撤销"
+
+msgid "Ungrouped"
+msgstr "未分组"
+
+msgid "Unlock size"
+msgstr "解锁大小"
+
+msgid "Unpin top"
+msgstr "取消置顶"
+
+msgid "Update and Enable"
+msgstr "更新并启用"
+
+msgid "Use a language code such as en, zh-Hans or ja."
+msgstr "请输入语言代码，例如 en、zh-Hans 或 ja。"
+
+msgid "Use this service for quick translation."
+msgstr "使用此服务快速翻译。"
+
+msgid "Using the desktop portal"
+msgstr "使用桌面 Portal"
+
+msgid "View"
+msgstr "查看"
+
+msgid "View image"
+msgstr "查看图片"
+
+msgid "Wait for the current operation"
+msgstr "请等待当前操作完成"
+
+msgid "Waiting for the desktop shortcut service…"
+msgstr "正在等待桌面快捷键服务…"
+
+msgid "Wayland · desktop permissions apply"
+msgstr "Wayland · 使用桌面授权"
+
+msgid "Wheel to zoom · Drag to pan · Image tools use the opened snapshot"
+msgstr "滚轮缩放，拖动平移。编辑基于当前打开的图片。"
+
+msgid "White"
+msgstr "白色"
+
+msgid "Width"
+msgstr "宽度"
+
+msgid "Window picking ready"
+msgstr "窗口速选已就绪"
+
+msgid "Worker and runtime files found. Model checksums match."
+msgstr "已找到识别程序和运行库，模型摘要校验通过。"
+
+msgid "Working…"
+msgstr "正在处理…"
+
+msgid "Yellow"
+msgstr "黄色"
+
+msgid "Youdao"
+msgstr "有道"
+
+msgid "Zoom in"
+msgstr "放大"
+
+msgid "Zoom out"
+msgstr "缩小"
+
+msgid "environment"
+msgstr "环境变量"
+
+msgid "just now"
+msgstr "刚刚"
+
+msgid "saved manifest"
+msgstr "保存的清单"
+
+msgid "yesterday"
+msgstr "昨天"
+
+msgid "{0} / {1} · data directory {2}"
+msgstr "{0} / {1} · 数据目录 {2}"
+
+msgid "{0} history items · {1} favorites · {2} images · {3} MiB database"
+msgstr "{0} 条历史 · {1} 条收藏 · {2} 张图片 · 数据库 {3} MiB"
+
+msgid "{0} items"
+msgstr "{0} 条记录"
+
+msgid "{0} pins"
+msgstr "{0} 张贴图"
+
+msgid "{0}. Reinstall Clippy to restore the bundled files."
+msgstr "{0}。重新安装 Clippy 可恢复内置文件。"
+
+msgid "{0}d ago"
+msgstr "{0} 天前"
+
+msgid "{0}h ago"
+msgstr "{0} 小时前"
+
+msgid "{0}m ago"
+msgstr "{0} 分钟前"

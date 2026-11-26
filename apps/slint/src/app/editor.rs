@@ -1,5 +1,5 @@
 use super::{capture, clipboard, post, settings, use_app, vision, App, Event};
-use crate::{ClippyTheme, EditorWindow};
+use crate::{locale::tr, ClippyTheme, EditorWindow};
 use anyhow::{anyhow, Result};
 use clippy_capture::editor::{Editor, ImageProject, Tool};
 use clippy_core::image_output::SaveTarget;
@@ -13,6 +13,16 @@ const COLORS: [&str; 6] = [
     "#ff3b30", "#ff9500", "#34c759", "#0a84ff", "#ffffff", "#171717",
 ];
 pub(super) const MAX_STROKE_POINTS: usize = 4_096;
+
+fn tool_labels() -> ModelRc<slint::SharedString> {
+    ModelRc::new(VecModel::from(
+        Tool::ALL
+            .into_iter()
+            .map(|tool| tr(tool.label()).into())
+            .chain(std::iter::once(tr("Pick color").into()))
+            .collect::<Vec<_>>(),
+    ))
+}
 
 pub(super) enum Action {
     Undo,
@@ -36,6 +46,10 @@ pub(super) struct View {
 }
 
 impl View {
+    pub(super) fn refresh_language(&self) {
+        self.window.set_tools(tool_labels());
+    }
+
     fn open(
         id: u64,
         image: Arc<RgbaImage>,
@@ -53,13 +67,13 @@ impl View {
         window.set_corner_value(corners);
         window.set_can_undo(document.has_annotations());
         window.set_can_redo(document.has_redo());
-        window.set_tools(ModelRc::new(VecModel::from(
+        window.set_tools(tool_labels());
+        window.set_text_tool_index(
             Tool::ALL
-                .into_iter()
-                .map(|tool| slint::SharedString::from(tool.label()))
-                .chain(std::iter::once("Pick color".into()))
-                .collect::<Vec<_>>(),
-        )));
+                .iter()
+                .position(|tool| *tool == Tool::Text)
+                .expect("文字工具可用") as i32,
+        );
         window.set_aspect(image.width() as f32 / image.height() as f32);
         window.set_picture(to_slint(&image));
         window.on_start_stroke(|x, y| {
