@@ -1,5 +1,6 @@
-import { LineEdit } from "std-widgets.slint";
-import { ClippyIcon, SurfaceButton } from "theme.slint";
+import { Button, LineEdit, TextEdit } from "std-widgets.slint";
+import { ClippyIcon, ClippyTheme, SurfaceButton } from "theme.slint";
+import { CodeMarker, CodeMarkerLayer, CodeMatch, CodeMatchList } from "vision.slint";
 
 export enum CaptureAction { copy, save, edit, longshot, record }
 export enum CaptureTool { select, rectangle, ellipse, line, arrow, highlight, pen, text, mosaic }
@@ -112,8 +113,21 @@ export component CaptureWindow inherits Window {
     in property <string> pen-path;
     in property <bool> mosaic-pending;
     in-out property <string> annotation-error;
+    in property <bool> scan-visible;
+    in property <bool> scan-busy;
+    in property <bool> scan-limited;
+    in property <string> scan-status;
+    in property <[CodeMatch]> scan-matches;
+    in property <[CodeMarker]> scan-markers;
+    in property <int> scan-selected: -1;
     callback cancel();
     callback confirm(CaptureAction, float, float, float, float);
+    callback scan-selection(float, float, float, float);
+    callback scan-desktop();
+    callback invalidate-scan();
+    callback select-scan-code(int);
+    callback copy-scan-code(int);
+    callback copy-all-scan-codes();
     callback begin-desktop-selection();
     callback update-desktop-selection(float, float, float, float, bool);
     callback reset-desktop-selection();
@@ -173,7 +187,7 @@ export component CaptureWindow inherits Window {
     private property <length> gap: 8px;
     private property <length> toolbar-width: min(560px, root.width - 2 * root.gap);
     private property <length> toolbar-height: 76px;
-    private property <length> tool-width: min(32px, (root.toolbar-width - 24px) / (root.tools.length + root.commands.length));
+    private property <length> tool-width: min(32px, (root.toolbar-width - 24px) / (root.tools.length + root.commands.length + 1));
     private property <bool> toolbar-below: root.bottom + root.toolbar-height + 2 * root.gap <= root.height;
     private property <length> toolbar-y: root.toolbar-below
         ? root.bottom + root.gap : max(root.gap, root.top - root.toolbar-height - root.gap);
@@ -206,6 +220,7 @@ export component CaptureWindow inherits Window {
     private property <string> cancel-icon: "M5 5l14 14 M19 5L5 19";
     private property <string> save-icon: "M4 3h13l4 4v14H3V3Z M7 3v7h10V3 M7 21v-7h10v7";
     private property <string> copy-icon: "M5 12l4 4L19 6";
+    private property <string> scan-icon: "M3 9V3h6m6 0h6v6m0 6v6h-6m-6 0H3v-6m5-7h3v3H8Zm5 5h3v3h-3Z";
 
     title: @tr("Clippy Screenshot");
     no-frame: true;
@@ -339,6 +354,7 @@ export component CaptureWindow inherits Window {
             mouse-cursor: crosshair;
             pointer-event(event) => {
                 if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                    root.invalidate-scan();
                     let point-x = self.mouse-x;
                     let point-y = self.mouse-y;
                     let margin = 7px;
@@ -606,6 +622,19 @@ export component CaptureWindow inherits Window {
                 enabled: !root.mosaic-pending;
                 clicked => { root.commit(command.action); }
             }
+            OverlayButton {
+                x: 15px + (root.tools.length + root.commands.length) * root.tool-width;
+                y: 4px; width: root.tool-width; height: 30px;
+                label: @tr("Scan code"); drawing: root.scan-icon;
+                enabled: !root.mosaic-pending && !root.scan-busy;
+                clicked => {
+                    if root.finish-caption() {
+                        root.scan-selection(root.left / root.width, root.top / root.height,
+                            root.right / root.width, root.bottom / root.height);
+                        keys.focus();
+                    }
+                }
+            }
             Rectangle { x: 8px; y: 37px; width: parent.width - 16px; height: 1px; background: #3d4049; }
             for sample[index] in root.inks: SurfaceButton {
                 x: 7px + index * 19px; y: 45px; width: 19px; min-width: 19px; height: 24px;
@@ -677,7 +706,7 @@ export component CaptureWindow inherits Window {
             x: clamp(root.desktop-bounds.right - self.width, root.gap, root.width - self.width - root.gap);
             y: root.desktop-bounds.bottom + self.height + 2 * root.gap <= root.height
                 ? root.desktop-bounds.bottom + root.gap : max(root.gap, root.desktop-bounds.top - self.height - root.gap);
-            width: 144px; height: 46px; border-radius: 8px; background: #202124;
+            width: 176px; height: 46px; border-radius: 8px; background: #202124;
             TouchArea { }
             HorizontalLayout {
                 padding: 8px;
@@ -693,6 +722,10 @@ export component CaptureWindow inherits Window {
                     label: @tr("Copy"); drawing: root.copy-icon; ink: #6ee7a8; enabled: root.desktop-valid;
                     clicked => { root.confirm-desktop(CaptureAction.copy); }
                 }
+                OverlayButton {
+                    label: @tr("Scan code"); drawing: root.scan-icon; enabled: root.desktop-valid && !root.scan-busy;
+                    clicked => { root.scan-desktop(); keys.focus(); }
+                }
                 OverlayButton { label: @tr("Cancel"); drawing: root.cancel-icon; clicked => { root.cancel(); } }
             }
             Rectangle {
@@ -706,6 +739,51 @@ export component CaptureWindow inherits Window {
                         : @tr("Selection is too large");
                     font-size: 12px; color: white;
                     horizontal-alignment: center; vertical-alignment: center;
+                }
+            }
+        }
+
+        if root.scan-markers.length > 0: CodeMarkerLayer {
+            x: 0px; y: 0px; width: root.width; height: root.height;
+            markers: root.scan-markers; selected-code: root.scan-selected;
+            select-code(id) => { root.select-scan-code(id); }
+        }
+
+        if root.scan-visible: Rectangle {
+            width: min(340px, root.width - 2 * root.gap);
+            height: min(root.height - 2 * root.gap, root.scan-matches.length == 0 ? 88px : 294px);
+            x: root.revealed.right + self.width + 2 * root.gap <= root.width ? root.revealed.right + root.gap
+                : root.revealed.left >= self.width + 2 * root.gap ? root.revealed.left - self.width - root.gap
+                : clamp(root.revealed.right - self.width, root.gap, root.width - self.width - root.gap);
+            y: clamp(root.revealed.top, root.gap, root.height - self.height - root.gap);
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: ClippyTheme.border;
+            background: ClippyTheme.surface;
+            TouchArea { }
+            VerticalLayout {
+                padding: 8px;
+                spacing: 5px;
+                if root.scan-status != "": Text {
+                    text: root.scan-status; color: ClippyTheme.muted; wrap: word-wrap; max-lines: 2; overflow: elide;
+                }
+                if root.scan-limited: Text { text: @tr("Some codes were omitted."); color: ClippyTheme.muted; }
+                if root.scan-matches.length > 0: CodeMatchList {
+                    matches: root.scan-matches; selected-code: root.scan-selected;
+                    select-code(id) => { root.select-scan-code(id); }
+                    copy-code(id) => { root.copy-scan-code(id); }
+                }
+                if root.scan-selected >= 0: TextEdit {
+                    height: 64px; read-only: true; wrap: word-wrap;
+                    text: root.scan-matches[root.scan-selected].text;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 6px;
+                    if root.scan-matches.length > 0: Button {
+                        text: @tr("Copy all"); clicked => { root.copy-all-scan-codes(); }
+                    }
+                    Button { text: @tr("Close"); clicked => { root.invalidate-scan(); keys.focus(); } }
                 }
             }
         }

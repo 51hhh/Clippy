@@ -724,6 +724,9 @@ msgstr "无声"
 msgid "No barcode found"
 msgstr "未识别到二维码或条码"
 
+msgid "An image is already being analyzed"
+msgstr "正在识别另一张图片"
+
 msgid "No matching actions"
 msgstr "没有匹配的动作"
 

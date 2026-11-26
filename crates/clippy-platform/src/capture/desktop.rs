@@ -129,6 +129,14 @@ impl Composition {
         (self.width, self.height)
     }
 
+    pub fn desktop_point(self, [x, y]: [f32; 2]) -> [f64; 2] {
+        // 识别点以合成帧的像素为原点，与 paint 使用同一像素中心取样。
+        [
+            (self.left as f64 + f64::from(x) + 0.5) / self.scale,
+            (self.top as f64 + f64::from(y) + 0.5) / self.scale,
+        ]
+    }
+
     pub fn render<'a>(self, frames: impl DoubleEndedIterator<Item = Frame<'a>>) -> RgbaImage {
         let mut image = RgbaImage::new(self.width, self.height);
         let canvas: &mut [u8] = image.as_mut();
@@ -249,6 +257,8 @@ mod tests {
                     }),
             );
         assert_eq!(image.dimensions(), (5, 4));
+        assert_eq!(composition.desktop_point([0.0, 0.0]), [-1.25, 0.25]);
+        assert_eq!(composition.desktop_point([4.0, 3.0]), [0.75, 1.75]);
         for (x, y, pixel) in image.enumerate_pixels() {
             let expected = if x < 3 {
                 layers[0].get_pixel(u32::from(x > 0), y / 2)

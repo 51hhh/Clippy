@@ -11,6 +11,7 @@ import time
 
 
 qa = runpy.run_path(str(Path(__file__).with_name("slint-x11.py")))
+codes = runpy.run_path(str(Path(__file__).with_name("slint-code-scan-x11.py")))
 Gdk, wait_for = qa["Gdk"], qa["wait_for"]
 LEFT, RIGHT = (0, 40, 640, 760), (640, 0, 640, 800)
 OUTPUTS = (LEFT, RIGHT)
@@ -74,7 +75,7 @@ def assert_png(data, box, expected):
 
 def toolbar_click(desktop, output, index):
     x, y, width, height = output
-    left = max(x + 8 * SCALE, min(AREA[0] + AREA[2] - 144 * SCALE, x + width - 152 * SCALE))
+    left = max(x + 8 * SCALE, min(AREA[0] + AREA[2] - 176 * SCALE, x + width - 184 * SCALE))
     bottom = AREA[1] + AREA[3]
     assert bottom + 62 * SCALE < y + height
     top = bottom + 8 * SCALE
@@ -106,11 +107,13 @@ def run(binary, root):
     with app_log.open("w") as log:
         app = subprocess.Popen([binary], env=env, stderr=log)
 
-    def open_capture():
+    def open_capture(extra_paint=None):
         assert app.poll() is None
         qa["set_clipboard"]("UTF8_STRING", b"before cross-screen capture")
         # 覆盖层关闭时 Xvfb 会用根背景重绘暴露区域，重新画出本轮已知底图。
         paint_scene(desktop)
+        if extra_paint:
+            extra_paint()
         before = app_log.read_text().count("capture_overlay output=")
         tray.activate("Screenshot")
         windows = wait_for(lambda: (found := capture_windows()) and set(found) == set(OUTPUTS) and found,
@@ -176,6 +179,34 @@ def run(binary, root):
         wait_for(lambda: not qa["titled_window"](qa["EDITOR_TITLE"]), "editor did not close")
         print("PASS the editor received the same composed pixels", flush=True)
 
+        composed_codes = None
+
+        def paint_scan_scene():
+            nonlocal composed_codes
+            codes["paint_symbols"](desktop, (250, 70), (12, 6, 170, 166), codes["qr_rectangles"]())
+            codes["paint_symbols"](desktop, (695, 180), (0, 190, 300, 93), codes["code_39_rectangles"]())
+            composed_codes = expected_pixels(AREA)
+
+        windows = open_capture(paint_scan_scene)
+        desktop.focus(windows[LEFT])
+        drag_across(START, END)
+        toolbar_click(desktop, RIGHT, 3)
+        wait_for(lambda: "capture_scan finished codes=Some(2)" in app_log.read_text(),
+                 "cross-screen scan did not recognize both symbols")
+        qr_area, bar_area = (268, 87, 158, 140), (733, 379, 200, 71)
+        blue, gold = bytes.fromhex("29a7ef"), bytes.fromhex("ffd158")
+        find = codes["find_color"]
+        marker = wait_for(lambda: find(qr_area, blue), "QR location is missing on the left screen")
+        wait_for(lambda: find(bar_area, blue), "Code 39 location is missing on the right screen")
+        desktop.click(*marker)
+        wait_for(lambda: find(qr_area, gold), "left-screen marker could not select the result")
+        assert not find(bar_area, gold)
+        qa["save_qa_window"]("slint-capture-scan-cross-display.png", (0, 0, 1280, 800))
+        desktop.keys("Return")
+        clipboard(AREA, composed_codes)
+        wait_closed()
+        print("PASS cross-screen scan marked both original displays and preserved the composed screenshot", flush=True)
+
         windows = open_capture()
         desktop.focus(windows[LEFT])
         drag_across(START, END)
@@ -202,12 +233,15 @@ def run(binary, root):
         assert not qa["clipboard_png"]()
         desktop.focus(open_capture()[RIGHT])
         drag_across(END, START)
-        toolbar_click(desktop, LEFT, 3)
+        toolbar_click(desktop, LEFT, 4)
         wait_closed()
         assert not qa["clipboard_png"]()
         print("PASS Escape and the destination toolbar cancelled separate capture generations", flush=True)
         tray.activate("Quit")
         assert app.wait(timeout=5) == 0
+    except Exception:
+        qa["save_failure_frame"]()
+        raise
     finally:
         if app.poll() is None:
             app.terminate()

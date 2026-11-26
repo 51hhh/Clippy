@@ -28,27 +28,45 @@ QR_ROWS = (
 )
 
 
+def qr_rectangles():
+    return [(30 + x * 6, 24 + y * 6, 6, 6) for y, row in enumerate(QR_ROWS)
+            for x, cell in enumerate(row) if cell == "#"]
+
+
+def code_39_rectangles():
+    rectangles = []
+    x = 45
+    for symbol in ("nwnnwnwnn", "wnnnnwnnw", "nwnnwnwnn"):
+        for index, bar in enumerate(symbol):
+            width = 12 if bar == "w" else 4
+            if index % 2 == 0:
+                rectangles.append((x, 203, width, 64))
+            x += width
+        x += 4
+    return rectangles
+
+
+def paint_symbols(desktop, origin, canvas, rectangles):
+    x, y = origin
+    left, top, width, height = canvas
+    window = desktop.root_window(desktop.display)
+    gc = desktop.create_gc(desktop.display, window, 0, None)
+    desktop.foreground(desktop.display, gc, 0xffffff)
+    desktop.fill(desktop.display, window, gc, x + left, y + top, width, height)
+    desktop.foreground(desktop.display, gc, 0)
+    for left, top, width, height in rectangles:
+        desktop.fill(desktop.display, window, gc, x + left, y + top, width, height)
+    desktop.free_gc(desktop.display, gc)
+    desktop.sync(desktop.display, 0)
+
+
 def fixture_png(has_codes):
     width, height = 320, 300
     rows = [bytearray([255] * width) for _ in range(height)]
-
-    def rectangle(x, y, w, h):
-        for row in rows[y:y + h]:
-            row[x:x + w] = bytes(w)
-
     if has_codes:
-        for y, row in enumerate(QR_ROWS):
-            for x, cell in enumerate(row):
-                if cell == "#":
-                    rectangle(30 + x * 6, 24 + y * 6, 6, 6)
-        x = 45
-        for symbol in ("nwnnwnwnn", "wnnnnwnnw", "nwnnwnwnn"):
-            for index, bar in enumerate(symbol):
-                width_px = 12 if bar == "w" else 4
-                if index % 2 == 0:
-                    rectangle(x, 203, width_px, 64)
-                x += width_px
-            x += 4
+        for x, y, w, h in qr_rectangles() + code_39_rectangles():
+            for row in rows[y:y + h]:
+                row[x:x + w] = bytes(w)
 
     def chunk(kind, data):
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
@@ -58,22 +76,25 @@ def fixture_png(has_codes):
     return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", data) + chunk(b"IEND", b"")
 
 
+def find_color(bounds, color):
+    x, y, width, height = bounds
+    snapshot = Gdk.pixbuf_get_from_window(Gdk.get_default_root_window(), *bounds)
+    if snapshot is not None:
+        pixels = snapshot.get_pixels()
+        stride = snapshot.get_rowstride()
+        for row in range(height):
+            line = pixels[row * stride:row * stride + width * 3]
+            match = line.find(color)
+            if match >= 0 and match % 3 == 0:
+                return x + match // 3, y + row
+    return None
+
+
 def marker(bounds, color, lower=False):
     x, y, width, height = bounds
     split = height * 2 // 3
     offset, rows = (split, height - split) if lower else (0, split)
-    snapshot = Gdk.pixbuf_get_from_window(
-        Gdk.get_default_root_window(), x, y + offset, width - round(372 * SCALE), rows,
-    )
-    if snapshot is not None:
-        pixels = snapshot.get_pixels()
-        stride = snapshot.get_rowstride()
-        for row in range(rows):
-            line = pixels[row * stride:row * stride + snapshot.get_width() * 3]
-            match = line.find(color)
-            if match >= 0 and match % 3 == 0:
-                return x + match // 3, y + offset + row
-    return None
+    return find_color((x, y + offset, width - round(372 * SCALE), rows), color)
 
 
 def run(binary, root):

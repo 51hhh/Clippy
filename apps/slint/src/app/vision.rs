@@ -101,10 +101,43 @@ impl Vision {
         }
     }
 
+    pub(super) fn start_recognition(
+        &mut self,
+        start: impl FnOnce(&mut Self) -> Result<()>,
+    ) -> Result<()> {
+        anyhow::ensure!(
+            !self.recognition_running,
+            "{}",
+            tr("An image is already being analyzed")
+        );
+        start(self)?;
+        self.recognition_running = true;
+        Ok(())
+    }
+
+    pub(super) fn recognition_finished(&mut self) {
+        self.recognition_running = false;
+    }
+
     pub(super) fn shutdown(&self) {
         if let Some(native) = &self.native {
             native.shutdown();
         }
+    }
+}
+
+pub(super) fn code_match(index: usize, code: code_detection::CodeScanResult) -> CodeMatch {
+    let format = match code.format.as_str() {
+        "qr_code" => "QR Code",
+        "code_39" => "Code 39",
+        "code_128" => "Code 128",
+        "ean_13" => "EAN-13",
+        format => format,
+    };
+    CodeMatch {
+        id: index as i32,
+        format: format.into(),
+        text: code.text.into(),
     }
 }
 
@@ -191,23 +224,12 @@ impl View {
         let mut matches = Vec::with_capacity(result.results.len());
         for (index, code) in result.results.into_iter().enumerate() {
             let id = index as i32;
-            markers.extend(code.points.into_iter().map(|point| CodeMarker {
+            markers.extend(code.points.iter().map(|point| CodeMarker {
                 id,
                 x: point.x / width,
                 y: point.y / height,
             }));
-            let format = match code.format.as_str() {
-                "qr_code" => "QR Code",
-                "code_39" => "Code 39",
-                "code_128" => "Code 128",
-                "ean_13" => "EAN-13",
-                format => format,
-            };
-            matches.push(CodeMatch {
-                id,
-                format: format.into(),
-                text: code.text.into(),
-            });
+            matches.push(code_match(index, code));
         }
         let original = matches
             .iter()
@@ -373,35 +395,36 @@ impl View {
 
 impl App {
     pub(super) fn analyze_image(&mut self, image: Arc<RgbaImage>, mode: Mode) -> Result<()> {
-        if self.vision.recognition_running {
-            anyhow::bail!("An image is already being analyzed");
-        }
-        if matches!(mode, Mode::Recognize) && !self.config.ocr_enabled {
-            anyhow::bail!("OCR is disabled in Settings");
-        }
-        self.vision.serial += 1;
-        let id = self.vision.serial;
-        let new_view = View::open(id, &image, &self.config, mode)?;
-        let native = self.vision.native_engine();
-        let cancelled = new_view.cancelled.clone();
-        thread::Builder::new()
-            .name("clippy-image-analysis".into())
-            .spawn(move || {
-                let result = match mode {
-                    Mode::Scan => code_detection::scan_rgba(
-                        image.as_raw().clone(),
-                        image.width(),
-                        image.height(),
-                    )
-                    .map(Recognition::Codes)
-                    .map_err(Into::into),
-                    Mode::Recognize => recognize(image, native, cancelled).map(Recognition::Ocr),
-                };
-                send(Message::Recognized(id, result));
-            })?;
-        self.vision.window = Some(new_view);
-        self.vision.recognition_running = true;
-        Ok(())
+        let config = &self.config;
+        self.vision.start_recognition(|vision| {
+            if matches!(mode, Mode::Recognize) && !config.ocr_enabled {
+                anyhow::bail!("OCR is disabled in Settings");
+            }
+            vision.serial += 1;
+            let id = vision.serial;
+            let new_view = View::open(id, &image, config, mode)?;
+            let native = vision.native_engine();
+            let cancelled = new_view.cancelled.clone();
+            thread::Builder::new()
+                .name("clippy-image-analysis".into())
+                .spawn(move || {
+                    let result = match mode {
+                        Mode::Scan => code_detection::scan_rgba(
+                            image.as_raw().clone(),
+                            image.width(),
+                            image.height(),
+                        )
+                        .map(Recognition::Codes)
+                        .map_err(Into::into),
+                        Mode::Recognize => {
+                            recognize(image, native, cancelled).map(Recognition::Ocr)
+                        }
+                    };
+                    send(Message::Recognized(id, result));
+                })?;
+            vision.window = Some(new_view);
+            Ok(())
+        })
     }
 
     pub(super) fn vision_message(&mut self, message: Message) {
@@ -414,7 +437,7 @@ impl App {
 
     fn handle_vision(&mut self, message: Message) -> Result<()> {
         match &message {
-            Message::Recognized(..) => self.vision.recognition_running = false,
+            Message::Recognized(..) => self.vision.recognition_finished(),
             Message::Translated(..) => self.vision.translation_running = false,
             _ => {}
         }

@@ -289,7 +289,7 @@ def pixbuf_png(data):
     return loader.get_pixbuf()
 
 def capture_button_width(toolbar_width):
-    return min(32, (toolbar_width - 24) / 12)
+    return min(32, (toolbar_width - 24) / 13)
 
 
 def capture_command_x(left, width, index):

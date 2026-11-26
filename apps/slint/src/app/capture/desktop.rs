@@ -1,4 +1,4 @@
-use super::{post, Area, Event, View};
+use super::{post, scan, Area, Event, View};
 use crate::{CaptureWindow, DesktopPreview};
 use clippy_capture::render_v2::MAX_RENDERER_PIXELS;
 use clippy_platform::capture::desktop::{Composition, DesktopSelection, OutputGeometry};
@@ -16,7 +16,7 @@ struct DesktopDrag {
     composition: Cell<Option<Composition>>,
 }
 
-pub(super) fn connect(views: &[View]) {
+pub(super) fn connect(views: &[View], scan: &Rc<scan::Overlay>) {
     let drag = Rc::new(DesktopDrag {
         screens: views
             .iter()
@@ -54,6 +54,14 @@ pub(super) fn connect(views: &[View]) {
                     area: Area::Desktop(composition),
                     action,
                 });
+            }
+        });
+        window.on_scan_desktop({
+            let drag = drag.clone();
+            let scan = scan.clone();
+            move || {
+                let composition = drag.composition.get().expect("跨屏扫码只读取已校验的画布");
+                scan.request(index, Area::Desktop(composition));
             }
         });
     }

@@ -1,7 +1,7 @@
 use super::{editor, post, Event};
 use crate::{
     CaptureAnnotation, CaptureMark, CaptureMosaic, CapturePoint, CaptureTool, CaptureWindow,
-    CaptureWindowTarget,
+    CaptureWindowTarget, ClippyTheme,
 };
 use anyhow::{Context, Result};
 use clippy_capture::{
@@ -47,11 +47,15 @@ use std::{
 };
 
 mod desktop;
+mod scan;
+
+pub(super) use scan::Message as ScanMessage;
 
 pub(super) struct Selection {
     views: Vec<View>,
     source: CaptureSource,
     started: Instant,
+    scan: Rc<scan::Overlay>,
 }
 
 impl Selection {
@@ -285,6 +289,7 @@ pub(super) fn present(
     capture: FrozenCapture,
     started: Instant,
     diagnostics: bool,
+    theme: i32,
 ) -> Result<Selection> {
     let single_output = capture.output_count == 1;
     let portal_stream = capture.source.uses_portal();
@@ -295,6 +300,7 @@ pub(super) fn present(
         .map(|(index, output)| {
             let wayland = clippy_platform::session::is_wayland();
             let window = CaptureWindow::new()?;
+            window.global::<ClippyTheme>().set_index(theme);
             window.set_portal_stream(portal_stream);
             let frame = OverlayFrame::from(output);
             let view = View { window, frame };
@@ -396,6 +402,14 @@ pub(super) fn present(
                             }
                         }
                     }
+                    if matches!(
+                        event,
+                        WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. }
+                    ) {
+                        if let Some(overlay) = placement_window.upgrade() {
+                            overlay.invoke_invalidate_scan();
+                        }
+                    }
                     if matches!(event, WindowEvent::RedrawRequested) {
                         if diagnostics && first_redraw {
                             first_redraw = false;
@@ -429,13 +443,15 @@ pub(super) fn present(
             Ok(view)
         })
         .collect::<Result<_>>()?;
+    let scan = scan::connect(&views, started);
     if views.len() > 1 {
-        desktop::connect(&views);
+        desktop::connect(&views, &scan);
     }
     Ok(Selection {
         views,
         source: capture.source,
         started,
+        scan,
     })
 }
 
@@ -488,22 +504,35 @@ fn configure_annotations(window: &CaptureWindow, source: &SharedPixelBuffer<Rgba
             window.set_annotation_error(Default::default());
             undone.set_vec(Vec::new());
             marks.push(mark);
+            window.invoke_invalidate_scan();
             true
         }
     });
     window.on_undo_mark({
         let marks = marks.clone();
         let undone = undone.clone();
-        move || undone.push(take_last_mark(&marks))
+        let window = window.as_weak();
+        move || {
+            undone.push(take_last_mark(&marks));
+            window.unwrap().invoke_invalidate_scan();
+        }
     });
     window.on_redo_mark({
         let marks = marks.clone();
         let undone = undone.clone();
-        move || marks.push(take_last_mark(&undone))
+        let window = window.as_weak();
+        move || {
+            marks.push(take_last_mark(&undone));
+            window.unwrap().invoke_invalidate_scan();
+        }
     });
-    window.on_clear_marks(move || {
-        marks.set_vec(Vec::new());
-        undone.set_vec(Vec::new());
+    window.on_clear_marks({
+        let window = window.as_weak();
+        move || {
+            marks.set_vec(Vec::new());
+            undone.set_vec(Vec::new());
+            window.unwrap().invoke_invalidate_scan();
+        }
     });
     let pen = Rc::new(RefCell::new(PenStroke::default()));
     window.on_sample_pen({
@@ -626,6 +655,7 @@ pub(super) fn output(
         mut views,
         source,
         started,
+        ..
     } = selection;
     let selected = views.swap_remove(index);
     let needs_stream = matches!(destination, Destination::Longshot | Destination::Record);
@@ -700,25 +730,42 @@ fn output_desktop(
     composition: Composition,
     destination: StillDestination,
 ) -> io::Result<()> {
-    let frames: Vec<_> = selection
-        .views
-        .iter()
-        .filter(|view| composition.intersects(view.frame.geometry))
-        .map(|view| (view.frame.output_geometry(), view.frame.pixels.clone()))
-        .collect();
+    let snapshot = DesktopSnapshot::new(&selection.views, composition);
     drop(selection);
     thread::Builder::new()
         .name("clippy-screenshot-output".into())
         .spawn(move || {
             let started = Instant::now();
-            let image = composition.render(frames.iter().map(|(output, pixels)| Frame {
-                output: *output,
-                rgba: pixels.as_bytes(),
-            }));
-            drop(frames);
-            finish_still(Ok(image), &[], destination, started);
+            finish_still(Ok(snapshot.render()), &[], destination, started);
         })?;
     Ok(())
+}
+
+struct DesktopSnapshot {
+    composition: Composition,
+    frames: Vec<(OutputGeometry, SharedPixelBuffer<Rgba8Pixel>)>,
+}
+
+impl DesktopSnapshot {
+    fn new(views: &[View], composition: Composition) -> Self {
+        let frames = views
+            .iter()
+            .filter(|view| composition.intersects(view.frame.geometry))
+            .map(|view| (view.frame.output_geometry(), view.frame.pixels.clone()))
+            .collect();
+        Self {
+            composition,
+            frames,
+        }
+    }
+
+    fn render(self) -> RgbaImage {
+        self.composition
+            .render(self.frames.iter().map(|(output, pixels)| Frame {
+                output: *output,
+                rgba: pixels.as_bytes(),
+            }))
+    }
 }
 
 impl OutputJob {

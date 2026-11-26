@@ -256,6 +256,7 @@ enum Event {
         area: capture::Area,
         action: CaptureAction,
     },
+    CaptureScan(capture::ScanMessage),
     CaptureClipboard(Result<image::RgbaImage>, Instant),
     CaptureFinished(Result<String>, Instant),
     EditorOpen(Result<capture::EditedCapture>),
@@ -476,7 +477,9 @@ impl App {
                         started.elapsed().as_secs_f64() * 1000.0
                     );
                 }
-                match result.and_then(|frozen| capture::present(frozen, started, diagnostic)) {
+                let theme = settings::theme_index(&self.config.theme);
+                match result.and_then(|frozen| capture::present(frozen, started, diagnostic, theme))
+                {
                     Ok(selection) => self.capture_selection = Some(selection),
                     Err(error) if error.is::<ScreenSharingCancelled>() => {
                         self.complete("Screenshot cancelled");
@@ -557,6 +560,7 @@ impl App {
                     }
                 }
             }
+            Event::CaptureScan(message) => self.capture_scan_message(message),
             Event::CaptureClipboard(result, started) => {
                 let result = result.and_then(|image| {
                     self.clipboard.submit(clipboard::Request::WriteImage {

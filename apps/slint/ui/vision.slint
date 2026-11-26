@@ -26,6 +26,58 @@ export struct TextParagraph {
 export struct CodeMatch { id: int, format: string, text: string }
 export struct CodeMarker { id: int, x: float, y: float }
 
+export component CodeMarkerLayer inherits Rectangle {
+    in property <[CodeMarker]> markers;
+    in property <int> selected-code: -1;
+    callback select-code(int);
+
+    for mark in root.markers: TouchArea {
+        width: 24px;
+        height: 24px;
+        x: mark.x * root.width - self.width / 2;
+        y: mark.y * root.height - self.height / 2;
+        mouse-cursor: pointer;
+        clicked => { root.select-code(mark.id); }
+        Rectangle {
+            width: 10px;
+            height: 10px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: 5px;
+            border-color: #252932;
+            border-width: 1px;
+            background: mark.id == root.selected-code ? #ffd158 : #29a7ef;
+        }
+    }
+}
+
+export component CodeMatchList inherits ListView {
+    in property <[CodeMatch]> matches;
+    in property <int> selected-code: -1;
+    callback select-code(int);
+    callback copy-code(int);
+
+    for code in root.matches: Rectangle {
+        height: max(52px, 29px + payload.height);
+        clip: true;
+        border-radius: 6px;
+        background: root.selected-code == code.id ? ClippyTheme.accent-soft : ClippyTheme.surface;
+        TouchArea { width: parent.width - 76px; clicked => { root.select-code(code.id); } }
+        Text {
+            x: 6px; y: 6px; text: code.format; color: ClippyTheme.foreground; font-weight: 600;
+        }
+        payload := Text {
+            x: 6px; y: 23px; width: parent.width - 82px; height: self.preferred-height;
+            text: code.text; wrap: word-wrap; overflow: elide; max-lines: 3; color: ClippyTheme.foreground;
+        }
+        Button {
+            x: parent.width - self.width - 6px; y: 6px; width: 64px;
+            text: @tr("Copy"); accessible-description: code.format;
+            clicked => { root.copy-code(code.id); }
+        }
+    }
+}
+
 component TranslationOverlay inherits Rectangle {
     in property <string> translated;
     in property <bool> active;
@@ -126,23 +178,10 @@ export component ImageTextWindow inherits ClippyWindow {
                     active: root.show-translation && box.line == root.selected-line;
                     translated: box.translated;
                 }
-                for mark in root.code-markers: TouchArea {
-                    width: 24px;
-                    height: 24px;
-                    x: mark.x * depiction.width - self.width / 2;
-                    y: mark.y * depiction.height - self.height / 2;
-                    mouse-cursor: pointer;
-                    clicked => { root.select-code(mark.id); }
-                    Rectangle {
-                        width: 10px;
-                        height: 10px;
-                        x: (parent.width - self.width) / 2;
-                        y: (parent.height - self.height) / 2;
-                        border-radius: 5px;
-                        border-color: #252932;
-                        border-width: 1px;
-                        background: mark.id == root.selected-code ? #ffd158 : #29a7ef;
-                    }
+                if root.scan-mode: CodeMarkerLayer {
+                    width: depiction.width; height: depiction.height;
+                    markers: root.code-markers; selected-code: root.selected-code;
+                    select-code(id) => { root.select-code(id); }
                 }
             }
         }
@@ -172,26 +211,10 @@ export component ImageTextWindow inherits ClippyWindow {
                     }
                 }
             }
-            if root.scan-mode: ListView {
-                for code in root.code-matches: Rectangle {
-                    height: max(52px, 29px + payload.height);
-                    clip: true;
-                    border-radius: 6px;
-                    background: root.selected-code == code.id ? ClippyTheme.accent-soft : ClippyTheme.surface;
-                    TouchArea { width: parent.width - 76px; clicked => { root.select-code(code.id); } }
-                    Text {
-                        x: 6px; y: 6px; text: code.format; color: ClippyTheme.foreground; font-weight: 600;
-                    }
-                    payload := Text {
-                        x: 6px; y: 23px; width: parent.width - 82px; height: self.preferred-height;
-                        text: code.text; wrap: word-wrap; overflow: elide; max-lines: 3; color: ClippyTheme.foreground;
-                    }
-                    Button {
-                        x: parent.width - self.width - 6px; y: 6px; width: 64px;
-                        text: @tr("Copy"); accessible-description: code.format;
-                        clicked => { root.copy-code(code.id); }
-                    }
-                }
+            if root.scan-mode: CodeMatchList {
+                matches: root.code-matches; selected-code: root.selected-code;
+                select-code(id) => { root.select-code(id); }
+                copy-code(id) => { root.copy-code(id); }
             }
             TextEdit {
                 text: root.current-text == "" ? root.original : root.current-text;
