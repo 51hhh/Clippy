@@ -9,10 +9,7 @@ use clippy_platform::{
 };
 use image::RgbaImage;
 use slint::{
-    winit_030::{
-        winit::raw_window_handle::{HasWindowHandle, RawWindowHandle},
-        WinitWindowAccessor,
-    },
+    winit_030::{winit::raw_window_handle::HasWindowHandle, WinitWindowAccessor},
     CloseRequestResponse, ComponentHandle, Timer,
 };
 use std::{
@@ -54,6 +51,7 @@ pub(super) enum ExportImage {
 
 pub(super) enum Message {
     Action(Action),
+    Preparing(u64),
     Feedback(u64, Feedback),
     Finish(u64, Result<RgbaImage>),
     Export(u64, ExportImage, Result<RgbaImage>),
@@ -113,7 +111,8 @@ impl View {
             action(Action::Cancel);
             CloseRequestResponse::KeepWindowShown
         });
-        if !scroll::is_x11() {
+        let defer_window = scroll::uses_native_target();
+        if !defer_window {
             window.show()?;
         }
         let (commands, receiver) = mpsc::sync_channel(1);
@@ -122,21 +121,23 @@ impl View {
         thread::Builder::new()
             .name("clippy-scrolling-capture".into())
             .spawn(move || {
-                let mut target = scroll::for_region(&region).unwrap_or_else(|error| {
-                    eprintln!("Could not find an automatic scrolling target: {error:#}");
-                    None
-                });
+                let (mut target, ready) = match scroll::for_region(&region) {
+                    Ok(Some(target)) => (
+                        Some(target),
+                        "Move the pointer or use the tray to stop automatic scrolling".to_owned(),
+                    ),
+                    Ok(None) => (None, "Ready for the next frame".to_owned()),
+                    Err(error) => (None, format!("{error:#}")),
+                };
+                if defer_window {
+                    send(Message::Preparing(id));
+                }
                 let auto_scroll = target.is_some();
                 let result = with_region_reader(region, &worker_cancellation, |read| {
                     let mut session = LongshotSession::start(first)?;
-                    let ready = if auto_scroll {
-                        "Move the pointer or use the tray to stop automatic scrolling"
-                    } else {
-                        "Ready for the next frame"
-                    };
                     send(Message::Feedback(
                         id,
-                        feedback(&session, ready.into(), auto_scroll)?,
+                        feedback(&session, ready, auto_scroll)?,
                     ));
                     while let Ok(command) = receiver.recv() {
                         let status = match command {
@@ -220,13 +221,8 @@ impl View {
         let control_window = self
             .window
             .window()
-            .with_winit_window(|native| match native.window_handle().ok()?.as_raw() {
-                RawWindowHandle::Xlib(handle) => u32::try_from(handle.window).ok(),
-                RawWindowHandle::Xcb(handle) => Some(handle.window.get()),
-                _ => None,
-            })
-            .flatten()
-            .context("Could not identify the X11 scrolling controls")?;
+            .with_winit_window(|native| scroll::ControlWindow::from_handle(native.window_handle()?))
+            .context("Could not identify the native scrolling controls")??;
         self.window.hide()?;
         let permit = automatic::Permit::new();
         self.commands
@@ -317,6 +313,11 @@ impl App {
                     });
                 } else if sender.try_send(command).is_err() {
                     send(Message::Failed(id, anyhow!("Capture session closed")));
+                }
+            }
+            Message::Preparing(id) if id == view.id => {
+                if let Err(error) = view.window.show() {
+                    send(Message::Failed(id, error.into()));
                 }
             }
             Message::Feedback(id, feedback) if id == view.id => {

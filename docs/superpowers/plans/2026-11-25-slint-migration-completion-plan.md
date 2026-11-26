@@ -272,6 +272,26 @@ X11 控制窗隐藏后由窗口服务器确认已撤下，再开始发输入。�
 **Out of Scope** Windows、macOS 和 Wayland 的输入授权在 X11 行为通过后接入同一控制器。拼接评分和
 图像预算继续使用现有合同。
 
+### 阶段 3 · Windows 和 macOS 自动滚动输入
+
+**Goal** 让 Windows 和 macOS 共用现有自动长截图控制器、稳定帧判断、停止许可和输出动作，并保持各自原生的
+目标窗口和指针坐标合同。
+
+**Requirements** Windows 从当前采集显示器的物理原点和选区像素计算锚点，复核顶层窗口、进程完整性和
+前台目标后发送滚轮。macOS 用 CGDisplayBounds 的逻辑尺寸将冻结选区转换为全局点，按窗口顺序及 PID
+核对目标，并在输入前核对系统辅助功能权限。控制窗隐藏确认使用各平台的原生窗口标识。保留单步截止时间、
+停用后撤销输入、用户接管时保留指针、权限不足时保留手动追加的合同。
+
+同型号屏幕可使用同一显示器名称，读取器和滚动后端同时匹配冻结时的原点。长截图控制窗隐藏后只请求一次
+目标激活，在共享截止时间内等前台切换。运行中前台变化会结束本轮输入。macOS 在发滚轮和提交帧时核对
+窗口队列，等画面稳定期间只检查指针和前台，减少反复枚举窗口。
+
+**Acceptance Criteria** Windows 10/11 验证负原点和混合 DPI，macOS 验证 Retina、辅助功能拒绝与恢复。
+四向输出、页尾、切换前台目标、移动指针、托盘停止和退出均需用真实窗口复测。平台交叉编译只验编译路径。
+
+**Out of Scope** Wayland 的输入授权和显示器绑定继续按现有 RemoteDesktop/ScreenCast 规格接入。
+ [Windows 和 macOS 原生输入合同](../specs/2026-09-22-longshot-native-auto-scroll.md)
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -460,8 +480,19 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   换窗后新旧窗口都没有收到后续输入。已验证停止后取消、用户接管指针、自然结束复位和滚动中退出。
 - 新版完整 Linux 门禁 11 项通过、0 失败、0 跳过。直接冻结 Sway 和 Portal 方式的手动长截图回归通过。
   Windows GNU 的 QA 入口交叉检查未启用录屏编解码，macOS Apple Silicon 的平台层交叉检查通过。
-  自动滚动的 Windows、macOS 和 Wayland 后端及原生验收留在本阶段后续，尚无同一 SHA 的三平台 CI。
   日志见 `target/test-artifacts/slint-stage3-x11/`。
+
+### 阶段 3 · Windows 和 macOS 自动滚动接入结果
+
+- 采集和输入共同匹配选区冻结时的输出名称及原点。Windows 使用物理像素，macOS 使用对应 `CGDisplayBounds`
+  的逻辑点。原生控制窗隐藏与激活目标共享 500 毫秒起步期限，窗口变化或用户接管指针停止输入并保留拼接结果。
+- 隔离 Wine 验证了实际目标窗收到上下左右四个独立滚轮事件、控制窗确实隐藏和指针复位。前台窗口切换或用户
+  移动鼠标后无额外事件。Windows GNU 的 Slint QA 入口通过交叉检查，使用关闭默认录屏编解码的配置。
+- macOS Intel 和 Apple Silicon 平台层通过 `--all-targets` 交叉 clippy，最低目标为 11.0。Slint 整应用
+  Apple Silicon 交叉检查停在 `ring` 的 C 构建，Linux 环境缺 Apple SDK。真实 Retina、权限、多屏及
+  Windows 10/11 的 WGC、混合 DPI 与更高完整性窗口继续在原生安装包上核对。
+- 完整 Linux 本地门禁 11 项通过、0 失败、0 跳过，再次覆盖 X11 的十项自动滚动和精确输出。
+  当前结果未覆盖同一 SHA 的原生 CI。日志见 `target/test-artifacts/slint-stage3-native/`。
 
 ## Acceptance Criteria
 

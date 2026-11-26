@@ -4,7 +4,7 @@ use clippy_capture::{
     longshot::{overlap::ScrollDirection, LongshotSession},
     CaptureError,
 };
-use clippy_platform::scroll::{Direction, Target};
+use clippy_platform::scroll::{ControlWindow, Direction, Target};
 use image::RgbaImage;
 use std::{
     sync::{
@@ -58,7 +58,7 @@ impl Permit {
 
 pub(super) struct Request {
     pub direction: LongshotDirection,
-    pub control_window: u32,
+    pub control_window: ControlWindow,
     pub permit: Permit,
 }
 
@@ -82,14 +82,19 @@ impl Request {
         read: &mut dyn FnMut() -> Result<RgbaImage>,
     ) -> Result<&'static str> {
         let deadline = Instant::now() + STEP_TIMEOUT;
-        while !target.control_is_hidden(self.control_window)? {
-            self.permit.check()?;
-            ensure!(
-                Instant::now() < deadline,
-                "Scrolling controls are still visible"
-            );
-            thread::sleep(SAMPLE_PERIOD);
+        self.wait_for_native_state(
+            deadline,
+            || target.control_is_hidden(self.control_window),
+            "Scrolling controls did not hide in time",
+        )?;
+        if !target.is_active() {
+            self.permit.input(|| target.activate())?;
         }
+        self.wait_for_native_state(
+            deadline,
+            || Ok(target.is_active()),
+            "Scroll target did not become active",
+        )?;
         self.permit.input(|| target.position_pointer())?;
         let (native_direction, expected_direction) = match self.direction {
             LongshotDirection::Down => (Direction::Down, ScrollDirection::Down),
@@ -108,6 +113,8 @@ impl Request {
             let Some(frame) = frame else {
                 return Ok("Reached the end of the page");
             };
+            target.verify_frame_target()?;
+            self.permit.check()?;
             let result = match session.append_after_scroll(frame, expected_direction) {
                 Ok(result) => result,
                 Err(error) => {
@@ -129,6 +136,24 @@ impl Request {
             if !result.committed {
                 return Ok("This part is already captured");
             }
+        }
+    }
+
+    fn wait_for_native_state(
+        &self,
+        deadline: Instant,
+        mut ready: impl FnMut() -> Result<bool>,
+        timeout: &str,
+    ) -> Result<()> {
+        loop {
+            self.permit.check()?;
+            let ready = ready()?;
+            let now = Instant::now();
+            ensure!(now < deadline, "{timeout}");
+            if ready {
+                return Ok(());
+            }
+            thread::sleep(SAMPLE_PERIOD.min(deadline - now));
         }
     }
 

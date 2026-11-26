@@ -265,28 +265,14 @@ pub fn with_region_reader<T>(
     }
     #[cfg(target_os = "windows")]
     {
-        let monitor = xcap::Monitor::all()?
-            .into_iter()
-            .find(|monitor| monitor.name().is_ok_and(|name| name == output))
-            .ok_or_else(|| anyhow::anyhow!("Capture output is unavailable"))?;
-        ensure!(
-            (monitor.x()?, monitor.y()?) == (geometry.x, geometry.y),
-            "Capture output changed position"
-        );
+        let monitor = resolve_native_monitor(&output, geometry)?;
         let pixels = pixel_rect(source_size.0, source_size.1, [left, top, right, bottom])?;
         let mut source = monitor.wgc_region_reader(source_size, pixels)?;
         consume(&mut || source.read().map_err(Into::into))
     }
     #[cfg(target_os = "macos")]
     {
-        let monitor = xcap::Monitor::all()?
-            .into_iter()
-            .find(|monitor| monitor.name().is_ok_and(|name| name == output))
-            .ok_or_else(|| anyhow::anyhow!("Capture output is unavailable"))?;
-        ensure!(
-            (monitor.x()?, monitor.y()?) == (geometry.x, geometry.y),
-            "Capture output changed position"
-        );
+        let monitor = resolve_native_monitor(&output, geometry)?;
         let bounds = [left, top, right, bottom];
         if macos::stream_supported() {
             let mut source = macos::ScreenStream::open(monitor.id()?, source_size, bounds)?;
@@ -301,6 +287,21 @@ pub fn with_region_reader<T>(
             crop_rgba(image.as_raw(), source_size.0, source_size.1, bounds)
         })
     }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+pub(crate) fn resolve_native_monitor(output: &str, geometry: DesktopRect) -> Result<xcap::Monitor> {
+    let mut name_found = false;
+    for monitor in xcap::Monitor::all()? {
+        if monitor.name().is_ok_and(|name| name == output) {
+            name_found = true;
+            if (monitor.x()?, monitor.y()?) == (geometry.x, geometry.y) {
+                return Ok(monitor);
+            }
+        }
+    }
+    ensure!(name_found, "Capture output is unavailable");
+    anyhow::bail!("Capture output changed position")
 }
 
 #[cfg(target_os = "linux")]

@@ -1,4 +1,4 @@
-use super::Direction;
+use super::{ControlWindow, Direction};
 use crate::capture::DesktopRect;
 use anyhow::{ensure, Result};
 use x11rb::{
@@ -94,7 +94,7 @@ impl Target {
 }
 
 impl super::Target for Target {
-    fn control_is_hidden(&self, window: u32) -> Result<bool> {
+    fn control_is_hidden(&self, ControlWindow(window): ControlWindow) -> Result<bool> {
         match self.connection.get_window_attributes(window)?.reply() {
             Ok(reply) => Ok(reply.map_state != MapState::VIEWABLE),
             Err(ReplyError::X11Error(error)) if error.error_kind == ErrorKind::Window => Ok(true),
