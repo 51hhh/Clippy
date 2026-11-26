@@ -2,7 +2,7 @@ mod output;
 
 use super::PlaybackUpdate;
 use crate::recording::native_playback::NativeWebmDecoder;
-use output::{open_device, AudioOutput};
+use output::{open_device, AudioOutput, OutputDevice};
 use std::{path::Path, time::Instant};
 
 const NS_PER_MS: u64 = 1_000_000;
@@ -21,7 +21,7 @@ pub struct NativeRecordingPlayer {
     timeline: Timeline,
     decoder: NativeWebmDecoder,
     position_ns: u64,
-    device: Option<cpal::Device>,
+    device: Option<OutputDevice>,
     device_target: Option<String>,
 }
 

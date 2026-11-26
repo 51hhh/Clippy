@@ -91,6 +91,8 @@
 
 ### Slint 区域录屏
 
+- macOS QA 包接入录屏库内回放。Core Audio 在系统默认输出上播放，48 kHz 双声道格式只应用于本次播放。
+  双架构安装和音画同步待实机验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 - 修复 Windows 在录屏库读取状态时可能无法提交新分段的问题。同一会话的清单读取与原子替换已协调。
   Wine 定向回归已通过，原生 Windows 的文件权限和恢复验收待复测。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 - Windows QA 安装包启用轻量录屏播放器，用系统默认 WASAPI 输出。隔离 Wine 已验证原件、分段和恢复件的有声

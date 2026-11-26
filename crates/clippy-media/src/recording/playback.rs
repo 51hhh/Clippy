@@ -1,7 +1,7 @@
 #[cfg(feature = "recording-playback-gstreamer")]
 mod gstreamer;
 #[cfg(all(
-    any(target_os = "linux", target_os = "windows"),
+    any(target_os = "linux", target_os = "windows", target_os = "macos"),
     feature = "recording-playback-native-stream"
 ))]
 mod native;
@@ -9,7 +9,7 @@ mod native;
 #[cfg(feature = "recording-playback-gstreamer")]
 pub use gstreamer::RecordingPlayer;
 #[cfg(all(
-    any(target_os = "linux", target_os = "windows"),
+    any(target_os = "linux", target_os = "windows", target_os = "macos"),
     feature = "recording-playback-native-stream"
 ))]
 pub use native::NativeRecordingPlayer;

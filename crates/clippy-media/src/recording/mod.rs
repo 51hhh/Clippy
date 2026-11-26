@@ -25,7 +25,7 @@ pub mod platform;
 #[cfg(any(
     feature = "recording-playback-gstreamer",
     all(
-        any(target_os = "linux", target_os = "windows"),
+        any(target_os = "linux", target_os = "windows", target_os = "macos"),
         feature = "recording-playback-native-stream"
     )
 ))]

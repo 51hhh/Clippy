@@ -513,6 +513,35 @@ CPAL 的 WASAPI 共享模式打开播放流，沿用 48 kHz 双声道与现有�
 
 **Out of Scope** 正式包默认播放器切换、采集和录制格式改动、macOS 音频设备适配。
 
+#### 阶段 4 · macOS 轻量播放器候选
+
+**Goal** 在 macOS Intel 和 Apple Silicon 的 Slint QA 包中播放自有 VP9/Opus 录屏。
+
+**Requirements** 沿用现有索引解码、八个 Opus 包的 PCM 队列、录屏库控件和取消流程。macOS 通过 Core Audio
+的 `DefaultOutput` AudioUnit 连接系统默认输出。在 AudioUnit 的客户端总线协商 48 kHz 双声道 Float32，
+由系统管理物理设备格式和缓冲。固定版 CPAL 的 macOS 路径会尝试设置硬件物理格式和设备缓冲大小，因此
+这里直接使用默认输出 AudioUnit。用回调的有效 host time 和当前主机时钟估算播放位置，时间无效时报告错误。
+暂停、定位和关窗都释放当前 AudioUnit。QA 构建记录 `recording-playback=coreaudio`。
+[Apple 默认输出 AudioUnit](https://developer.apple.com/library/archive/documentation/MusicAudio/Conceptual/CoreAudioOverview/SystemAudioUnits/SystemAudioUnits.html) ·
+[CPAL 0.18.2 输出路径](https://github.com/RustAudio/cpal/blob/e1612d5d98152f8dc2a62e1b51ef7cbf4f7f26b7/src/host/coreaudio/macos/device.rs#L819)
+
+**Acceptance Criteria** 双架构 QA 使用同一特性测试和打包。用无声及有声原件、独立分段、恢复件验证首帧、
+暂停、定位、播放结束和关窗回收。在 44.1 和 48 kHz 设备上记录可听输出、音画时差，并核对设备的采样率和
+缓冲设置。交叉检查、原生 CI、干净安装与设备测试单独记录。
+
+**Out of Scope** 正式包播放器切换、手动选择 macOS 输出设备、录制时钟、编解码格式、最低系统版本。
+
+- Linux 主机用同一 Core Audio 适配源、锁定的依赖和 11.0 部署目标执行严格 Clippy，两种 Darwin 架构通过。
+  此范围覆盖适配代码与系统 API 类型。Windows GNU 的完整媒体层也通过该播放特性的严格交叉检查。
+- 隔离 Linux QA 复测系统默认输出。有声原件、独立分段和恢复件均验证了画面、定位后的正弦频率、播放结束及
+  关闭后的音频流回收。无声录像在设备不可用时仍能播放和定位。有声录像指定失效设备时显示错误。
+  Mac 出包与 44.1/48 kHz 实际设备继续验收。
+- 记录见 `target/test-artifacts/slint-stage4-coreaudio-adapter.8AwBEO/` 下的双架构日志，
+  以及 `target/test-artifacts/slint-stage4-macos-player-regression.REisck/linux-native-library.log`。
+- 本地完整门禁首轮在共享测试二进制的链接阶段遇到构建盘空间不足，10 项通过、1 项失败。移动旧的可重建
+  增量缓存后，核对同一源码，再次运行完整门禁得到 11 项通过、0 失败、0 跳过。日志位于同目录的
+  `ci-local.log` 和 `ci-local-posix-retry.log`。
+
 #### 阶段 5 · 按需离线识别进程
 
 **Goal** 让 Slint 的全尺寸识字窗和历史预览共用可运行的 PP-OCRv6 small 候选，进程退出后归还模型内存。

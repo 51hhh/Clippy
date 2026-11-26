@@ -16,7 +16,14 @@ recording-macos-audio = ["clippy-platform/macos-recording-audio", "recording-mac
 recording-macos-resampling = ["dep:rubato"]
 recording-windows-audio = ["dep:windows"]
 recording-playback-native = ["recording-opus-webm"]
-recording-playback-native-stream = ["recording-playback-native", "dep:cpal", "dep:rtrb"]
+recording-playback-native-stream = [
+    "recording-playback-native",
+    "dep:coreaudio-rs",
+    "dep:cpal",
+    "dep:objc2-core-audio",
+    "dep:objc2-core-audio-types",
+    "dep:rtrb",
+]
 recording-playback-gstreamer = [
     "recording-vp9-prototype",
     "dep:gstreamer",
@@ -52,6 +59,9 @@ pipewire = { version = "0.9", features = ["v0_3_34"], optional = true }
 shiguredo_libvpx = { version = "=2026.2.0-canary.1", optional = true, features = ["source-build"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+coreaudio-rs = { version = "=0.14.2", default-features = false, features = ["audio_toolbox"], optional = true }
+objc2-core-audio = { version = "0.3", default-features = false, features = ["HostTime"], optional = true }
+objc2-core-audio-types = { version = "0.3", default-features = false, features = ["CoreAudioBaseTypes"], optional = true }
 # 带限 sinc 不使用 FFT 或日志，避免引入未用的采样路径。
 rubato = { version = "=5.0.0", default-features = false, optional = true }
 

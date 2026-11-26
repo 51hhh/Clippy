@@ -741,13 +741,13 @@ jobs:
 
       - name: Test Slint QA host
         run: >-
-          cargo test --locked -p clippy-platform -p clippy-slint
-          --features qa-build
+          cargo test --locked -p clippy-platform -p clippy-media -p clippy-slint
+          --features clippy-slint/qa-build,clippy-slint/recording-playback-native-qa
 
       - name: Build Slint QA binary
         run: >-
           cargo build --locked --release -p clippy-slint
-          --bin clippy-slint-qa --features qa-build
+          --bin clippy-slint-qa --features qa-build,recording-playback-native-qa
 
       - uses: ./.github/actions/slint-ocr-bundle
         with:
@@ -804,7 +804,8 @@ jobs:
             --sha "$GITHUB_SHA" \
             --output qa-slint-artifacts/QA-BUILD.txt \
             --field packager=cargo-packager-0.11.8 \
-            --field minimum_system_version=12.3
+            --field minimum_system_version=12.3 \
+            --field recording-playback=coreaudio
           (cd qa-slint-artifacts && shasum -a 256 ./*.dmg OCR-BUNDLE.json > SHA256SUMS.txt)
 
       - name: Upload Slint macOS QA artifact
