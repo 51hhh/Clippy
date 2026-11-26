@@ -48,6 +48,8 @@
 
 ### Slint 区域录屏
 
+- 录屏库可以显示极窄 VP9 录屏的缩略图。已用实际编码出的 2×2 录像复测解码器行距。
+  （需求 `SLINT-MIGRATION-CLOSURE-01`）
 - 启用 `recording-playback-gstreamer-qa` 的 QA 构建，可在录屏库播放、暂停和定位视频。隔离 X11 已验证有声
   WebM 原件、独立分段及恢复文件的画面、系统音频、正常结束与关窗回收。其他平台、安装包依赖和正式播放器选型
   继续验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
