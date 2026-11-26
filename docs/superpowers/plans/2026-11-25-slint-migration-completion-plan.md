@@ -607,6 +607,18 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
 - 完整 Linux 门禁 11 项通过、0 失败、0 跳过，xcap 固定源码校验通过。原生采集、真实音源
   和同一提交三平台原生 CI 继续验收。日志见 `target/test-artifacts/slint-stage4-native-clock/`。
 
+### 阶段 4 · 有声产物回放对照
+
+- 用现有 VP9/Opus 编码器与有界交错器生成 15 fps 的有声 WebM，保留原始文件、独立分段和正式恢复函数
+  合并的文件。共享 WebM 读取器、libvpx、Opus 与现有 BT.709 换算逐包解出三份文件，合并件包含
+  60 帧视频和 192,000 个有效 PCM 采样帧。短文件从头遍历能定位，索引跳转和系统声音输出继续验证。
+- GStreamer 的视频和音频 `appsink` 对三份文件均能定位并播放至结束，实际解出的 PCM 帧数等于定位后的
+  预期帧数，关闭后返回 Null。Clippy 当前把画面按 BT.709 编码，文件未声明矩阵。默认 RGBA 协商使红色样本的
+  通道最大偏差达到 15 级；请求原生 I420 并按 BT.709 解释后，六个首帧/定位样本最大偏差为 1 级。
+  样本使用测试接收器，真实音频设备、长时定位和三平台干净安装的运行库闭包继续验证。
+- 原始记录与夹具见 `target/test-artifacts/slint-stage4-playback/` 的 `decoder-production-order.log`、
+  `gst-av-compare.log`、`gst-av-i420.log`、`probe.rs` 和 `gst-compare.py`。
+
 ## Acceptance Criteria
 
 - [ ] Linux 的 GNOME Wayland、X11、KDE/其他受支持 Wayland，以及 Windows 10/11、macOS Intel/Apple Silicon，
