@@ -28,6 +28,8 @@ mod screencast_stream;
 #[cfg(target_os = "linux")]
 mod wayland;
 #[cfg(target_os = "linux")]
+mod wayland_outputs;
+#[cfg(target_os = "linux")]
 mod x11;
 
 #[cfg(target_os = "linux")]
@@ -64,12 +66,60 @@ pub struct FrozenOutput {
     pub pixels: FrozenPixels,
 }
 
+pub struct FrozenCapture {
+    pub outputs: Vec<FrozenOutput>,
+    pub output_count: usize,
+    pub source: CaptureSource,
+}
+
+impl FrozenCapture {
+    fn direct(outputs: Vec<FrozenOutput>) -> Self {
+        Self {
+            output_count: outputs.len(),
+            outputs,
+            source: CaptureSource::default(),
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct CaptureSource(#[cfg(target_os = "linux")] Option<wayland::PortalHandoff>);
+
+impl CaptureSource {
+    pub fn uses_portal(&self) -> bool {
+        #[cfg(target_os = "linux")]
+        return self.0.is_some();
+        #[cfg(not(target_os = "linux"))]
+        false
+    }
+
+    pub fn overlay_closed(&mut self, _closed: std::time::Instant) -> Result<()> {
+        #[cfg(target_os = "linux")]
+        if let Some(handoff) = &mut self.0 {
+            handoff.overlay_closed(_closed)?;
+        }
+        Ok(())
+    }
+}
+
 pub struct Region {
     pub output: String,
     pub geometry: DesktopRect,
     pub source_size: (u32, u32),
     pub bounds: [f32; 4],
+    pub source: CaptureSource,
 }
+
+#[derive(Debug)]
+pub struct ScreenSharingCancelled;
+
+impl std::fmt::Display for ScreenSharingCancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Screen sharing cancelled")
+    }
+}
+
+impl std::error::Error for ScreenSharingCancelled {}
 
 #[derive(Clone, Default)]
 pub struct RegionCancellation {
@@ -91,7 +141,7 @@ impl RegionCancellation {
 
     #[cfg(target_os = "linux")]
     fn check_active(&self) -> Result<()> {
-        ensure!(!*self.signal.borrow(), "Screen sharing cancelled");
+        ensure!(!*self.signal.borrow(), ScreenSharingCancelled);
         Ok(())
     }
 }
@@ -165,7 +215,19 @@ pub fn with_region_reader<T>(
         geometry,
         source_size,
         bounds: [left, top, right, bottom],
+        source: _source,
     } = region;
+    #[cfg(target_os = "linux")]
+    if let Some(handoff) = _source.0 {
+        return handoff.with_region(
+            &output,
+            geometry,
+            source_size,
+            [left, top, right, bottom],
+            _cancellation,
+            consume,
+        );
+    }
     #[cfg(target_os = "linux")]
     if crate::session::is_wayland() {
         if crate::session::is_gnome() {
@@ -325,8 +387,25 @@ pub fn freeze() -> Result<Vec<FrozenOutput>> {
     };
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     let outputs = native_freeze()?;
+    validate_outputs(&outputs)?;
+    Ok(outputs)
+}
+
+// 回调交付冻结图后，后台线程继续持有可移交的 Portal 会话，直到选区确认或放弃。
+pub fn freeze_selection(
+    _cancellation: &RegionCancellation,
+    publish: impl FnOnce(Result<FrozenCapture>),
+) {
+    #[cfg(target_os = "linux")]
+    if crate::session::is_wayland() {
+        return wayland::freeze_selection(_cancellation, publish);
+    }
+    publish(freeze().map(FrozenCapture::direct));
+}
+
+fn validate_outputs(outputs: &[FrozenOutput]) -> Result<()> {
     ensure!(!outputs.is_empty(), "No display available");
-    for output in &outputs {
+    for output in outputs {
         let pixels = &output.pixels;
         validate_image_layout(
             pixels.width as usize,
@@ -335,7 +414,7 @@ pub fn freeze() -> Result<Vec<FrozenOutput>> {
         )
         .map_err(anyhow::Error::msg)?;
     }
-    Ok(outputs)
+    Ok(())
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]

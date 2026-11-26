@@ -3,7 +3,9 @@ use crate::{CaptureMark, CaptureTool, CaptureWindow};
 use anyhow::{Context, Result};
 use clippy_capture::editor::{Editor, ImageProject, Tool};
 use clippy_core::image_output::{filename_candidates, SaveTarget};
-use clippy_platform::capture::{self, DesktopRect, FrozenOutput, Region};
+use clippy_platform::capture::{
+    self, CaptureSource, DesktopRect, FrozenCapture, FrozenOutput, Region, RegionCancellation,
+};
 use image::{
     codecs::png::{CompressionType, FilterType, PngEncoder},
     ExtendedColorType, ImageEncoder, RgbaImage,
@@ -11,7 +13,8 @@ use image::{
 use slint::winit_030::{
     winit::{
         event::WindowEvent,
-        window::{Fullscreen, WindowLevel},
+        event_loop::ActiveEventLoop,
+        window::{Fullscreen, WindowId, WindowLevel},
     },
     EventResult, WinitWindowAccessor,
 };
@@ -21,7 +24,12 @@ use slint::{
 };
 use std::{fs, io, path::PathBuf, rc::Rc, sync::Arc, thread, time::Instant};
 
-pub(super) struct View {
+pub(super) struct Selection {
+    views: Vec<View>,
+    source: CaptureSource,
+}
+
+struct View {
     window: CaptureWindow,
     frame: OverlayFrame,
 }
@@ -54,31 +62,69 @@ pub(super) enum Destination {
 
 pub(super) type EditedCapture = (Arc<RgbaImage>, ImageProject);
 
+pub(super) struct PendingOutput {
+    pub window_id: WindowId,
+    job: OutputJob,
+}
+
+impl PendingOutput {
+    pub fn start(mut self, closed: Instant) -> Result<()> {
+        self.job.region.source.overlay_closed(closed)?;
+        self.job.start()?;
+        Ok(())
+    }
+}
+
+struct OutputJob {
+    region: Region,
+    marks: Vec<CaptureMark>,
+    pixels: SharedPixelBuffer<Rgba8Pixel>,
+    destination: Destination,
+}
+
+pub(super) struct OverlayEvents;
+
+impl slint::winit_030::CustomApplicationHandler for OverlayEvents {
+    fn window_event(
+        &mut self,
+        _: &ActiveEventLoop,
+        id: WindowId,
+        _: Option<&slint::winit_030::winit::window::Window>,
+        _: Option<&slint::Window>,
+        event: &WindowEvent,
+    ) -> EventResult {
+        if matches!(event, WindowEvent::Destroyed) {
+            post(Event::CaptureWindowDestroyed(id, Instant::now()));
+        }
+        EventResult::Propagate
+    }
+}
+
 impl Drop for View {
     fn drop(&mut self) {
         let _ = self.window.hide();
     }
 }
 
-pub(super) fn start(started: Instant) -> io::Result<()> {
+pub(super) fn start(started: Instant, cancellation: RegionCancellation) -> io::Result<()> {
     thread::Builder::new()
         .name("clippy-freeze".into())
         .spawn(move || {
-            post(Event::CaptureReady {
-                started,
-                result: capture::freeze(),
+            capture::freeze_selection(&cancellation, |result| {
+                post(Event::CaptureReady { started, result });
             });
         })?;
     Ok(())
 }
 
 pub(super) fn present(
-    outputs: Vec<FrozenOutput>,
+    capture: FrozenCapture,
     started: Instant,
     diagnostics: bool,
-) -> Result<Vec<View>> {
-    let single_output = outputs.len() == 1;
-    outputs
+) -> Result<Selection> {
+    let single_output = capture.output_count == 1;
+    let views = capture
+        .outputs
         .into_iter()
         .enumerate()
         .map(|(index, output)| {
@@ -143,7 +189,9 @@ pub(super) fn present(
                             let matching = native.available_monitors().find(|monitor| {
                                 monitor.name().as_deref() == Some(ready_name.as_str())
                             });
-                            if matching.is_none() && !single_output {
+                            if matching.is_none()
+                                && (!single_output || native.available_monitors().count() > 1)
+                            {
                                 anyhow::bail!("Cannot match Wayland output {ready_name}");
                             }
                             native.set_fullscreen(Some(Fullscreen::Borderless(matching)));
@@ -177,16 +225,34 @@ pub(super) fn present(
             }
             Ok(view)
         })
-        .collect()
+        .collect::<Result<_>>()?;
+    Ok(Selection {
+        views,
+        source: capture.source,
+    })
 }
 
 pub(super) fn output(
-    mut views: Vec<View>,
+    selection: Selection,
     index: usize,
     bounds: [f32; 4],
     destination: Destination,
-) -> io::Result<()> {
+) -> io::Result<Option<PendingOutput>> {
+    let Selection { mut views, source } = selection;
     let selected = views.swap_remove(index);
+    let needs_stream = matches!(destination, Destination::Longshot | Destination::Record);
+    let window_id = if needs_stream && source.uses_portal() {
+        // Winit 在下一轮事件循环销毁 Wayland 表面，提前读取会录入选区框。
+        Some(
+            selected
+                .window
+                .window()
+                .with_winit_window(|window| window.id())
+                .expect("截图确认事件来自已映射的窗口"),
+        )
+    } else {
+        None
+    };
     let region = Region {
         output: selected.frame.name.clone(),
         geometry: selected.frame.geometry,
@@ -195,47 +261,77 @@ pub(super) fn output(
             selected.frame.pixels.height(),
         ),
         bounds,
+        source: if needs_stream {
+            source
+        } else {
+            drop(source);
+            CaptureSource::default()
+        },
     };
     let marks: Vec<_> = selected.window.get_marks().iter().collect();
     let pixels = selected.frame.pixels.clone();
     drop(selected);
     views.clear();
-    thread::Builder::new()
-        .name("clippy-screenshot-output".into())
-        .spawn(move || {
-            let started = Instant::now();
-            let (width, height) = (pixels.width(), pixels.height());
-            if matches!(destination, Destination::Record) {
-                post(Event::RecordingStart(
-                    capture::pixel_rect(width, height, bounds)
-                        .map(|[left, top, right, bottom]| (region, (right - left, bottom - top))),
-                ));
-                return;
-            }
-            let result = capture::crop_rgba(pixels.as_bytes(), width, height, bounds);
-            match destination {
-                Destination::File(target) => post(Event::CaptureFinished(
-                    result.and_then(|image| {
-                        let image = render_marks(image, &marks)?;
-                        let path = save_png(&image, &target)?;
-                        Ok(format!("Saved to {}", path.display()))
-                    }),
-                    started,
-                )),
-                Destination::Clipboard => post(Event::CaptureClipboard(
-                    result.and_then(|image| render_marks(image, &marks)),
-                    started,
-                )),
-                Destination::Editor => post(Event::EditorOpen(
-                    result.and_then(|image| edit_project(image, &marks)),
-                )),
-                Destination::Longshot => {
-                    post(Event::LongshotStart(result.map(|image| (region, image))))
+    let job = OutputJob {
+        region,
+        marks,
+        pixels,
+        destination,
+    };
+    if let Some(window_id) = window_id {
+        return Ok(Some(PendingOutput { window_id, job }));
+    }
+    job.start()?;
+    Ok(None)
+}
+
+impl OutputJob {
+    fn start(self) -> io::Result<()> {
+        let Self {
+            region,
+            marks,
+            pixels,
+            destination,
+        } = self;
+        let bounds = region.bounds;
+        thread::Builder::new()
+            .name("clippy-screenshot-output".into())
+            .spawn(move || {
+                let started = Instant::now();
+                let (width, height) = (pixels.width(), pixels.height());
+                if matches!(destination, Destination::Record) {
+                    post(Event::RecordingStart(
+                        capture::pixel_rect(width, height, bounds).map(
+                            |[left, top, right, bottom]| (region, (right - left, bottom - top)),
+                        ),
+                    ));
+                    return;
                 }
-                Destination::Record => unreachable!(),
-            }
-        })?;
-    Ok(())
+                let result = capture::crop_rgba(pixels.as_bytes(), width, height, bounds);
+                match destination {
+                    Destination::File(target) => post(Event::CaptureFinished(
+                        result.and_then(|image| {
+                            let image = render_marks(image, &marks)?;
+                            let path = save_png(&image, &target)?;
+                            Ok(format!("Saved to {}", path.display()))
+                        }),
+                        started,
+                    )),
+                    Destination::Clipboard => post(Event::CaptureClipboard(
+                        result.and_then(|image| render_marks(image, &marks)),
+                        started,
+                    )),
+                    Destination::Editor => post(Event::EditorOpen(
+                        result.and_then(|image| edit_project(image, &marks)),
+                    )),
+                    Destination::Longshot => {
+                        post(Event::LongshotStart(result.map(|image| (region, image))))
+                    }
+                    Destination::Record => unreachable!(),
+                }
+            })?;
+        Ok(())
+    }
 }
 
 fn make_project(source: Arc<RgbaImage>, marks: &[CaptureMark]) -> Result<ImageProject> {

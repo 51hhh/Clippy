@@ -219,6 +219,40 @@ Linux 完整门禁回归。
 **Out of Scope** 无法提供冻结帧的合成器需要独立实现单次截图入口。自动滚动、DMA-BUF GPU 读回、
 持久授权、录屏控制窗排除和多屏合成留在后续任务。
 
+### 阶段 2 · 非 GNOME Wayland 首帧框选
+
+**Goal** 快捷键、托盘及延时截图在缺少直接冻结协议的 Wayland 桌面也能进入框选，长截图和录屏
+接着使用同一个系统授权。
+
+**Requirements** 根据 Wayland registry 判断现有直接协议是否可用。缺少协议时通过 ScreenCast Portal
+选择一台输出，核对显示器身份、逻辑范围及协商的原始尺寸，完成首帧后再显示覆盖层。
+框选期间归还后续缓冲，暂停像素转换。快速启停实测会使部分 wlr 后端断流，因此保持已授权连接可用。
+取消、复制、保存或进入编辑器时释放会话；持续采集在覆盖层关闭后清除待处理的旧帧，
+等待选区首帧后只转换选区。保留 GNOME v5 和支持直接协议的桌面原有快路径。
+
+**Acceptance Criteria** 在原生 KDE 或隔离的无直接冻结协议会话，用同一场景验证首帧像素、
+剪贴板、框选保存、取消，以及一次授权后连续追加和录制。验证 Portal 拒绝后重新截图、快速交接、错屏和
+分辨率变化时的会话关闭行为。继续跑保有直接协议的 Sway、GNOME 和完整 X11 门禁。
+
+KDE 的首帧验收要求选区与未打开选屏器时的底图逐像素一致。若首帧仍含选屏窗，比较 Portal 返回时间、
+PipeWire 帧头和输出像素，确认最早可用帧；静止画面和选择器取消均需保持有界等待。
+
+**Out of Scope** 旋转流及 DMA-BUF 格式需另做像素验证。整屏批量直存、多显示器合成及授权记忆
+沿用各自现有计划。
+
+#### 阶段 2 · 框选后的持续帧时序
+
+**Goal** 使同一授权流交付给录屏的第一帧反映框选层消失后的真实桌面，长截图使用同样的选区交接规则。
+
+**Requirements** 先对照窗口关闭、PipeWire 帧头和输出像素确定时钟与采集边界。只在能够验证时序的
+交接中使用源时间戳过滤旧帧，继续在复用会话中转换选区像素。窗口、流或缓冲不合规时沿用有界等待和错误反馈。
+
+**Acceptance Criteria** 覆盖层显示时更新底层测试窗口，从框选启动录屏后逐像素核对解码第 0 帧。
+同一夹具复测静止桌面、快速确认、取消与普通抓图，确认每次只授权一次。继续执行底层显示契约、直接 Sway、
+GNOME 与 Linux 完整门禁。
+
+**Out of Scope** 录屏媒体的时间基、音画同步和录屏控制窗排除继续在阶段 4 验收。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -367,6 +401,28 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   [持续接收](../../../crates/clippy-platform/src/capture/screencast_stream.rs) ·
   [ScreenCast Portal 规范](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html) ·
   [PipeWire 1.6.2 映射实现](https://github.com/PipeWire/pipewire/blob/1.6.2/src/pipewire/stream.c#L936-L982)
+
+### 阶段 2 · Wayland Portal 首帧实现与待验项
+
+- 不具备直接冻结协议时先由 Portal 选择显示器。冻结后只归还后续缓冲，持续任务接续同一条流。
+  隔离 Sway 通过安全上下文隐藏 screencopy 和 xdg-output，覆盖单屏几何识别、拒绝后重试、取消回收、
+  240×150 PNG 和剪贴板逐像素一致、长截图接续。该夹具的剪贴板由独立 Xvfb 提供。
+- 额外的显示契约探针验证了授权后源窗口更新、显示模式变化后拒绝交接，以及缺少逻辑几何的同尺寸双屏拒绝。
+  虚拟 GNOME 4K 继续得到与冻结图一致的 480×270 选区，直接冻结的 Sway 回归验证了既有持续采集路径。
+- 窗口销毁通知和 Wayland 同连接 roundtrip 单独使用时，Sway 的录屏第 0 帧仍可能有旧选框。追加帧头
+  追踪发现，关闭前采集的帧可以在恢复后才到达，另有干净帧在恢复命令之前已采集。现以系统授权返回和
+  覆盖层销毁分别作为冻结、持续采集的时间边界，原有 GNOME 和直接冻结路径沿用既有入口。
+- 隔离 Sway 在底层测试表面提交换色后再确认，核对静止、换色及快速确认的 8 次录屏。每次只授权一次，
+  解码第 0 帧和后续画面逐像素符合阈值，停止后释放会话。测试也覆盖拒绝重试、静态截图复制与保存、
+  长截图复用源和取消。原始证据见 `target/test-artifacts/slint-stage2-kde/`。
+- 嵌套 KWin 6.6.7 在隔离 Wayland/OpenGL 会话中能选屏并交付 MemFd 画面。未校验时间戳的首张 PNG
+  包含刚关闭的 KDE 系统选择器。追加源帧检查后，9 张有效像素帧的 PTS 均为 0，无法判定对应时刻。
+  此情况仅得到错误反馈和会话释放。KDE 截图和持续任务待在原生输出上复测时间戳、选屏窗关闭动画及像素。
+  [KWin 帧头来源](https://github.com/KDE/kwin/blob/v6.6.4/src/plugins/screencast/screencaststream.cpp#L636-L645)
+- 去掉临时追踪后，完整 Linux 本地门禁为 11 项通过、0 失败、0 跳过。相同源码也通过了直接冻结的
+  Sway 回归、4K 虚拟 GNOME 的 480×270 选区像素对照，以及输出模式变化和同尺寸错屏拒绝。
+  Windows GNU 的 Slint QA 入口在关闭默认录屏编解码特性时交叉检查通过，Apple Silicon 平台层交叉
+  clippy 通过。Windows、macOS 的截图仍需在目标系统取得原生画面。
 
 ## Acceptance Criteria
 

@@ -6,7 +6,7 @@ use clippy_core::{
     models::ClipItem,
 };
 use clippy_platform::{
-    capture::{FrozenOutput, Region},
+    capture::{FrozenCapture, Region, RegionCancellation, ScreenSharingCancelled},
     identity::{DeploymentIdentity, DistributionChannel},
     instance::Instance,
     paste::{capture_target, Target},
@@ -55,6 +55,12 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
     )?;
     if matches!(instance, Instance::Forwarded) {
         return Ok(());
+    }
+    if clippy_platform::session::is_wayland() && !clippy_platform::session::is_gnome() {
+        slint::BackendSelector::new()
+            .with_winit_custom_application_handler(capture::OverlayEvents)
+            .select()
+            .context("Cannot initialize the Wayland event loop")?;
     }
     let config = load_config(&paths, identity)?;
     if identity.channel == DistributionChannel::Production {
@@ -127,7 +133,9 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
             busy: false,
             shortcut_status,
             action_status: SharedString::default(),
-            capture_views: None,
+            capture_selection: None,
+            capture_after_close: None,
+            capture_shutdown: RegionCancellation::default(),
             delayed_capture: Timer::default(),
             editor: None,
             editor_id: 0,
@@ -154,7 +162,11 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
     }
     let result = slint::run_event_loop_until_quit();
     timer.stop();
-    APP.with(|app| app.borrow_mut().take());
+    APP.with(|app| {
+        if let Some(app) = app.borrow_mut().take() {
+            app.capture_shutdown.cancel();
+        }
+    });
     result?;
     Ok(())
 }
@@ -205,9 +217,10 @@ enum Event {
     CaptureStart,
     CaptureReady {
         started: Instant,
-        result: Result<Vec<FrozenOutput>>,
+        result: Result<FrozenCapture>,
     },
     CapturePlacementFailed(slint::Weak<crate::CaptureWindow>, anyhow::Error),
+    CaptureWindowDestroyed(slint::winit_030::winit::window::WindowId, Instant),
     CaptureCancel,
     CaptureSelection {
         index: usize,
@@ -256,7 +269,9 @@ struct App {
     busy: bool,
     shortcut_status: String,
     action_status: SharedString,
-    capture_views: Option<Vec<capture::View>>,
+    capture_selection: Option<capture::Selection>,
+    capture_after_close: Option<capture::PendingOutput>,
+    capture_shutdown: RegionCancellation,
     delayed_capture: Timer,
     editor: Option<editor::View>,
     editor_id: u64,
@@ -294,7 +309,7 @@ impl App {
                 }
             }
             Event::GlobalShortcut(_) => {}
-            Event::Open(settings) if self.capture_views.is_none() => {
+            Event::Open(settings) if self.capture_selection.is_none() => {
                 if let Err(error) = self.open(settings) {
                     eprintln!("Unable to open Clippy: {error}");
                 }
@@ -414,18 +429,32 @@ impl App {
                     );
                 }
                 match result.and_then(|frozen| capture::present(frozen, started, diagnostic)) {
-                    Ok(views) => self.capture_views = Some(views),
+                    Ok(selection) => self.capture_selection = Some(selection),
+                    Err(error) if error.is::<ScreenSharingCancelled>() => {
+                        self.complete("Screenshot cancelled");
+                    }
                     Err(error) => self.capture_error(error),
                 }
             }
             Event::CapturePlacementFailed(window, error) => {
                 if window.upgrade().is_some() {
-                    self.capture_views.take();
+                    self.capture_selection.take();
                     self.capture_error(error);
                 }
             }
+            Event::CaptureWindowDestroyed(id, closed) => {
+                if self
+                    .capture_after_close
+                    .as_ref()
+                    .is_some_and(|pending| pending.window_id == id)
+                {
+                    if let Err(error) = self.capture_after_close.take().unwrap().start(closed) {
+                        self.capture_error(error);
+                    }
+                }
+            }
             Event::CaptureCancel => {
-                if self.capture_views.take().is_some() {
+                if self.capture_selection.take().is_some() {
                     self.set_busy(false);
                 }
             }
@@ -434,7 +463,7 @@ impl App {
                 action,
                 bounds,
             } => {
-                if let Some(views) = self.capture_views.take() {
+                if let Some(selection) = self.capture_selection.take() {
                     let destination = match action {
                         CaptureAction::Copy => capture::Destination::Clipboard,
                         CaptureAction::Edit => capture::Destination::Editor,
@@ -445,8 +474,9 @@ impl App {
                             &self.paths.screenshot_default(self.identity),
                         )),
                     };
-                    if let Err(error) = capture::output(views, index, bounds, destination) {
-                        self.capture_error(error.into());
+                    match capture::output(selection, index, bounds, destination) {
+                        Ok(pending) => self.capture_after_close = pending,
+                        Err(error) => self.capture_error(error.into()),
                     }
                 }
             }
@@ -711,17 +741,18 @@ impl App {
             return;
         }
         let started = Instant::now();
+        let cancellation = self.capture_shutdown.clone();
         let panel = self.window.is_some() || self.launcher.is_open();
         self.set_busy(true);
         self.launcher.close();
         self.hide();
         if panel {
             Timer::single_shot(Duration::from_millis(32), move || {
-                if let Err(error) = capture::start(started) {
+                if let Err(error) = capture::start(started, cancellation) {
                     use_app(|app| app.capture_error(error.into()));
                 }
             });
-        } else if let Err(error) = capture::start(started) {
+        } else if let Err(error) = capture::start(started, cancellation) {
             self.capture_error(error.into());
         }
     }

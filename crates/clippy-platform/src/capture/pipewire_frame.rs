@@ -11,18 +11,12 @@ use pw::spa;
 use spa::param::format::{MediaSubtype, MediaType};
 use spa::param::video::{VideoFormat, VideoInfoRaw};
 use spa::pod::Pod;
-use std::{fs::File, os::fd::BorrowedFd, sync::Arc};
+use std::{fs::File, os::fd::BorrowedFd, ptr::NonNull, sync::Arc};
 
 pub struct PipeWireRgbaFrame {
     pub width: u32,
     pub height: u32,
     pub rgba: Arc<[u8]>,
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct FrameRegion {
-    pub source_size: (u32, u32),
-    pub bounds: [u32; 4],
 }
 
 pub fn init_pipewire() {
@@ -49,18 +43,59 @@ pub fn frame_from_buffer(
     decode_frame(first_plane(buffer)?, info, None)
 }
 
-pub(super) fn has_frame(buffer: &mut pw::buffer::Buffer) -> Result<bool> {
-    let plane = first_plane(buffer)?;
-    let chunk = plane.chunk();
-    Ok(chunk.size() != 0 && !chunk.flags().contains(spa::buffer::ChunkFlags::CORRUPTED))
+pub(super) struct ScreenBuffer<'a> {
+    raw: NonNull<pw::sys::pw_buffer>,
+    stream: &'a pw::stream::Stream,
 }
 
-pub(super) fn region_from_buffer(
-    buffer: &mut pw::buffer::Buffer,
-    info: VideoInfoRaw,
-    region: FrameRegion,
-) -> Result<PipeWireRgbaFrame> {
-    decode_frame(first_plane(buffer)?, info, Some(region))
+impl<'a> ScreenBuffer<'a> {
+    pub fn dequeue(stream: &'a pw::stream::Stream) -> Option<Self> {
+        // 安全封装底层缓冲以读帧头，归还前由此对象独占，且不跨回调持有。
+        let raw = NonNull::new(unsafe { stream.dequeue_raw_buffer() })?;
+        Some(Self { raw, stream })
+    }
+
+    pub fn has_frame(&mut self) -> Result<bool> {
+        let chunk = self.plane()?.chunk();
+        Ok(chunk.size() != 0 && !chunk.flags().contains(spa::buffer::ChunkFlags::CORRUPTED))
+    }
+
+    pub fn header(&self) -> Option<spa::sys::spa_meta_header> {
+        let buffer = self.buffer().ok()?;
+        if buffer.n_metas == 0 || buffer.n_metas > 32 || buffer.metas.is_null() {
+            return None;
+        }
+        let metas = unsafe { std::slice::from_raw_parts(buffer.metas, buffer.n_metas as usize) };
+        let meta = metas
+            .iter()
+            .find(|meta| meta.type_ == spa::sys::SPA_META_Header)?;
+        if (meta.size as usize) < size_of::<spa::sys::spa_meta_header>() || meta.data.is_null() {
+            return None;
+        }
+        Some(unsafe { std::ptr::read_unaligned(meta.data.cast::<spa::sys::spa_meta_header>()) })
+    }
+
+    pub fn region(&mut self, info: VideoInfoRaw, bounds: [u32; 4]) -> Result<PipeWireRgbaFrame> {
+        decode_frame(self.plane()?, info, Some(bounds))
+    }
+
+    fn buffer(&self) -> Result<&spa::sys::spa_buffer> {
+        let raw = unsafe { self.raw.as_ref().buffer.as_ref() };
+        raw.context("ScreenCast buffer has no SPA data")
+    }
+
+    fn plane(&mut self) -> Result<&mut spa::buffer::Data> {
+        let buffer = self.buffer()?;
+        ensure!(buffer.n_datas > 0, "ScreenCast buffer has no video plane");
+        let data = unsafe { buffer.datas.cast::<spa::buffer::Data>().as_mut() };
+        data.context("ScreenCast buffer has no video data")
+    }
+}
+
+impl Drop for ScreenBuffer<'_> {
+    fn drop(&mut self) {
+        unsafe { self.stream.queue_raw_buffer(self.raw.as_ptr()) };
+    }
 }
 
 fn first_plane<'a>(buffer: &'a mut pw::buffer::Buffer<'_>) -> Result<&'a mut spa::buffer::Data> {
@@ -73,7 +108,7 @@ fn first_plane<'a>(buffer: &'a mut pw::buffer::Buffer<'_>) -> Result<&'a mut spa
 fn decode_frame(
     data: &mut spa::buffer::Data,
     info: VideoInfoRaw,
-    region: Option<FrameRegion>,
+    region: Option<[u32; 4]>,
 ) -> Result<PipeWireRgbaFrame> {
     let size = info.size();
     let layout = pixel_layout(info.format()).ok_or_else(|| {
@@ -114,11 +149,11 @@ fn decode_frame(
         .get(offset..)
         .with_context(|| format!("PipeWire 帧的 offset {offset} 越过了缓冲末尾"))?;
     let (pixels, bounds) = match region {
-        Some(region) => (
+        Some(bounds) => (
             pixels
                 .get(..length)
                 .context("PipeWire payload exceeds its mapped buffer")?,
-            region.bounds,
+            bounds,
         ),
         None => (pixels, [0, 0, size.width, size.height]),
     };
@@ -206,6 +241,33 @@ pub fn enum_format_pod() -> Result<Vec<u8>> {
     .0
     .into_inner();
     Ok(bytes)
+}
+
+pub(super) fn request_frame_header(stream: &pw::stream::Stream) -> Result<()> {
+    use spa::pod::{Object, Property, Value};
+    let object = Object {
+        type_: spa::utils::SpaTypes::ObjectParamMeta.as_raw(),
+        id: spa::param::ParamType::Meta.as_raw(),
+        properties: vec![
+            Property::new(
+                spa::sys::SPA_PARAM_META_type,
+                Value::Id(spa::utils::Id(spa::sys::SPA_META_Header)),
+            ),
+            Property::new(
+                spa::sys::SPA_PARAM_META_size,
+                Value::Int(i32::try_from(size_of::<spa::sys::spa_meta_header>())?),
+            ),
+        ],
+    };
+    let (bytes, _) = spa::pod::serialize::PodSerializer::serialize(
+        std::io::Cursor::new(Vec::new()),
+        &Value::Object(object),
+    )?;
+    let header = Pod::from_bytes(bytes.get_ref()).context("Invalid ScreenCast header parameter")?;
+    stream
+        .update_params(&mut [header])
+        .context("Requesting ScreenCast frame headers")?;
+    Ok(())
 }
 
 /// 4 字节像素里 R/G/B 各自的字节下标。SPA 格式名描述内存中的字节顺序。

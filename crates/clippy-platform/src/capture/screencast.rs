@@ -1,6 +1,6 @@
 use super::{
-    pipewire_frame::FrameRegion, screencast_stream::ScreenCastStream, DesktopRect, Reader,
-    RegionCancellation,
+    screencast_stream::{ScreenCastStream, StreamMode},
+    DesktopRect, FrozenPixels, RegionCancellation, ScreenSharingCancelled,
 };
 use anyhow::{bail, ensure, Context, Result};
 use ashpd::desktop::{
@@ -8,7 +8,7 @@ use ashpd::desktop::{
     PersistMode, Session,
 };
 use std::{future::Future, time::Duration};
-use tokio::runtime::Runtime;
+use tokio::{runtime::Runtime, sync::oneshot};
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 const CHOOSER_TIMEOUT: Duration = Duration::from_secs(120);
@@ -98,7 +98,7 @@ impl ScreenCast {
                     )
                 }) =>
             {
-                bail!("Screen sharing cancelled")
+                return Err(ScreenSharingCancelled.into());
             }
             result => result?,
         };
@@ -108,13 +108,13 @@ impl ScreenCast {
         Ok(stream.clone())
     }
 
-    pub fn with_region<T>(
+    pub fn open_stream(
         &self,
         node: u32,
-        region: FrameRegion,
+        source_size: (u32, u32),
+        mode: StreamMode,
         cancellation: &RegionCancellation,
-        consume: impl FnOnce(&mut Reader<'_>) -> Result<T>,
-    ) -> Result<T> {
+    ) -> Result<(ScreenCastStream, FrozenPixels)> {
         let session = self.session.as_ref().expect("屏幕流必须已授权");
         let remote = self
             .runtime
@@ -123,16 +123,36 @@ impl ScreenCast {
                     .portal
                     .open_pipe_wire_remote(session, Default::default())
                     .await?)
-            }))?;
-        let (mut stream, first) = ScreenCastStream::start(remote, node, region)?;
+            }))
+            .context("Opening the authorized ScreenCast PipeWire connection")?;
+        let (stream, first) = ScreenCastStream::start(remote, node, source_size, mode)?;
+        Ok((stream, self.wait_for_frame(first, cancellation)?))
+    }
+
+    fn wait_for_frame(
+        &self,
+        first: oneshot::Receiver<Result<FrozenPixels>>,
+        cancellation: &RegionCancellation,
+    ) -> Result<FrozenPixels> {
         self.runtime
             .block_on(cancellable(cancellation, FIRST_FRAME_TIMEOUT, async {
                 first
                     .await
                     .context("ScreenCast exited before the first frame")?
             }))
-            .context("Waiting for the first ScreenCast frame")?;
-        consume(&mut || stream.read())
+            .context("Waiting for the first ScreenCast frame")
+    }
+
+    pub fn resume_region(
+        &self,
+        stream: &ScreenCastStream,
+        bounds: [u32; 4],
+        fresh_from: Option<i64>,
+        cancellation: &RegionCancellation,
+    ) -> Result<()> {
+        cancellation.check_active()?;
+        self.wait_for_frame(stream.resume(bounds, fresh_from)?, cancellation)?;
+        Ok(())
     }
 }
 
@@ -155,7 +175,7 @@ async fn cancellable<T>(
 ) -> Result<T> {
     tokio::select! {
         biased;
-        _ = cancellation.cancelled() => bail!("Screen sharing cancelled"),
+        _ = cancellation.cancelled() => Err(ScreenSharingCancelled.into()),
         result = tokio::time::timeout(timeout, operation) =>
             result.context("ScreenCast Portal request timed out")?,
     }
@@ -182,38 +202,39 @@ fn unavailable(error: &ashpd::Error) -> bool {
     }
 }
 
-pub(super) fn validate_monitor(
+pub(super) fn monitor_index(
     stream: &Stream,
-    geometry: DesktopRect,
-    outputs: usize,
-    geometry_matches: usize,
-) -> Result<()> {
-    let size = (
-        i32::try_from(geometry.width)?,
-        i32::try_from(geometry.height)?,
-    );
+    outputs: impl ExactSizeIterator<Item = DesktopRect>,
+) -> Result<usize> {
     ensure!(
         stream
             .source_type()
-            .is_none_or(|kind| kind == SourceType::Monitor)
-            && stream
-                .position()
-                .is_none_or(|value| value == (geometry.x, geometry.y))
-            && stream.size().is_none_or(|value| value == size),
-        "Share the same display that was used for the screenshot"
+            .is_none_or(|kind| kind == SourceType::Monitor),
+        "ScreenCast did not return a monitor"
     );
-    if stream.position().is_some() && stream.size().is_some() {
-        ensure!(
-            geometry_matches == 1,
-            "ScreenCast cannot distinguish mirrored displays"
-        );
-    } else {
-        ensure!(
-            outputs == 1,
-            "ScreenCast did not identify a display in this multi-monitor setup"
-        );
-    }
-    Ok(())
+    let position = stream.position();
+    let size = stream
+        .size()
+        .map(|(width, height)| {
+            Ok::<_, anyhow::Error>((u32::try_from(width)?, u32::try_from(height)?))
+        })
+        .transpose()?;
+    ensure!(
+        outputs.len() == 1 || (position.is_some() && size.is_some()),
+        "ScreenCast did not identify a display in this multi-monitor setup"
+    );
+    let mut matching = outputs.enumerate().filter(|(_, geometry)| {
+        position.is_none_or(|value| value == (geometry.x, geometry.y))
+            && size.is_none_or(|value| value == (geometry.width, geometry.height))
+    });
+    let (index, _) = matching
+        .next()
+        .context("The shared display is unavailable")?;
+    ensure!(
+        matching.next().is_none(),
+        "ScreenCast cannot distinguish mirrored displays"
+    );
+    Ok(index)
 }
 
 #[cfg(test)]
@@ -240,17 +261,21 @@ mod tests {
             ("position", Value::from((-1920, 0))),
             ("size", Value::from((1920, 1080))),
         ]));
-        validate_monitor(&stream, geometry, 2, 1).unwrap();
-        assert!(validate_monitor(&stream, geometry, 2, 2).is_err());
-        assert!(validate_monitor(&stream, DesktopRect { x: 0, ..geometry }, 2, 1).is_err());
+        let other = DesktopRect { x: 0, ..geometry };
+        assert_eq!(
+            monitor_index(&stream, [other, geometry].into_iter()).unwrap(),
+            1
+        );
+        assert!(monitor_index(&stream, [geometry, geometry].into_iter()).is_err());
+        assert!(monitor_index(&stream, [other].into_iter()).is_err());
         let opaque = reply(HashMap::new());
-        validate_monitor(&opaque, geometry, 1, 1).unwrap();
-        assert!(validate_monitor(&opaque, geometry, 2, 1).is_err());
+        assert_eq!(monitor_index(&opaque, [geometry].into_iter()).unwrap(), 0);
+        assert!(monitor_index(&opaque, [geometry, other].into_iter()).is_err());
         let wrong_kind = reply(HashMap::from([(
             "source_type",
             Value::U32(SourceType::Window as u32),
         )]));
-        assert!(validate_monitor(&wrong_kind, geometry, 1, 1).is_err());
+        assert!(monitor_index(&wrong_kind, [geometry].into_iter()).is_err());
     }
 
     #[test]

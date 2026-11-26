@@ -1,13 +1,16 @@
 use super::{
     latest::LatestFrames,
     pipewire_frame::{
-        enum_format_pod, has_frame, init_pipewire, parse_video_format, region_from_buffer,
-        FrameRegion,
+        enum_format_pod, init_pipewire, parse_video_format, request_frame_header, ScreenBuffer,
     },
     FrozenPixels,
 };
 use anyhow::{anyhow, ensure, Context, Result};
 use image::RgbaImage;
+use nix::{
+    sys::time::TimeValLike,
+    time::{clock_gettime, ClockId},
+};
 use pipewire as pw;
 use pw::{
     main_loop::MainLoopRc,
@@ -15,7 +18,7 @@ use pw::{
     stream::StreamState,
 };
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     os::fd::OwnedFd,
     rc::Rc,
     sync::Arc,
@@ -25,11 +28,24 @@ use std::{
 use tokio::sync::oneshot;
 
 const UPDATE_WAIT: Duration = Duration::from_millis(40);
-type FirstFrame = Rc<RefCell<Option<oneshot::Sender<Result<()>>>>>;
+type FrameResult = Result<FrozenPixels>;
+type FirstFrame = Rc<RefCell<Option<oneshot::Sender<FrameResult>>>>;
+
+#[derive(Clone, Copy)]
+pub(super) enum StreamMode {
+    Freeze(i64),
+    AwaitingSelection,
+    Region([u32; 4]),
+}
+
+enum Command {
+    Resume([u32; 4], Option<i64>, oneshot::Sender<FrameResult>),
+    Quit,
+}
 
 pub(super) struct ScreenCastStream {
     frames: Arc<LatestFrames<FrozenPixels>>,
-    quit: pw::channel::Sender<()>,
+    control: pw::channel::Sender<Command>,
     worker: Option<JoinHandle<()>>,
     seen: u64,
 }
@@ -38,11 +54,12 @@ impl ScreenCastStream {
     pub fn start(
         remote: OwnedFd,
         node: u32,
-        region: FrameRegion,
-    ) -> Result<(Self, oneshot::Receiver<Result<()>>)> {
+        source_size: (u32, u32),
+        mode: StreamMode,
+    ) -> Result<(Self, oneshot::Receiver<FrameResult>)> {
         let frames = Arc::new(LatestFrames::new());
         let worker_frames = frames.clone();
-        let (quit, shutdown) = pw::channel::channel();
+        let (control, commands) = pw::channel::channel();
         let (ready, first_frame) = oneshot::channel();
         let worker = thread::Builder::new()
             .name("clippy-screencast".into())
@@ -51,10 +68,11 @@ impl ScreenCastStream {
                 let result = run(
                     remote,
                     node,
-                    region,
+                    source_size,
+                    mode,
                     worker_frames.clone(),
                     ready.clone(),
-                    shutdown,
+                    commands,
                 );
                 let error = result
                     .err()
@@ -67,12 +85,24 @@ impl ScreenCastStream {
         Ok((
             Self {
                 frames,
-                quit,
+                control,
                 worker: Some(worker),
                 seen: 0,
             },
             first_frame,
         ))
+    }
+
+    pub fn resume(
+        &self,
+        bounds: [u32; 4],
+        fresh_from: Option<i64>,
+    ) -> Result<oneshot::Receiver<FrameResult>> {
+        let (ready, first_frame) = oneshot::channel();
+        self.control
+            .send(Command::Resume(bounds, fresh_from, ready))
+            .map_err(|_| anyhow!("Cannot resume the shared screen"))?;
+        Ok(first_frame)
     }
 
     pub fn read(&mut self) -> Result<RgbaImage> {
@@ -87,7 +117,7 @@ impl ScreenCastStream {
 
 impl Drop for ScreenCastStream {
     fn drop(&mut self) {
-        let _ = self.quit.send(());
+        let _ = self.control.send(Command::Quit);
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
@@ -97,10 +127,11 @@ impl Drop for ScreenCastStream {
 fn run(
     remote: OwnedFd,
     node: u32,
-    region: FrameRegion,
+    source_size: (u32, u32),
+    mode: StreamMode,
     frames: Arc<LatestFrames<FrozenPixels>>,
     ready: FirstFrame,
-    shutdown: pw::channel::Receiver<()>,
+    commands: pw::channel::Receiver<Command>,
 ) -> Result<()> {
     init_pipewire();
     let mainloop = MainLoopRc::new(None)?;
@@ -112,6 +143,12 @@ fn run(
         mainloop: mainloop.clone(),
         frames,
         ready,
+        source_size,
+        mode: Cell::new(mode),
+        fresh_from: Cell::new(match mode {
+            StreamMode::Freeze(authorized_at) => Some(authorized_at),
+            _ => None,
+        }),
     });
     let core_publisher = publish.clone();
     let _core_listener = core
@@ -135,9 +172,9 @@ fn run(
     )?;
     let _listener = stream
         .add_local_listener_with_user_data(StreamInput {
-            publish,
-            region,
+            publish: publish.clone(),
             format: None,
+            request_header: matches!(mode, StreamMode::Freeze(_)),
         })
         .state_changed(|_, input, previous, state| match state {
             StreamState::Error(error) => input
@@ -153,12 +190,18 @@ fn run(
             }
             _ => {}
         })
-        .param_changed(|_, input, id, param| {
+        .param_changed(|stream, input, id, param| {
             if id == spa::param::ParamType::Format.as_raw() {
                 input.publish.frames.publish(Ok(None));
                 input.format = None;
                 match param
-                    .map(|value| video_format(value, input.region))
+                    .map(|value| {
+                        let format = video_format(value, input.publish.source_size)?;
+                        if input.request_header {
+                            request_frame_header(stream)?;
+                        }
+                        Ok(format)
+                    })
                     .transpose()
                 {
                     Ok(info) => input.format = info,
@@ -168,14 +211,24 @@ fn run(
         })
         .process(|stream, input| {
             if let Some(info) = input.format {
-                if let Err(error) = input.publish.process(stream, info, input.region) {
+                if let Err(error) = input.publish.process(stream, info) {
                     input.publish.fail(error);
                 }
             }
         })
         .register()?;
-    let stop = mainloop.clone();
-    let _stop = shutdown.attach(mainloop.loop_(), move |_| stop.quit());
+    let controlled_stream = stream.clone();
+    let _control = commands.attach(mainloop.loop_(), move |command| match command {
+        Command::Resume(bounds, fresh_from, ready) => {
+            if fresh_from.is_none() {
+                while controlled_stream.dequeue_buffer().is_some() {}
+            }
+            publish.mode.set(StreamMode::Region(bounds));
+            publish.fresh_from.set(fresh_from);
+            publish.ready.replace(Some(ready));
+        }
+        Command::Quit => publish.mainloop.quit(),
+    });
     let format_pod = enum_format_pod()?;
     let mut params = [Pod::from_bytes(&format_pod).context("Invalid ScreenCast format")?];
     stream.connect(
@@ -190,14 +243,17 @@ fn run(
 
 struct StreamInput {
     publish: Rc<Publisher>,
-    region: FrameRegion,
     format: Option<VideoInfoRaw>,
+    request_header: bool,
 }
 
 struct Publisher {
     mainloop: MainLoopRc,
     frames: Arc<LatestFrames<FrozenPixels>>,
     ready: FirstFrame,
+    source_size: (u32, u32),
+    mode: Cell<StreamMode>,
+    fresh_from: Cell<Option<i64>>,
 }
 
 impl Publisher {
@@ -209,43 +265,73 @@ impl Publisher {
         self.mainloop.quit();
     }
 
-    fn process(
-        &self,
-        stream: &pw::stream::Stream,
-        format: VideoInfoRaw,
-        region: FrameRegion,
-    ) -> Result<()> {
+    fn process(&self, stream: &pw::stream::Stream, format: VideoInfoRaw) -> Result<()> {
+        let mode = self.mode.get();
+        let bounds = match mode {
+            StreamMode::Freeze(_) => [0, 0, self.source_size.0, self.source_size.1],
+            StreamMode::Region(bounds) => bounds,
+            StreamMode::AwaitingSelection => {
+                while stream.dequeue_buffer().is_some() {}
+                return Ok(());
+            }
+        };
         let mut latest = None;
-        while let Some(mut buffer) = stream.dequeue_buffer() {
-            if has_frame(&mut buffer)? {
+        while let Some(mut buffer) = ScreenBuffer::dequeue(stream) {
+            if buffer.has_frame()? {
+                if let Some(fresh_from) = self.fresh_from.get() {
+                    let header = buffer.header().context(
+                        "The screen sharing service did not provide a video frame timestamp",
+                    )?;
+                    ensure!(
+                        header.pts > 0,
+                        "The screen sharing service did not provide a usable presentation timestamp"
+                    );
+                    // 授权返回或覆盖层关闭后仍可能收到关闭前采集的画面。
+                    if header.pts < fresh_from
+                        || header.flags & spa::sys::SPA_META_HEADER_FLAG_CORRUPTED != 0
+                    {
+                        continue;
+                    }
+                }
                 latest = Some(buffer);
             }
         }
         if let Some(mut buffer) = latest {
-            let frame = region_from_buffer(&mut buffer, format, region)?;
-            self.frames.publish(Ok(Some(FrozenPixels {
+            let frame = buffer.region(format, bounds)?;
+            drop(buffer);
+            let frame = FrozenPixels {
                 width: frame.width,
                 height: frame.height,
                 rgba: frame.rgba,
-            })));
+            };
+            if matches!(mode, StreamMode::Freeze(_)) {
+                // 快速重启可能打断 wlr 仍在进行的帧请求，框选期间只停止转换。
+                self.mode.set(StreamMode::AwaitingSelection);
+            } else {
+                self.frames.publish(Ok(Some(frame.clone())));
+            }
             if let Some(sender) = self.ready.borrow_mut().take() {
-                let _ = sender.send(Ok(()));
+                let _ = sender.send(Ok(frame));
             }
         }
         Ok(())
     }
 }
 
-fn video_format(param: &Pod, region: FrameRegion) -> Result<VideoInfoRaw> {
+pub(super) fn monotonic_ns() -> Result<i64> {
+    Ok(clock_gettime(ClockId::CLOCK_MONOTONIC)?.num_nanoseconds())
+}
+
+fn video_format(param: &Pod, source_size: (u32, u32)) -> Result<VideoInfoRaw> {
     let format = parse_video_format(param)?;
     let actual = format.size();
     ensure!(
-        (actual.width, actual.height) == region.source_size,
+        (actual.width, actual.height) == source_size,
         "ScreenCast resolution {}×{} differs from the frozen screen {}×{}",
         actual.width,
         actual.height,
-        region.source_size.0,
-        region.source_size.1
+        source_size.0,
+        source_size.1
     );
     Ok(format)
 }

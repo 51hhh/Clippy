@@ -1,13 +1,36 @@
 use super::{
-    gnome, pipewire_frame::FrameRegion, pixel_rect, screencast, DesktopRect, FrozenOutput,
-    FrozenPixels, Reader, RegionCancellation,
+    gnome, pixel_rect, screencast,
+    screencast_stream::{ScreenCastStream, StreamMode},
+    validate_outputs,
+    wayland_outputs::Registry,
+    CaptureSource, DesktopRect, FrozenCapture, FrozenOutput, FrozenPixels, Reader,
+    RegionCancellation,
 };
 use anyhow::{bail, ensure, Context, Result};
 use libwayshot_xcap::{output::OutputInfo, WayshotConnection};
+use std::sync::mpsc;
 use wayland_client::protocol::wl_output::Transform;
 
 pub(super) fn freeze() -> Result<Vec<FrozenOutput>> {
-    let connection = WayshotConnection::new().context("Cannot read Wayland outputs")?;
+    let connection = if crate::session::is_gnome() {
+        WayshotConnection::new().context("Cannot read Wayland outputs")?
+    } else {
+        let registry = Registry::connect()?;
+        ensure!(
+            supports_direct_capture(&registry),
+            "This Wayland desktop requires choosing a screen for capture"
+        );
+        WayshotConnection::from_connection(registry.connection)
+            .context("Cannot read Wayland outputs")?
+    };
+    freeze_outputs(&connection)
+}
+
+fn supports_direct_capture(registry: &Registry) -> bool {
+    registry.has("zwlr_screencopy_manager_v1", 3) && registry.has("zxdg_output_manager_v1", 3)
+}
+
+fn freeze_outputs(connection: &WayshotConnection) -> Result<Vec<FrozenOutput>> {
     let outputs = connection.get_all_outputs();
     let areas = outputs
         .iter()
@@ -29,7 +52,7 @@ pub(super) fn freeze() -> Result<Vec<FrozenOutput>> {
         .map(|((name, geometry), output)| {
             let pixels = match frames.as_mut() {
                 Some(frames) => frames.next().expect("RecordArea preserves output order")?,
-                None => native_frame(&connection, output)?,
+                None => native_frame(connection, output)?,
             };
             if pixels.width < geometry.width || pixels.height < geometry.height {
                 bail!("Captured output {name} is smaller than its logical viewport");
@@ -41,6 +64,143 @@ pub(super) fn freeze() -> Result<Vec<FrozenOutput>> {
             })
         })
         .collect()
+}
+
+pub(super) fn freeze_selection(
+    cancellation: &RegionCancellation,
+    publish: impl FnOnce(Result<FrozenCapture>),
+) {
+    let result = prepare_selection(cancellation);
+    let (mut frozen, portal) = match result {
+        Ok(selection) => selection,
+        Err(error) => return publish(Err(error)),
+    };
+    if let Some(portal) = portal {
+        let (claim, requested) = mpsc::sync_channel(1);
+        frozen.source = CaptureSource(Some(PortalHandoff {
+            claim,
+            fresh_from: None,
+        }));
+        publish(Ok(frozen));
+        // 回调只交付图片和一次性句柄，D-Bus 与 PipeWire 的关闭不会阻塞界面。
+        if let Ok(receiver) = requested.recv() {
+            let _ = receiver.send(portal);
+        }
+    } else {
+        publish(Ok(frozen));
+    }
+}
+
+fn prepare_selection(
+    cancellation: &RegionCancellation,
+) -> Result<(FrozenCapture, Option<PortalCapture>)> {
+    if crate::session::is_gnome() {
+        let outputs = freeze()?;
+        validate_outputs(&outputs)?;
+        return Ok((FrozenCapture::direct(outputs), None));
+    }
+
+    let registry = Registry::connect()?;
+    if supports_direct_capture(&registry) {
+        let connection = WayshotConnection::from_connection(registry.connection)
+            .context("Cannot read Wayland outputs")?;
+        let outputs = freeze_outputs(&connection)?;
+        validate_outputs(&outputs)?;
+        return Ok((FrozenCapture::direct(outputs), None));
+    }
+    drop(registry);
+
+    let mut portal = screencast::ScreenCast::connect(cancellation)?
+        .context("This Wayland desktop has no monitor capture provider")?;
+    let granted = portal.authorize(cancellation)?;
+    let authorized_at = super::screencast_stream::monotonic_ns()?;
+    let outputs = Registry::connect()?.displays()?;
+    let index = screencast::monitor_index(&granted, outputs.iter().map(|output| output.geometry))?;
+    let output = &outputs[index];
+    let geometry = output.geometry;
+    let name = output.name.clone();
+    let size = output.size;
+    ensure!(
+        output.transform == Transform::Normal,
+        "ScreenCast capture on a rotated display is unavailable"
+    );
+    ensure!(
+        size.0 >= geometry.width && size.1 >= geometry.height,
+        "ScreenCast output is smaller than its logical viewport"
+    );
+    let output_count = outputs.len();
+    let (stream, pixels) = portal.open_stream(
+        granted.pipe_wire_node_id(),
+        size,
+        StreamMode::Freeze(authorized_at),
+        cancellation,
+    )?;
+    let outputs = vec![FrozenOutput {
+        name,
+        geometry,
+        pixels,
+    }];
+    validate_outputs(&outputs)?;
+    Ok((
+        FrozenCapture {
+            outputs,
+            output_count,
+            source: CaptureSource::default(),
+        },
+        Some(PortalCapture { stream, portal }),
+    ))
+}
+
+struct PortalCapture {
+    stream: ScreenCastStream,
+    portal: screencast::ScreenCast,
+}
+
+pub(super) struct PortalHandoff {
+    claim: mpsc::SyncSender<mpsc::SyncSender<PortalCapture>>,
+    fresh_from: Option<i64>,
+}
+
+impl PortalHandoff {
+    pub fn overlay_closed(&mut self, closed: std::time::Instant) -> Result<()> {
+        let now = super::screencast_stream::monotonic_ns()?;
+        // Linux 的 Instant 和屏幕帧时钟都使用 CLOCK_MONOTONIC。
+        self.fresh_from = Some(now - i64::try_from(closed.elapsed().as_nanos())?);
+        Ok(())
+    }
+
+    pub fn with_region<T>(
+        self,
+        name: &str,
+        geometry: DesktopRect,
+        source_size: (u32, u32),
+        bounds: [f32; 4],
+        cancellation: &RegionCancellation,
+        consume: impl FnOnce(&mut Reader<'_>) -> Result<T>,
+    ) -> Result<T> {
+        cancellation.check_active()?;
+        let pixels = pixel_rect(source_size.0, source_size.1, bounds)?;
+        let outputs = Registry::connect()?.displays()?;
+        let current = outputs
+            .iter()
+            .find(|output| output.name == name)
+            .context("Capture output is unavailable")?;
+        ensure!(
+            current.geometry == geometry
+                && current.transform == Transform::Normal
+                && current.size == source_size,
+            "Capture output changed display mode"
+        );
+        let (reply, authorized) = mpsc::sync_channel(1);
+        self.claim
+            .send(reply)
+            .context("The shared screen is no longer available")?;
+        let mut capture = authorized.recv()?;
+        capture
+            .portal
+            .resume_region(&capture.stream, pixels, self.fresh_from, cancellation)?;
+        consume(&mut || capture.stream.read())
+    }
 }
 
 fn native_frame(connection: &WayshotConnection, output: &OutputInfo) -> Result<FrozenPixels> {
@@ -99,21 +259,19 @@ pub(super) fn with_region<T>(
                 "Capture output changed display mode"
             );
             let outputs = current.get_all_outputs();
-            let matches = outputs
-                .iter()
-                .filter(|output| logical_geometry(output) == geometry)
-                .count();
-            screencast::validate_monitor(&stream, geometry, outputs.len(), matches)?;
-            drop(current);
-            return portal.with_region(
-                stream.pipe_wire_node_id(),
-                FrameRegion {
-                    source_size,
-                    bounds: pixels,
-                },
-                cancellation,
-                consume,
+            let index = screencast::monitor_index(&stream, outputs.iter().map(logical_geometry))?;
+            ensure!(
+                outputs[index].name == name,
+                "Share the same display that was used for the screenshot"
             );
+            drop(current);
+            let (mut stream, _) = portal.open_stream(
+                stream.pipe_wire_node_id(),
+                source_size,
+                StreamMode::Region(pixels),
+                cancellation,
+            )?;
+            return consume(&mut || stream.read());
         }
     }
     cancellation.check_active()?;
