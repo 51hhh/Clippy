@@ -656,7 +656,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config libclang-dev libfontconfig1-dev \
             libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libxcb1-dev libgbm-dev libegl1-mesa-dev libdrm-dev \
-            libpipewire-0.3-dev squashfs-tools
+            libpipewire-0.3-dev patchelf squashfs-tools
 
       - name: Prepare libvpx source build on macOS
         if: runner.os == 'macOS'
@@ -716,6 +716,8 @@ jobs:
       - name: Install pinned cargo-packager
         run: cargo install cargo-packager --version 0.11.8 --locked
 
+      - uses: ./.github/actions/slint-ocr-bundle
+
       - name: Prepare Windows signing
         if: runner.os == 'Windows'
         shell: pwsh
@@ -746,15 +748,37 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
-            DEB=$(find target/packager/slint-release -maxdepth 1 -name '*.deb' -print -quit)
+            OUT=target/packager/slint-release
+            DEB=$(find "$OUT" -maxdepth 1 -name '*.deb' -print -quit)
+            APPIMAGE=$(find "$OUT" -maxdepth 1 -name '*.AppImage' -print -quit)
             [ "$(dpkg-deb -f "$DEB" Package)" = clippy ]
             dpkg-deb -c "$DEB" | grep 'usr/bin/clippy-app$' >/dev/null
             dpkg-deb -c "$DEB" | grep 'BUILD-INFO.json$' >/dev/null
+            VALID_OFFSET=""
+            while IFS=: read -r offset _; do
+              if unsquashfs -o "$offset" -s "$APPIMAGE" >/dev/null 2>&1; then
+                VALID_OFFSET="$offset"
+              fi
+            done < <(LC_ALL=C grep -aob 'hsqs' "$APPIMAGE")
+            [ -n "$VALID_OFFSET" ] || { echo '::error::Slint AppImage has no readable payload'; exit 1; }
+            payload=$(mktemp -d)
+            trap 'rm -rf -- "$payload"' EXIT
+            dpkg-deb -x "$DEB" "$payload/deb"
+            unsquashfs -o "$VALID_OFFSET" -d "$payload/appimage" "$APPIMAGE" usr/lib/clippy-app/ocr
+            for format in deb appimage; do
+              OCR="$payload/$format/usr/lib/clippy-app/ocr"
+              python3 -B scripts/prepare-slint-ocr.py --bundle "$OCR"
+              python3 -B scripts/prepare-slint-ocr.py --bundle "$OCR" --smoke
+            done
             readelf -d target/release/clippy-slint | grep 'libpipewire-0.3.so.0' >/dev/null
             if readelf -d target/release/clippy-slint | grep -Eqi 'webkit|javascriptcore|libgtk'; then exit 1; fi
           else
             APP=target/packager/slint-release/Clippy.app
             codesign --verify --deep --strict "$APP"
+            OCR="$APP/Contents/Resources/ocr"
+            codesign --verify --strict "$OCR/clippy-ocr-worker"
+            codesign --verify --strict "$OCR/libonnxruntime.dylib"
+            python3 -B scripts/prepare-slint-ocr.py --bundle "$OCR" --smoke
             [ "$(plutil -extract CFBundleIdentifier raw -o - "$APP/Contents/Info.plist")" = com.clippy.desktop ]
             [ "$(plutil -extract LSMinimumSystemVersion raw -o - "$APP/Contents/Info.plist")" = "11.0" ]
             [ -n "$(plutil -extract NSScreenCaptureUsageDescription raw -o - "$APP/Contents/Info.plist")" ]
@@ -767,17 +791,21 @@ jobs:
             awk '/minos/ { split($2, parts, "."); if (parts[1]>11 || (parts[1]==11 && parts[2]>0)) exit 1; found=1 } END { if (!found) exit 1 }' slint-macos-target.txt
           fi
 
-      - name: Verify Windows package signatures
+      - name: Verify Windows package signatures and OCR payload
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Get-ChildItem target/packager/slint-release -File | Where-Object { $_.Extension -in '.exe', '.msi' } |
+          $installers = @(Get-ChildItem target/packager/slint-release -File | Where-Object { $_.Extension -in '.exe', '.msi' })
+          $installers |
             ForEach-Object {
               $signature = Get-AuthenticodeSignature $_.FullName
               if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $env:WINDOWS_CERTIFICATE_THUMBPRINT) {
                 throw "Invalid signature on $($_.Name)"
               }
             }
+          $msi = @($installers | Where-Object Extension -eq '.msi')
+          if ($msi.Count -ne 1) { throw 'Expected one Slint MSI package' }
+          ./scripts/verify-slint-ocr-msi.ps1 -Package $msi[0].FullName -Application clippy-app.exe
 
       - name: Bind installers to the tag and SHA
         shell: bash

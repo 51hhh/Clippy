@@ -913,6 +913,26 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   通过四张旋转样图的文字、请求编号及原图坐标检查。证据位于 `target/test-artifacts/slint-stage5-ocr-package/windows/`
   的 `cross-build.log` 和 `wine-smoke.log`。正式 Windows 安装包和干净 Windows 实机仍待验证。
 
+### 阶段 5 · 随包离线识别接入结果
+
+- QA 和正式打包共用资源准备脚本。模型和字典固定来源与摘要，附 worker、ORT CPU 库和许可。Linux 从
+  `usr/lib/<应用名>/ocr` 读取，Windows 从程序旁的 `ocr` 读取，macOS 从 `Contents/Resources/ocr` 读取。
+  已显式配置的增强引擎继续生效。包内资源有独立摘要清单，macOS 另校验 worker 和运行库的签名。
+- 本机 Ubuntu 26.04 用 cargo-packager 0.11.8 构建了优化的 QA Debug deb 和 AppImage。AppImage 工具会给
+  worker 和共享 provider 补 RUNPATH。打包前设置同一加载路径后，两种包内 OCR 资源与准备清单逐文件一致，
+  解包 worker 均完成烟测。核对 deb 二进制和 AppImage 的 ELF Build ID 后，在 125% 隔离 X11 运行 deb 的
+  解包程序和 AppImage 的启动入口。两种包均在冷托盘保持 worker 未启动。应用的 PATH 无 Python/Tesseract，
+  OCR 无目录覆盖变量，打开图片后从包内加载 ORT，返回真实行框和三行段落。翻译夹具只接收被选中的文字，
+  退出文字窗口后 worker 已回收。
+- Linux `./scripts/ci-local.sh` 完整通过，11 项通过、0 失败、0 跳过。Windows GNU QA 入口交叉检查通过。
+  Linux 本机 worker 要求 `GLIBC_2.43`，ORT 库的最高 glibc 符号版本为 2.27。Ubuntu 22.04 的实际运行
+  需由目标系统构建和验证。Windows 准备 Microsoft app-local CRT 并在 MSI 解包后检查和启动 worker。
+  macOS 的 ARM64 预构建 CPU 库最低目标为 14.0，工作流按固定 ORT 源码构建 Intel/ARM64 版本，检查 11.0
+  部署目标和包内签名。Windows/macOS 原生打包及 Windows NSIS、两种 macOS 架构的干净安装仍待跑。
+- 原始证据见 `target/test-artifacts/slint-stage5-distribution/` 中的 `verified-packages/SHA256SUMS.txt`、
+  `host-qa-pack-verified.log`、`deb-ui-verified.log`、`appimage-ui-verified.log`、
+  `ci-local-bundled-ocr.log` 和 `windows-gnu-qa.log`。
+
 ## Acceptance Criteria
 
 - [ ] Linux 的 GNOME Wayland、X11、KDE/其他受支持 Wayland，以及 Windows 10/11、macOS Intel/Apple Silicon，

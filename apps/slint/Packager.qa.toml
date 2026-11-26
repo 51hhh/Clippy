@@ -16,6 +16,7 @@ icons = [
   "../legacy-tauri/native/icons/icon.icns",
 ]
 resources = [
+  { src = "../../target/packager/slint-ocr", target = "ocr" },
   { src = "../../LICENSE", target = "licenses/Clippy-MIT.txt" },
   { src = "third-party-licenses/LicenseRef-Slint-Royalty-free-2.0.md", target = "licenses/LicenseRef-Slint-Royalty-free-2.0.md" },
   { src = "../legacy-tauri/native/assets/fonts/OFL-1.1.txt", target = "licenses/NotoSansCJK-OFL-1.1.txt" },

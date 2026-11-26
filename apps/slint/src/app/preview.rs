@@ -345,7 +345,7 @@ impl App {
         let Some((request, source)) = self.preview.pending_ocr.take() else {
             return;
         };
-        let native = self.vision.native.clone();
+        let native = self.vision.native_engine();
         let cancelled = Arc::new(AtomicBool::new(false));
         self.preview.ocr = Some(cancelled.clone());
         if let Err(error) = thread::Builder::new()

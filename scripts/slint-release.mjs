@@ -32,11 +32,14 @@ function packageInfo(tag, platform, sha, signing) {
   if (!profile || !/^[0-9a-f]{40}$/.test(sha ?? "") || !/^[a-z-]+$/.test(signing ?? "")) {
     throw new Error("Expected platform, release SHA and signing mode");
   }
+  const ocr = JSON.parse(read("target/packager/slint-ocr/OCR-BUNDLE.json"));
+  if (ocr.platform !== platform) throw new Error("Offline OCR bundle does not match the release platform");
   return {
     commit: sha, version: release.version, platform, signing,
     backend: release.backend, framework: release.framework, framework_version: release.frameworkVersion,
     tauri: "not included", renderer: "femtovg", identity: profile.identifier,
     minimum_system_version: profile.minimumSystemVersion, installer_versions: installVersions(tag),
+    ocr_runtime: ocr.runtime,
   };
 }
 

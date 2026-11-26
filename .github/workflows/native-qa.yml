@@ -469,7 +469,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential file libfontconfig1-dev libfreetype6-dev \
-            pkg-config squashfs-tools libclang-dev libpipewire-0.3-dev libxkbcommon-x11-0 \
+            pkg-config patchelf squashfs-tools libclang-dev libpipewire-0.3-dev libxkbcommon-x11-0 \
             libwayland-dev libgbm-dev libegl1-mesa-dev libdrm-dev
 
       - name: Setup Rust
@@ -501,6 +501,8 @@ jobs:
         run: >-
           cargo build --locked --release -p clippy-slint
           --bin clippy-slint-qa --features qa-build
+
+      - uses: ./.github/actions/slint-ocr-bundle
 
       - name: Build Slint Linux QA bundles
         run: |
@@ -541,12 +543,22 @@ jobs:
           unsquashfs -o "$VALID_OFFSET" -lls "$APPIMAGE" | grep 'usr/bin/clippy-slint-qa$' >/dev/null
           unsquashfs -o "$VALID_OFFSET" -lls "$APPIMAGE" | grep 'LicenseRef-Slint-Royalty-free-2.0.md$' >/dev/null
           unsquashfs -o "$VALID_OFFSET" -lls "$APPIMAGE" | grep 'libxkbcommon-x11\.so\.0$' >/dev/null
+          payload=$(mktemp -d)
+          trap 'rm -rf -- "$payload"' EXIT
+          dpkg-deb -x "$DEB" "$payload/deb"
+          unsquashfs -o "$VALID_OFFSET" -d "$payload/appimage" "$APPIMAGE" usr/lib/clippy-slint-qa/ocr
+          for format in deb appimage; do
+            OCR="$payload/$format/usr/lib/clippy-slint-qa/ocr"
+            python3 -B scripts/prepare-slint-ocr.py --bundle "$OCR"
+            python3 -B scripts/prepare-slint-ocr.py --bundle "$OCR" --smoke
+          done
 
       - name: Prepare Slint Linux QA artifact
         run: |
           mkdir -p qa-slint-stage qa-slint-artifacts
           cp target/packager/slint-qa/*.deb qa-slint-stage/
           cp target/packager/slint-qa/*.AppImage qa-slint-stage/
+          cp target/packager/slint-ocr/OCR-BUNDLE.json qa-slint-stage/
           node scripts/qa-build-info.mjs \
             --backend slint \
             --platform linux-x64 \
@@ -554,7 +566,7 @@ jobs:
             --sha "$GITHUB_SHA" \
             --output qa-slint-stage/QA-BUILD.txt \
             --field packager=cargo-packager-0.11.8
-          (cd qa-slint-stage && sha256sum ./*.deb ./*.AppImage > SHA256SUMS.txt)
+          (cd qa-slint-stage && sha256sum ./*.deb ./*.AppImage OCR-BUNDLE.json > SHA256SUMS.txt)
           tar -czf "qa-slint-artifacts/Clippy_Slint_QA_${GITHUB_SHA}_linux-x64.tar.gz" \
             -C qa-slint-stage .
 
@@ -625,6 +637,8 @@ jobs:
           cargo build --locked --release -p clippy-slint
           --bin clippy-slint-qa --features qa-build
 
+      - uses: ./.github/actions/slint-ocr-bundle
+
       - name: Build Slint Windows QA bundles
         shell: pwsh
         run: |
@@ -646,10 +660,12 @@ jobs:
           if (-not (Test-Path target/release/clippy-slint-qa.exe -PathType Leaf)) {
             throw 'Slint QA executable is missing'
           }
+          ./scripts/verify-slint-ocr-msi.ps1 -Package $msi[0].FullName -Application clippy-slint-qa.exe
 
           New-Item -ItemType Directory -Force -Path qa-slint-artifacts | Out-Null
           Copy-Item $nsis[0].FullName qa-slint-artifacts/
           Copy-Item $msi[0].FullName qa-slint-artifacts/
+          Copy-Item target/packager/slint-ocr/OCR-BUNDLE.json qa-slint-artifacts/
           node scripts/qa-build-info.mjs `
             --backend slint `
             --platform windows-x64 `
@@ -732,6 +748,10 @@ jobs:
           cargo build --locked --release -p clippy-slint
           --bin clippy-slint-qa --features qa-build
 
+      - uses: ./.github/actions/slint-ocr-bundle
+        with:
+          macos-worker-target: '12.3'
+
       - name: Build Slint macOS QA bundles
         run: |
           rm -rf target/packager/slint-qa
@@ -761,9 +781,14 @@ jobs:
           EXECUTABLE="$APP/Contents/MacOS/$EXECUTABLE_NAME"
           [ -x "$EXECUTABLE" ]
           lipo -archs "$EXECUTABLE" | tr ' ' '\n' | grep -qx "$EXPECTED_ARCH"
+          OCR="$APP/Contents/Resources/ocr"
+          codesign --verify --strict "$OCR/clippy-ocr-worker"
+          codesign --verify --strict "$OCR/libonnxruntime.dylib"
+          python3 -B scripts/prepare-slint-ocr.py --bundle "$OCR" --smoke
 
           mkdir -p qa-slint-artifacts
           cp "$DMG" qa-slint-artifacts/
+          cp "$OCR/OCR-BUNDLE.json" qa-slint-artifacts/
           node scripts/qa-build-info.mjs \
             --backend slint \
             --platform "macos-$ASSET_ARCH" \
@@ -772,7 +797,7 @@ jobs:
             --output qa-slint-artifacts/QA-BUILD.txt \
             --field packager=cargo-packager-0.11.8 \
             --field minimum_system_version=12.3
-          (cd qa-slint-artifacts && shasum -a 256 ./*.dmg > SHA256SUMS.txt)
+          (cd qa-slint-artifacts && shasum -a 256 ./*.dmg OCR-BUNDLE.json > SHA256SUMS.txt)
 
       - name: Upload Slint macOS QA artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

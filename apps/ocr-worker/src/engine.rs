@@ -34,24 +34,6 @@ const DETECTOR: &str = "pp-ocrv6_small_det.onnx";
 const RECOGNIZER: &str = "pp-ocrv6_small_rec.onnx";
 const DICTIONARY: &str = "ppocrv6_dict.txt";
 const LINE_ORIENTATION: &str = "line-orientation.onnx";
-const MODELS: [(&str, &str); 4] = [
-    (
-        DETECTOR,
-        "d73e0058b7a8086bbd57f3d10b8bcd4ff95363f67e06e2762b5e814fe9c9410e",
-    ),
-    (
-        RECOGNIZER,
-        "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634",
-    ),
-    (
-        DICTIONARY,
-        "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d",
-    ),
-    (
-        LINE_ORIENTATION,
-        "94a6a0a0425f2b5f08b5df72086f2d72abe40f1d22f6d12d2cd83674f11f2ff3",
-    ),
-];
 
 #[cfg(target_os = "linux")]
 const RUNTIME: &str = "libonnxruntime.so";
@@ -69,8 +51,10 @@ pub(super) struct Engine {
 impl Engine {
     pub(super) fn open(bundle: &Path) -> Result<Self, Box<dyn Error>> {
         let models = bundle.join("models");
-        for (name, expected) in MODELS {
-            let actual = model_hash(&models.join(name))
+        let pins: [(String, String, String); 4] =
+            serde_json::from_str(include_str!("../models.json")).expect("模型清单随程序构建");
+        for (name, _, expected) in pins {
+            let actual = model_hash(&models.join(&name))
                 .map_err(|error| format!("Cannot read OCR model {name}: {error}"))?;
             if actual != expected {
                 return Err(format!("OCR model checksum mismatch: {name}").into());

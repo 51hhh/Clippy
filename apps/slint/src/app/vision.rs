@@ -16,6 +16,7 @@ use image::RgbaImage;
 use slint::{CloseRequestResponse, ComponentHandle, ModelRc, VecModel};
 use std::{
     collections::HashMap,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -63,6 +64,7 @@ pub(super) enum Recognition {
 #[derive(Default)]
 pub(super) struct Vision {
     pub(super) native: Option<Arc<NativeOcr>>,
+    qa_override: bool,
     serial: u64,
     recognition_running: bool,
     translation_running: bool,
@@ -71,14 +73,28 @@ pub(super) struct Vision {
 
 impl Vision {
     pub(super) fn new(channel: DistributionChannel) -> Self {
-        let native = if channel == DistributionChannel::Qa {
-            std::env::var_os("CLIPPY_QA_OCR_DIR").map(|path| Arc::new(NativeOcr::new(path.into())))
+        let explicit = if channel == DistributionChannel::Qa {
+            std::env::var_os("CLIPPY_QA_OCR_DIR").map(PathBuf::from)
         } else {
             None
         };
+        let qa_override = explicit.is_some();
+        let native = explicit
+            .or_else(|| bundled_ocr_dir(&std::env::current_exe().ok()?))
+            .map(|path| Arc::new(NativeOcr::new(path)));
         Self {
             native,
+            qa_override,
             ..Self::default()
+        }
+    }
+
+    pub(super) fn native_engine(&self) -> Option<Arc<NativeOcr>> {
+        // 仅已显式配置的增强引擎覆盖随包默认值，升级时可继续使用原有模型。
+        if self.qa_override || !clippy_vision::uses_enhanced_configuration() {
+            self.native.clone()
+        } else {
+            None
         }
     }
 
@@ -87,6 +103,18 @@ impl Vision {
             native.shutdown();
         }
     }
+}
+
+fn bundled_ocr_dir(executable: &Path) -> Option<PathBuf> {
+    let bin = executable.parent()?;
+    #[cfg(target_os = "linux")]
+    let resources = bin.parent()?.join("lib").join(executable.file_name()?);
+    #[cfg(target_os = "macos")]
+    let resources = bin.parent()?.join("Resources");
+    #[cfg(target_os = "windows")]
+    let resources = bin;
+    let bundle = resources.join("ocr");
+    bundle.is_dir().then_some(bundle)
 }
 
 struct View {
@@ -304,7 +332,7 @@ impl App {
         self.vision.serial += 1;
         let id = self.vision.serial;
         let new_view = View::open(id, &image, &self.config)?;
-        let native = self.vision.native.clone();
+        let native = self.vision.native_engine();
         let cancelled = new_view.cancelled.clone();
         thread::Builder::new()
             .name("clippy-image-analysis".into())
@@ -526,6 +554,25 @@ pub(super) fn translate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn packaged_ocr_directory_is_relative_to_the_installed_executable() {
+        let install = tempfile::tempdir().unwrap();
+        #[cfg(target_os = "linux")]
+        let (binary, resource) = ("usr/bin/clippy-app", "usr/lib/clippy-app/ocr");
+        #[cfg(target_os = "macos")]
+        let (binary, resource) = (
+            "Clippy.app/Contents/MacOS/clippy-app",
+            "Clippy.app/Contents/Resources/ocr",
+        );
+        #[cfg(target_os = "windows")]
+        let (binary, resource) = ("Clippy/clippy-app.exe", "Clippy/ocr");
+        let executable = install.path().join(binary);
+        let bundle = install.path().join(resource);
+        assert_eq!(bundled_ocr_dir(&executable), None);
+        std::fs::create_dir_all(&bundle).unwrap();
+        assert_eq!(bundled_ocr_dir(&executable), Some(bundle));
+    }
 
     #[test]
     fn sensitive_image_text_is_rejected_before_credentials_or_http() {

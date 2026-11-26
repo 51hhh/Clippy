@@ -1,0 +1,29 @@
+name: Prepare Slint offline OCR
+description: Build and verify the platform-specific worker and bundled models
+inputs:
+  macos-worker-target:
+    description: Ceiling for the worker deployment target in this package
+    default: '11.0'
+runs:
+  using: composite
+  steps:
+    - name: Stage Windows app-local CRT
+      id: crt
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: ./scripts/prepare-windows-qa-runtime.ps1 -OutputDirectory target/packager/slint-ocr-crt
+
+    - name: Build and smoke test offline OCR
+      shell: bash
+      env:
+        OCR_CRT_MANIFEST: ${{ steps.crt.outputs.runtime_manifest }}
+        OCR_MACOS_WORKER_TARGET: ${{ inputs.macos-worker-target }}
+      run: |
+        cargo build --locked --release --manifest-path apps/ocr-worker/Cargo.toml --target-dir target
+        if [ "$RUNNER_OS" = Windows ]; then
+          python -B scripts/prepare-slint-ocr.py --worker target/release/clippy-ocr-worker.exe \
+            --windows-crt "$OCR_CRT_MANIFEST"
+        else
+          python3 -B scripts/prepare-slint-ocr.py --worker target/release/clippy-ocr-worker \
+            --macos-worker-target "$OCR_MACOS_WORKER_TARGET"
+        fi

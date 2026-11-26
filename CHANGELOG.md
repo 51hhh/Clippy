@@ -53,6 +53,9 @@
 - 原生离线 OCR 按栏、表格行和行距组织段落。点原图行框后可仅翻译该行，点侧栏后可翻译整段。译文根据实际
   字宽和换行决定是否覆盖原图，完整结果仍可在文字区复制。已在隔离 X11 验证，正式安装包待验收。
   （需求 `SLINT-MIGRATION-CLOSURE-01`）
+- Slint 安装包随附 PP-OCRv6 small、方向模型和 CPU 运行库，打开图片后可直接离线识字，无需配置模型目录或安装
+  Python。本机 QA deb 和 AppImage 已验证按需启动、选行选段和关窗回收。Ubuntu 22.04 及 Windows/macOS
+  原生安装继续验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 
 ### Slint 区域录屏
 

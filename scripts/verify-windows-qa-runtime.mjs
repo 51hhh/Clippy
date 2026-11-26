@@ -12,9 +12,9 @@ const CORE_CRT = ["msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"];
 // 这里只分类系统依赖，不证明 API 在某个 Windows build 上可用。
 const OS_DLLS = new Set([
   "advapi32.dll", "avrt.dll", "bcrypt.dll", "bcryptprimitives.dll", "combase.dll",
-  "comctl32.dll", "crypt32.dll", "d3d11.dll", "dnsapi.dll", "dwmapi.dll", "gdi32.dll",
+  "comctl32.dll", "crypt32.dll", "d3d11.dll", "dbghelp.dll", "dnsapi.dll", "dwmapi.dll", "dxgi.dll", "gdi32.dll",
   "imm32.dll", "iphlpapi.dll", "kernel32.dll", "msvcrt.dll", "normaliz.dll", "ntdll.dll",
-  "ole32.dll", "oleaut32.dll", "powrprof.dll", "propsys.dll", "rpcrt4.dll", "secur32.dll",
+  "ole32.dll", "oleaut32.dll", "powrprof.dll", "propsys.dll", "rpcrt4.dll", "secur32.dll", "setupapi.dll",
   "shell32.dll", "shlwapi.dll", "ucrtbase.dll", "user32.dll", "version.dll", "winmm.dll",
   "wintrust.dll", "ws2_32.dll", "wtsapi32.dll",
 ]);
