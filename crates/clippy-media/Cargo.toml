@@ -14,6 +14,7 @@ recording-opus-webm = ["recording-vp9-prototype", "dep:opusic-c", "dep:opusic-sy
 recording-linux-audio = ["dep:anyhow", "dep:nix", "dep:pipewire"]
 recording-windows-audio = ["dep:windows"]
 recording-playback-native = ["recording-opus-webm"]
+recording-playback-native-stream = ["recording-playback-native", "dep:cpal", "dep:rtrb"]
 recording-playback-gstreamer = [
     "recording-vp9-prototype",
     "dep:gstreamer",
@@ -40,8 +41,10 @@ yuv = { version = "=0.8.19", default-features = false, features = ["avx", "sse",
 
 [target.'cfg(target_os = "linux")'.dependencies]
 anyhow = { version = "1", optional = true }
+cpal = { version = "=0.18.2", default-features = false, features = ["pulseaudio"], optional = true }
 nix = { version = "0.30", features = ["time"], optional = true }
 pipewire = { version = "0.9", features = ["v0_3_34"], optional = true }
+rtrb = { version = "0.4", optional = true }
 
 [target.'cfg(any(all(target_os = "windows", target_env = "msvc"), all(target_os = "macos", target_arch = "x86_64")))'.dependencies]
 shiguredo_libvpx = { version = "=2026.2.0-canary.1", optional = true, features = ["source-build"] }

@@ -1,6 +1,12 @@
-use super::{editor, get_artifact, manifest, App, RecordingLibrary};
+use super::{editor, App, RecordingLibrary};
+#[cfg(not(native_recording_playback))]
+use super::{get_artifact, manifest};
 use anyhow::{bail, Context, Result};
-use clippy_media::recording::playback::{PlaybackUpdate, RecordingPlayer};
+#[cfg(native_recording_playback)]
+use clippy_media::recording::playback::NativeRecordingPlayer as Player;
+use clippy_media::recording::playback::PlaybackUpdate;
+#[cfg(not(native_recording_playback))]
+use clippy_media::recording::playback::RecordingPlayer as Player;
 use slint::{ComponentHandle, Timer, TimerMode};
 use std::{
     path::{Path, PathBuf},
@@ -112,15 +118,19 @@ impl Playback {
     pub(super) fn toggle(&self) {
         let mut commands = self.commands.lock().expect("回放控制锁被污染");
         commands.paused = !commands.paused;
+        drop(commands);
+        self.worker.thread().unpark();
     }
 
     pub(super) fn seek(&self, millis: u64) {
         self.commands.lock().expect("回放控制锁被污染").seek_ms = Some(millis);
+        self.worker.thread().unpark();
     }
 
     pub(super) fn stop(self) {
         self.timer.stop();
         self.stop.store(true, Ordering::Release);
+        self.worker.thread().unpark();
         let _ = self.worker.join();
     }
 }
@@ -132,19 +142,7 @@ fn run(
     commands: &Mutex<Commands>,
     latest: &Mutex<Mailbox>,
 ) -> Result<()> {
-    let artifact = get_artifact(root, key)?;
-    manifest::verify_library_artifact_with_checkpoint(&artifact, || {
-        if stop.load(Ordering::Acquire) {
-            Err("Playback cancelled".into())
-        } else {
-            Ok(())
-        }
-    })
-    .map_err(anyhow::Error::msg)?;
-    if stop.load(Ordering::Acquire) {
-        return Ok(());
-    }
-    let mut player = RecordingPlayer::open(&artifact.path).map_err(anyhow::Error::msg)?;
+    let mut player = open_player(root, key, stop)?;
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut started = false;
     let mut duration_ms: u64 = 0;
@@ -153,13 +151,8 @@ fn run(
             let mut commands = commands.lock().expect("回放控制锁被污染");
             (commands.paused, commands.seek_ms.take())
         };
-        player.set_paused(paused).map_err(anyhow::Error::msg)?;
-        if let Some(millis) = seek_ms {
-            player
-                .seek(millis.min(duration_ms.saturating_sub(1)))
-                .map_err(anyhow::Error::msg)?;
-        }
-        let mut update = player.poll().map_err(anyhow::Error::msg)?;
+        let seek_ms = seek_ms.map(|millis| millis.min(duration_ms.saturating_sub(1)));
+        let mut update = poll_player(&mut player, paused, seek_ms, stop)?;
         started |= update.frame.is_some();
         if !started && (update.ended || Instant::now() >= deadline) {
             bail!("No video frame arrived");
@@ -178,8 +171,63 @@ fn run(
         if ended {
             break;
         }
+        #[cfg(native_recording_playback)]
+        thread::park_timeout(Duration::from_millis(if paused { 20 } else { 5 }));
     }
     Ok(())
+}
+
+fn checkpoint(stop: &AtomicBool) -> Result<(), String> {
+    if stop.load(Ordering::Acquire) {
+        Err("Playback cancelled".into())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(native_recording_playback)]
+fn open_player(root: &Path, key: &str, stop: &AtomicBool) -> Result<Player> {
+    let (session, artifact) = key.split_once(':').context("Select a recording")?;
+    let device = cfg!(feature = "qa-build")
+        .then(|| std::env::var("CLIPPY_QA_PLAYBACK_OUTPUT").ok())
+        .flatten();
+    Player::open(root, session, artifact, device, || checkpoint(stop)).map_err(anyhow::Error::msg)
+}
+
+#[cfg(not(native_recording_playback))]
+fn open_player(root: &Path, key: &str, stop: &AtomicBool) -> Result<Player> {
+    let artifact = get_artifact(root, key)?;
+    manifest::verify_library_artifact_with_checkpoint(&artifact, || checkpoint(stop))
+        .map_err(anyhow::Error::msg)?;
+    checkpoint(stop).map_err(anyhow::Error::msg)?;
+    Player::open(&artifact.path).map_err(anyhow::Error::msg)
+}
+
+#[cfg(native_recording_playback)]
+fn poll_player(
+    player: &mut Player,
+    paused: bool,
+    seek_ms: Option<u64>,
+    stop: &AtomicBool,
+) -> Result<PlaybackUpdate> {
+    player
+        .apply_controls(paused, seek_ms, || checkpoint(stop))
+        .map_err(anyhow::Error::msg)?;
+    player.poll(|| checkpoint(stop)).map_err(anyhow::Error::msg)
+}
+
+#[cfg(not(native_recording_playback))]
+fn poll_player(
+    player: &mut Player,
+    paused: bool,
+    seek_ms: Option<u64>,
+    _: &AtomicBool,
+) -> Result<PlaybackUpdate> {
+    player.set_paused(paused).map_err(anyhow::Error::msg)?;
+    if let Some(millis) = seek_ms {
+        player.seek(millis).map_err(anyhow::Error::msg)?;
+    }
+    player.poll().map_err(anyhow::Error::msg)
 }
 
 fn time_label(millis: u64) -> String {

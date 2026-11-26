@@ -48,6 +48,9 @@
 
 ### Slint 区域录屏
 
+- Linux QA 构建启用 `recording-playback-native-qa` 后，可在录屏库用轻量播放器查看有声原件、分段及恢复件。
+  隔离 X11 已验证默认音频输出、暂停、定位、播放完成和关窗回收。长时同步、真实设备及正式打包待验收。
+  （需求 `SLINT-MIGRATION-CLOSURE-01`）
 - 录屏库可以显示极窄 VP9 录屏的缩略图。已用实际编码出的 2×2 录像复测解码器行距。
   （需求 `SLINT-MIGRATION-CLOSURE-01`）
 - 启用 `recording-playback-gstreamer-qa` 的 QA 构建，可在录屏库播放、暂停和定位视频。隔离 X11 已验证有声

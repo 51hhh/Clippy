@@ -23,6 +23,7 @@ default = ["vp9-recording", "native-recording-audio"]
 qa-build = []
 vp9-recording = ["clippy-media/recording-vp9-prototype"]
 recording-playback-gstreamer-qa = ["vp9-recording", "clippy-media/recording-playback-gstreamer"]
+recording-playback-native-qa = ["vp9-recording", "clippy-media/recording-playback-native-stream"]
 native-recording-audio = [
     "vp9-recording",
     "clippy-media/recording-opus-webm",

@@ -22,7 +22,10 @@ pub mod mux;
 pub mod native_playback;
 pub mod pipeline;
 pub mod platform;
-#[cfg(feature = "recording-playback-gstreamer")]
+#[cfg(any(
+    feature = "recording-playback-gstreamer",
+    all(target_os = "linux", feature = "recording-playback-native-stream")
+))]
 pub mod playback;
 pub mod segmenting;
 pub mod session;
