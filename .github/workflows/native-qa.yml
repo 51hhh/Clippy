@@ -776,7 +776,7 @@ jobs:
           [ "$(plutil -extract LSMinimumSystemVersion raw -o - "$INFO_PLIST")" = "12.3" ]
           [ -n "$(plutil -extract NSScreenCaptureUsageDescription raw -o - "$INFO_PLIST")" ]
           [ -n "$(plutil -extract NSMicrophoneUsageDescription raw -o - "$INFO_PLIST")" ]
-          codesign --display --entitlements - "$APP" > slint-macos-entitlements.plist
+          codesign --display --entitlements - --xml "$APP" > slint-macos-entitlements.plist
           [ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' slint-macos-entitlements.plist)" = true ]
           EXECUTABLE_NAME=$(plutil -extract CFBundleExecutable raw -o - "$INFO_PLIST")
           [ "$EXECUTABLE_NAME" = "clippy-slint-qa" ]

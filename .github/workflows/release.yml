@@ -788,7 +788,7 @@ jobs:
             [ "$(plutil -extract LSMinimumSystemVersion raw -o - "$APP/Contents/Info.plist")" = "11.0" ]
             [ -n "$(plutil -extract NSScreenCaptureUsageDescription raw -o - "$APP/Contents/Info.plist")" ]
             [ -n "$(plutil -extract NSMicrophoneUsageDescription raw -o - "$APP/Contents/Info.plist")" ]
-            codesign --display --entitlements - "$APP" > slint-macos-entitlements.plist
+            codesign --display --entitlements - --xml "$APP" > slint-macos-entitlements.plist
             [ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' slint-macos-entitlements.plist)" = true ]
             otool -L "$APP/Contents/MacOS/clippy-app" > slint-macos-libraries.txt
             nm -u "$APP/Contents/MacOS/clippy-app" > slint-macos-imports.txt
