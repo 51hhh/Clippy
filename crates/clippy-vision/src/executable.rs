@@ -119,6 +119,12 @@ fn probe_with_timeout(path: &Path, timeout: Duration) -> bool {
 }
 
 pub(super) fn probe_command_with_timeout(mut command: Command, timeout: Duration) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // 在设置页重查时，短时版本探测不应弹出系统控制台。
+        command.creation_flags(0x08000000);
+    }
     let Ok(mut child) = command
         .stdin(Stdio::null())
         .stdout(Stdio::null())

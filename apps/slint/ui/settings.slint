@@ -32,6 +32,9 @@ export struct GnomeHelperView {
 export struct PortalShortcutView {
     available: bool, configurable: bool, detail: string, open: string, pin: string, capture: string,
 }
+export struct OcrStatus {
+    title: string, detail: string, checking: bool,
+}
 
 component FieldLabel inherits Text {
     color: ClippyTheme.foreground;
@@ -194,6 +197,7 @@ export component SettingsPane inherits Rectangle {
     in property <bool> gnome-helper-busy;
     in property <GnomeHelperView> gnome-helper;
     in property <PortalShortcutView> portal-shortcuts;
+    in property <OcrStatus> ocr-status;
     in property <string> build-label;
     in property <string> data-status;
     in-out property <ShortcutField> recording-shortcut;
@@ -215,12 +219,16 @@ export component SettingsPane inherits Rectangle {
     callback delete-credentials(int);
     callback data-action(int, string);
     callback choose-path(FileChoice, string);
+    callback refresh-ocr-status();
     private property <int> page;
     private property <bool> desktop-managed-shortcuts: root.wayland-session && !root.gnome-session;
     private property <[string]> pages: ["General", "Screenshot", "Translation", "About"];
     private property <[string]> themes: ["Light", "Dark", "Nord", "Solarized Light", "Rose", "Midnight"];
     private property <int> selected-theme: root.general.theme;
     private property <int> theme-columns: root.width >= 590px ? 4 : 3;
+    changed general => {
+        if root.page == 1 { root.refresh-ocr-status(); }
+    }
 
     VerticalLayout {
         x: max(18px, (root.width - 616px) / 2);
@@ -251,6 +259,7 @@ export component SettingsPane inherits Rectangle {
                         if index == 1 && root.wayland-session && root.gnome-session {
                             root.gnome-helper-action(GnomeHelperAction.refresh);
                         }
+                        if index == 1 { root.refresh-ocr-status(); }
                         if index == 3 { root.data-action(0, ""); }
                     }
                 }
@@ -434,12 +443,26 @@ export component SettingsPane inherits Rectangle {
                     FieldLabel { text: "Screenshot filename template"; }
                     filename := SettingInput { text: root.general.filename-template; placeholder-text: "{prefix}-{date}-{time}"; }
                     ocr := CheckBox { text: "Enable OCR"; checked: root.general.ocr-enabled; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        FieldLabel {
+                            text: root.ocr-status.title;
+                            vertical-alignment: center; horizontal-stretch: 1;
+                        }
+                        SurfaceButton {
+                            label: "Recheck OCR";
+                            enabled: root.general.ocr-enabled && !root.ocr-status.checking;
+                            clicked => { root.refresh-ocr-status(); }
+                        }
+                    }
+                    if root.ocr-status.detail != "": SettingHint { text: root.ocr-status.detail; }
                     FieldLabel { text: "Enhanced OCR manifest"; }
                     HorizontalLayout {
                         spacing: 8px;
                         SettingInput {
                             text <=> root.ocr-manifest-draft;
                             placeholder-text: "Optional path to model manifest";
+                            accessible-label: "Enhanced OCR manifest";
                             enabled: !root.file-dialog-pending;
                         }
                         SurfaceButton {
@@ -447,6 +470,9 @@ export component SettingsPane inherits Rectangle {
                             enabled: !root.file-dialog-pending && !root.save-pending;
                             clicked => { root.choose-path(FileChoice.ocr-manifest, root.ocr-manifest-draft); }
                         }
+                    }
+                    if ocr.checked != root.general.ocr-enabled || root.ocr-manifest-draft != root.general.ocr-manifest: SettingHint {
+                        text: "Save to apply the OCR changes.";
                     }
                     Button {
                         text: "Save screenshot settings";

@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BUNDLE = ROOT / "target/packager/slint-ocr"
 DEFAULT_CACHE = ROOT / "target/packager/slint-ocr-cache"
-MODEL_PINS = ROOT / "apps/ocr-worker/models.json"
+MODEL_PINS = ROOT / "crates/clippy-ocr-protocol/models.json"
 ORT_VERSION = "1.24.2"
 ORT_SOURCE = "058787ceead760166e3c50a0a4cba8a833a6f53f"
 MAX_ASSET = 64 * 1024 * 1024

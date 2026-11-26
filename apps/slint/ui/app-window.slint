@@ -1,8 +1,8 @@
 import { ClipRow, HistoryPane } from "history.slint";
 import { ClipPreview, HistoryPreviewPane } from "history-preview.slint";
-import { FileChoice, GeneralSettings, GnomeHelperAction, GnomeHelperView, PortalShortcutView, SettingsPane, ShortcutField, TranslationSettings } from "settings.slint";
+import { FileChoice, GeneralSettings, GnomeHelperAction, GnomeHelperView, OcrStatus, PortalShortcutView, SettingsPane, ShortcutField, TranslationSettings } from "settings.slint";
 import { ClippyTheme, WindowHeader } from "theme.slint";
-export { FileChoice, GeneralSettings, GnomeHelperAction, GnomeHelperView, PortalShortcutView, TranslationSettings, ShortcutField, ClippyTheme, ClipRow, ClipPreview }
+export { FileChoice, GeneralSettings, GnomeHelperAction, GnomeHelperView, OcrStatus, PortalShortcutView, TranslationSettings, ShortcutField, ClippyTheme, ClipRow, ClipPreview }
 export { EditorWindow } from "editor.slint";
 export { PinnedWindow } from "pins.slint";
 export { WorkspaceWindow, WorkspaceRow, WorkspaceGroupRow } from "workspace.slint";
@@ -71,6 +71,7 @@ export component AppWindow inherits Window {
     in property <bool> gnome-helper-busy;
     in property <GnomeHelperView> gnome-helper: { title: "Checking helper…" };
     in property <PortalShortcutView> portal-shortcuts;
+    in property <OcrStatus> ocr-status;
     in property <TranslationSettings> translation-settings;
     in property <string> translation-destination;
     in property <int> provider-index;
@@ -114,6 +115,7 @@ export component AppWindow inherits Window {
     callback delete-credentials(int);
     callback data-action(int, string);
     callback choose-path(FileChoice, string);
+    callback refresh-ocr-status();
     callback edit-history-image(string);
     callback preview-item(string);
     callback show-preview(bool);
@@ -236,6 +238,7 @@ export component AppWindow inherits Window {
             gnome-helper-busy: root.gnome-helper-busy;
             gnome-helper: root.gnome-helper;
             portal-shortcuts: root.portal-shortcuts;
+            ocr-status: root.ocr-status;
             translation: root.translation-settings;
             provider-index: root.provider-index;
             auto-paste: root.auto-paste;
@@ -258,6 +261,7 @@ export component AppWindow inherits Window {
             delete-credentials(index) => { root.delete-credentials(index); }
             data-action(action, path) => { root.data-action(action, path); }
             choose-path(kind, path) => { root.choose-path(kind, path); }
+            refresh-ocr-status => { root.refresh-ocr-status(); }
         }
 
         if root.action-status != "": Text {

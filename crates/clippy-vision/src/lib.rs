@@ -83,8 +83,7 @@ pub fn health_status(candidate: &str) -> OcrHealthStatus {
     enhanced::health_status(candidate)
 }
 
-/// 安装流程改变了外部工具状态，下一次查询必须重新探测。
-#[cfg(target_os = "linux")]
+/// 用户主动重查或安装工具后，下一次查询必须重新探测。
 pub fn invalidate_executable_cache() {
     executable::invalidate_executable_cache();
 }

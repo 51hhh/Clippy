@@ -6,7 +6,8 @@ use super::{
     OcrLine, OcrParagraph, OcrPipeline, StructuredOcr, StructuredResult,
 };
 use clippy_ocr_protocol::{
-    rgba_bytes, validate_lines, Line, Reply, Request, ENGINE_ID, MAX_REPLY_BYTES, WORKER_NAME,
+    bundle, rgba_bytes, validate_lines, Line, Reply, Request, ENGINE_ID, MAX_REPLY_BYTES,
+    WORKER_NAME,
 };
 use image::RgbaImage;
 use sha2::{Digest, Sha256};
@@ -62,6 +63,20 @@ impl NativeOcr {
             instance: NEXT_INSTANCE.fetch_add(1, Ordering::Relaxed),
             state: Mutex::new(State::Idle),
         }
+    }
+
+    pub fn check_assets(&self) -> Result<(), String> {
+        if !self.bundle.is_absolute() {
+            return Err("OCR bundle directory must be absolute".into());
+        }
+        for name in [WORKER_NAME, bundle::RUNTIME] {
+            let metadata = std::fs::metadata(self.bundle.join(name))
+                .map_err(|error| format!("Cannot access OCR file {name}: {error}"))?;
+            if !metadata.is_file() || metadata.len() == 0 {
+                return Err(format!("Expected a non-empty OCR file: {name}"));
+            }
+        }
+        bundle::verify_models(&self.bundle.join("models"))
     }
 
     pub async fn recognize(

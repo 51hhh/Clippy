@@ -139,6 +139,7 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
             busy: false,
             file_dialog_pending: false,
             archive_export: None,
+            ocr_checks: settings::OcrChecks::default(),
             #[cfg(target_os = "linux")]
             gnome_helper_busy: false,
             #[cfg(target_os = "linux")]
@@ -293,6 +294,7 @@ struct App {
     busy: bool,
     file_dialog_pending: bool,
     archive_export: Option<JoinHandle<()>>,
+    ocr_checks: settings::OcrChecks,
     #[cfg(target_os = "linux")]
     gnome_helper_busy: bool,
     #[cfg(target_os = "linux")]

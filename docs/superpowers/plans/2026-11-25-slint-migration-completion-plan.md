@@ -17,7 +17,7 @@ GitHub `dev` 仍指向 #27 的合入提交 `abfdeb5`。之前的安装包、三�
 
 | 功能 | 当前 Slint | 收尾内容 |
 | --- | --- | --- |
-| 托盘、快捷键、设置 | 按需窗口、单实例、三类快捷键、六主题、平台权限入口。设置支持录制、即时改键、失败回滚和原生文件选择，Portal 管理的键位同步到界面 | 原生托盘、快捷键、系统配置入口和权限态实机验收。补中英文及自动语言，完善 OCR 引擎状态、清理与更新入口。 [设置调用](../../../apps/slint/src/app/settings.rs) · [旧设置](../../../apps/legacy-tauri/frontend/settings.html) |
+| 托盘、快捷键、设置 | 按需窗口、单实例、三类快捷键、六主题、平台权限入口。设置支持录制、即时改键、失败回滚、原生文件选择和 OCR 诊断，Portal 管理的键位同步到界面 | 原生托盘、快捷键、系统配置入口和权限态实机验收。补中英文及自动语言、清理与更新入口。 [设置调用](../../../apps/slint/src/app/settings.rs) · [旧设置](../../../apps/legacy-tauri/frontend/settings.html) |
 | 剪贴板和自动粘贴 | Unicode、HTML、透明 PNG、检索、收藏、删除、敏感项保护。X11 已验证复制和焦点变化。Windows 使用序列号，macOS 使用 `changeCount`，X11 读取 XFixes 事件，应用循环间隔 250 ms | 核对 Wayland 原生应用间的读写和授权恢复。将能观察的变更改为事件唤醒。短时间多次复制、退出数据所有权及焦点失效要在安装包内验证。 [平台剪贴板](../../../crates/clippy-platform/src/clipboard.rs) · [剪贴板工作线程](../../../apps/slint/src/app/clipboard.rs) |
 | 冻结截图 | X11 root、GNOME Mutter 原始帧、其他 Wayland 的 wayshot、Windows xcap/WGC 单帧、macOS xcap/CoreGraphics。选区使用单输出源像素 | 复测 v5 速度与 GNOME 瞬时菜单。补窗口速选、旋转和混合 DPI 验收。跨屏选区和合成是原生计划中的新增目标，先固定输出坐标尺度。保留系统截图导入和延时截图。 [平台采集](../../../crates/clippy-platform/src/capture.rs) · [GNOME v5 合同](../specs/2026-10-23-gnome-capture-fast-path-rollback.md) |
 | 标注、查看器、贴图 | 截图层有五个内联工具。编辑器可做更多标注。查看器支持缩放拖动。贴图、修订、工作区分组和缩略图已接入 | 恢复高频内联笔、文字、马赛克等实际入口与撤销/重做。窗口速选和扫码结果交互按旧操作验证。贴图跨屏缩放、层级和重启位置恢复做原生验证。独立查看器持久化工程按现有修订合同接入。 [截图窗](../../../apps/slint/ui/capture.slint) · [编辑器控制](../../../apps/slint/src/app/editor.rs) · [贴图状态](../../../apps/slint/src/app/pins.rs) |
@@ -567,6 +567,21 @@ Portal 1 提示从桌面设置修改。配置页响应同一会话的键位变�
 SQLite，恢复后核对 ZIP 可读且仍由原快照生成。验证已存在目标文件保留、失败后重试和正常退出等待收尾。
 
 **Out of Scope** 调整持久化格式、替换 ZIP 实现或降低同步落盘要求。
+
+#### 阶段 6 · 设置 OCR 状态与诊断
+
+**Goal** 在截图设置看到已保存配置选择的 OCR 引擎、缺失或损坏的资源，以及该如何恢复。
+
+**Requirements** 进入截图页、保存和手动重查时按需检测。结果与识别时的引擎选择一致，区分停用、内置
+PP-OCRv6、增强清单、Tesseract 及不可用。内置模型复用 worker 的清单和有界摘要校验。检查在后台执行，
+最多一个正在运行的请求和一个最新请求。取消或关闭设置不提交配置，旧窗口的结果不能更新新窗口。检查不加载
+推理运行时、不启动 worker 或 Python。判断系统 Tesseract 时复用现有的有界版本探测。
+
+**Acceptance Criteria** 用实际打包布局验证内置模型、缺失及坏摘要。测试增强配置成功、增强配置失效时的
+Tesseract 状态、停用及清除自定义路径后恢复内置引擎。真实设置窗口验证重新检查、保存前后及快速关窗重开，
+并观察哈希校验不启动识别进程。重建独立 OCR worker，并以真实模型复测识别输出。
+
+**Out of Scope** 从系统安装 OCR 工具、替换模型或改变识别和降级策略。
 
 ## 实施记录
 
@@ -1233,6 +1248,24 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   `fe1386acd6838931f1adea63b0597d5359ef91e5afdefb77cd06e6356c41990d`。证据位于
   `target/test-artifacts/slint-stage6-archive-worker/`，包括 `before.log`、`after.log`、`quit.log`、`retry.log`、
   `real-file-dialogs.log`、`ci-local.log` 和 `windows-gnu-qa.log`。原生安装包的并发和磁盘故障验收仍待复测。
+
+#### 阶段 6 · 设置 OCR 诊断结果
+
+- 检查使用已保存配置和识别入口的同一引擎选择。截图页按需启动一个后台任务，等待期间只保留最新请求。
+  包准备脚本、诊断和 worker 使用同一份固定模型清单，Rust 端共用有界摘要校验。
+- 隔离 X11 用实际包内资源验证健康、缺运行库、字典摘要损坏与恢复。编辑草稿不会提前切换引擎。保存无效的
+  增强清单时显示 Tesseract 和缺失原因，真实校验通过的清单显示增强 OCR。延迟版本探测时关窗重开并保存停用，
+  旧检查不会覆盖新状态。重新启用并清空清单后回到内置引擎。
+- 对该过程跟踪进程启动并读取应用进程映射，诊断只见 Tesseract 的 `--version`，未执行 OCR worker 或配置中的
+  Python，应用未加载 ONNX Runtime。用重建 worker 和真实模型在 125% 隔离 X11 复验了复制行框、按需发送段落、
+  显示译文和关窗回收。样本的增强清单只用于静态校验，增强推理仍沿用原测试范围。
+- 独立 worker 的 Release 单测、严格 Clippy 和资源准备脚本的打包校验通过。完整 Linux 门禁 11 通过、0 失败、
+  0 跳过。Windows GNU QA 入口交叉检查和 macOS 双架构视觉层严格 Clippy 通过。
+  Windows/macOS 原生桌面与正式安装包继续验收。
+- QA 二进制 SHA-256 为 `4e410cec28e686a08e289a4b66b2a7546a73d03abab168f2bc657632b630c341`。
+  证据位于 `target/test-artifacts/slint-stage6-ocr-status/`，包括 `x11-ocr-status.log`、`ocr-exec.trace`、
+  `package-ocr-x11.log`、`prepare-bundle.log`、`worker-tests.log`、`worker-clippy.log`、`ci-local.log`、
+  `windows-gnu-qa.log` 和 `macos-vision.log`。
 
 ## Acceptance Criteria
 

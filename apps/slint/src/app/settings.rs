@@ -1,6 +1,7 @@
 use super::{post, use_app, App, Event};
 use crate::{
-    AppWindow, ClippyTheme, FileChoice, GeneralSettings, ShortcutField, TranslationSettings,
+    AppWindow, ClippyTheme, FileChoice, GeneralSettings, OcrStatus, ShortcutField,
+    TranslationSettings,
 };
 use anyhow::{ensure, Context, Result};
 use clippy_core::{
@@ -28,6 +29,8 @@ use std::{path::PathBuf, sync::mpsc, thread};
 mod file_dialog;
 #[cfg(target_os = "linux")]
 mod gnome_helper;
+mod ocr_status;
+pub(super) use ocr_status::OcrChecks;
 
 const THEMES: [&str; 6] = [
     "light",
@@ -41,6 +44,8 @@ const THEMES: [&str; 6] = [
 pub(super) enum Message {
     Data(Result<String>),
     FileChosen(FileChoice, slint::Weak<AppWindow>, Result<Option<PathBuf>>),
+    RefreshOcr(slint::Weak<AppWindow>),
+    OcrChecked(slint::Weak<AppWindow>, OcrStatus),
     Stats(Result<String>),
     Credentials(Result<String>),
     #[cfg(target_os = "linux")]
@@ -261,6 +266,8 @@ pub(super) fn connect(window: &AppWindow, config: &AppConfig) {
             });
         }
         connect_shortcut_recorder(window);
+        let owner = window.as_weak();
+        window.on_refresh_ocr_status(move || send(Message::RefreshOcr(owner.clone())));
     }
     window.on_apply_general(|settings| {
         use_app(|app| {
@@ -787,6 +794,8 @@ impl App {
 
     pub(super) fn settings_message(&mut self, message: Message) {
         match message {
+            Message::RefreshOcr(owner) => ocr_status::refresh(self, owner),
+            Message::OcrChecked(owner, status) => self.ocr_checks.complete(owner, status),
             Message::FileChosen(kind, window, result) => {
                 file_dialog::completed(self, kind, window, result);
             }

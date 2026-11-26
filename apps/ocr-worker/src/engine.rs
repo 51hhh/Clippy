@@ -1,4 +1,7 @@
-use clippy_ocr_protocol::Line;
+use clippy_ocr_protocol::{
+    Line,
+    bundle::{DETECTOR, DICTIONARY, LINE_ORIENTATION, RECOGNIZER, RUNTIME, verify_models},
+};
 use image::{RgbImage, imageops::rotate180_in_place};
 use oar_ocr::{
     core::{
@@ -21,26 +24,7 @@ use oar_ocr::{
     processors::{LimitType, quad_box_order},
     utils::get_rotate_crop_image,
 };
-use sha2::{Digest, Sha256};
-use std::{
-    error::Error,
-    fs::{self, File},
-    io::{self, Read},
-    path::Path,
-    sync::Arc,
-};
-
-const DETECTOR: &str = "pp-ocrv6_small_det.onnx";
-const RECOGNIZER: &str = "pp-ocrv6_small_rec.onnx";
-const DICTIONARY: &str = "ppocrv6_dict.txt";
-const LINE_ORIENTATION: &str = "line-orientation.onnx";
-
-#[cfg(target_os = "linux")]
-const RUNTIME: &str = "libonnxruntime.so";
-#[cfg(target_os = "macos")]
-const RUNTIME: &str = "libonnxruntime.dylib";
-#[cfg(windows)]
-const RUNTIME: &str = "onnxruntime.dll";
+use std::{error::Error, fs, path::Path, sync::Arc};
 
 pub(super) struct Engine {
     detector: TextDetectionAdapter,
@@ -51,15 +35,7 @@ pub(super) struct Engine {
 impl Engine {
     pub(super) fn open(bundle: &Path) -> Result<Self, Box<dyn Error>> {
         let models = bundle.join("models");
-        let pins: [(String, String, String); 4] =
-            serde_json::from_str(include_str!("../models.json")).expect("模型清单随程序构建");
-        for (name, _, expected) in pins {
-            let actual = model_hash(&models.join(&name))
-                .map_err(|error| format!("Cannot read OCR model {name}: {error}"))?;
-            if actual != expected {
-                return Err(format!("OCR model checksum mismatch: {name}").into());
-            }
-        }
+        verify_models(&models)?;
         let environment = ort::init_from(bundle.join(RUNTIME))?.build()?;
         oar_ocr::core::inference::set_ort_environment(environment)?;
         let session = OrtSessionConfig::default()
@@ -158,14 +134,4 @@ impl Engine {
         }
         Ok(lines)
     }
-}
-
-fn model_hash(path: &Path) -> Result<String, Box<dyn Error>> {
-    const MAX_BYTES: u64 = 64 * 1024 * 1024;
-    let mut digest = Sha256::new();
-    let bytes = io::copy(&mut File::open(path)?.take(MAX_BYTES + 1), &mut digest)?;
-    if bytes == 0 || bytes > MAX_BYTES {
-        return Err("OCR model exceeds the file budget".into());
-    }
-    Ok(format!("{:x}", digest.finalize()))
 }

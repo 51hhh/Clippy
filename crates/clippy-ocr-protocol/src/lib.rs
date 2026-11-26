@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+pub mod bundle;
+
 pub const WORKER_NAME: &str = if cfg!(windows) {
     "clippy-ocr-worker.exe"
 } else {

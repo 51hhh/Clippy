@@ -117,6 +117,8 @@
   保存和归档往返。Windows/macOS 原生窗口与安装包待验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 - 导出备份时，ZIP 组装和写盘在独立线程完成。Linux 隔离桌面已验证写盘暂停期间，新复制内容仍可入库和显示，
   退出会等待正在导出的备份完成。Windows/macOS 原生安装包待复测。（需求 `SLINT-MIGRATION-CLOSURE-01`）
+- 截图设置显示当前 OCR 引擎和资源校验结果，可重查模型缺失、摘要不匹配和旧增强清单失效。Linux 已验证
+  诊断期间不启动 OCR worker，Windows/macOS 原生桌面待验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 - 设置沿用配置文件，支持拖动标题、六套主面板主题、历史上限、截图目录与命名、自启、OCR 和输入授权。
   托盘增加三秒延时截图与整屏直接保存，归档可兼容旧版修订与工作区。
 - 正式入口首次启动会保留 SQLite 一致性快照和原配置。v0.2.0 及以上 tag 构建 Slint 原生安装包，
