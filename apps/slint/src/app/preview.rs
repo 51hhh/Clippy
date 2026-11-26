@@ -47,7 +47,7 @@ pub(super) struct Preview {
     selected: Option<Request>,
     generation: u64,
     in_flight: bool,
-    ocr_running: bool,
+    ocr: Option<Arc<AtomicBool>>,
     pending_ocr: Option<(Request, Arc<RgbaImage>)>,
     translation: Option<Arc<AtomicBool>>,
 }
@@ -59,6 +59,9 @@ impl Preview {
         }
         self.generation += 1;
         self.pending_ocr = None;
+        if let Some(cancel) = &self.ocr {
+            cancel.store(true, Ordering::Release);
+        }
         if let Some(cancel) = self.translation.take() {
             cancel.store(true, Ordering::Release);
         }
@@ -198,7 +201,7 @@ impl App {
                 self.start_preview_ocr();
             }
             Message::Recognized(request, result) => {
-                self.preview.ocr_running = false;
+                self.preview.ocr = None;
                 if self.preview.selected == Some(request) {
                     if let Some(window) = self.window.as_ref() {
                         let mut preview = window.get_preview();
@@ -206,10 +209,12 @@ impl App {
                         match result {
                             Ok(text) => {
                                 preview.recognized = truncate_preview(&text, MAX_TEXT_CHARS).into();
-                                let _ = self
-                                    .storage
-                                    .client()
-                                    .execute(move |db| db.set_ocr_text(request.id, &text), |_| {});
+                                if self.vision.native.is_none() {
+                                    let _ = self.storage.client().execute(
+                                        move |db| db.set_ocr_text(request.id, &text),
+                                        |_| {},
+                                    );
+                                }
                             }
                             Err(error) => preview.ocr_note = error.to_string().into(),
                         }
@@ -292,8 +297,9 @@ impl App {
             return;
         };
         let ocr_enabled = self.config.ocr_enabled;
+        let use_legacy_cache = self.vision.native.is_none();
         let result = self.storage.client().execute(
-            move |db| read_details(db, request.id),
+            move |db| read_details(db, request.id, use_legacy_cache),
             move |result| match result {
                 Ok(PreviewInput {
                     clip,
@@ -333,17 +339,19 @@ impl App {
     }
 
     fn start_preview_ocr(&mut self) {
-        if self.preview.ocr_running {
+        if self.preview.ocr.is_some() {
             return;
         }
         let Some((request, source)) = self.preview.pending_ocr.take() else {
             return;
         };
-        self.preview.ocr_running = true;
+        let native = self.vision.native.clone();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        self.preview.ocr = Some(cancelled.clone());
         if let Err(error) = thread::Builder::new()
             .name("clippy-preview-ocr".into())
             .spawn(move || {
-                let result = vision::recognize(&source).map(|result| result.text);
+                let result = vision::recognize(source, native, cancelled).map(|result| result.text);
                 post(Event::Preview(Message::Recognized(request, result)));
             })
         {
@@ -394,14 +402,18 @@ fn loaded(request: Request, result: Result<Details>) {
     post(Event::Preview(Message::Loaded(request, result)));
 }
 
-fn read_details(db: &StorageEngine, id: i64) -> Result<PreviewInput, StorageError> {
+fn read_details(
+    db: &StorageEngine,
+    id: i64,
+    use_legacy_cache: bool,
+) -> Result<PreviewInput, StorageError> {
     let clip = db.get_clip_detail_by_id(id)?;
     let snapshot = if clip.content_type == ContentType::Image && !clip.is_sensitive {
         db.get_bounded_image_snapshot(id, MAX_PNG_BYTES)?
     } else {
         None
     };
-    let cached_ocr = if snapshot.is_some() {
+    let cached_ocr = if use_legacy_cache && snapshot.is_some() {
         db.get_ocr_text(id)?
     } else {
         None

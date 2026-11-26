@@ -1372,6 +1372,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "clippy-ocr-protocol"
+version = "0.2.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "clippy-platform"
 version = "0.2.0"
 dependencies = [
@@ -1479,6 +1486,7 @@ dependencies = [
 name = "clippy-vision"
 version = "0.2.0"
 dependencies = [
+ "clippy-ocr-protocol",
  "image 0.25.10",
  "log",
  "png 0.17.16",

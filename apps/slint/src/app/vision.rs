@@ -3,6 +3,7 @@ use crate::{ClippyTheme, ImageTextWindow, TextBox, TextParagraph};
 use anyhow::{anyhow, Context, Result};
 use clippy_capture::png_io::encode_png;
 use clippy_core::{clipboard::is_sensitive_text, config::AppConfig};
+use clippy_platform::identity::DistributionChannel;
 use clippy_storage::NewTranslation;
 use clippy_translate::{
     direction::resolve_direction,
@@ -10,7 +11,7 @@ use clippy_translate::{
     types::{ProviderOptions, TranslationProvider, TranslationRequest, TranslationResult},
     TranslationService,
 };
-use clippy_vision::{code_detection, StructuredOcr};
+use clippy_vision::{code_detection, NativeOcr, StructuredOcr};
 use image::RgbaImage;
 use slint::{CloseRequestResponse, ComponentHandle, ModelRc, VecModel};
 use std::{
@@ -46,10 +47,31 @@ pub(super) enum Recognition {
 
 #[derive(Default)]
 pub(super) struct Vision {
+    pub(super) native: Option<Arc<NativeOcr>>,
     serial: u64,
     recognition_running: bool,
     translation_running: bool,
     window: Option<View>,
+}
+
+impl Vision {
+    pub(super) fn new(channel: DistributionChannel) -> Self {
+        let native = if channel == DistributionChannel::Qa {
+            std::env::var_os("CLIPPY_QA_OCR_DIR").map(|path| Arc::new(NativeOcr::new(path.into())))
+        } else {
+            None
+        };
+        Self {
+            native,
+            ..Self::default()
+        }
+    }
+
+    pub(super) fn shutdown(&self) {
+        if let Some(native) = &self.native {
+            native.shutdown();
+        }
+    }
 }
 
 struct View {
@@ -225,6 +247,8 @@ impl App {
         self.vision.serial += 1;
         let id = self.vision.serial;
         let new_view = View::open(id, &image, &self.config)?;
+        let native = self.vision.native.clone();
+        let cancelled = new_view.cancelled.clone();
         thread::Builder::new()
             .name("clippy-image-analysis".into())
             .spawn(move || {
@@ -245,7 +269,7 @@ impl App {
                         )
                     })
                     .map_err(Into::into),
-                    Mode::Recognize => recognize(&image).map(Recognition::Ocr),
+                    Mode::Recognize => recognize(image, native, cancelled).map(Recognition::Ocr),
                 };
                 send(Message::Recognized(id, result));
             })?;
@@ -388,11 +412,24 @@ impl App {
     }
 }
 
-pub(super) fn recognize(image: &RgbaImage) -> Result<StructuredOcr> {
-    let png = encode_png(image.as_raw(), image.width(), image.height())?;
-    tokio::runtime::Builder::new_current_thread()
+pub(super) fn recognize(
+    image: Arc<RgbaImage>,
+    native: Option<Arc<NativeOcr>>,
+    cancelled: Arc<AtomicBool>,
+) -> Result<StructuredOcr> {
+    if cancelled.load(Ordering::Acquire) {
+        anyhow::bail!("OCR cancelled");
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
-        .build()?
+        .build()?;
+    if let Some(native) = native {
+        return runtime
+            .block_on(native.recognize(image, cancelled))
+            .map_err(anyhow::Error::msg);
+    }
+    let png = encode_png(image.as_raw(), image.width(), image.height())?;
+    runtime
         .block_on(clippy_vision::recognize_layout(Arc::new(png)))
         .map_err(anyhow::Error::msg)
 }
@@ -454,7 +491,7 @@ mod tests {
             "/../legacy-tauri/native/ocr-sidecar/quality-fixtures/orientation-v1/images/line-0.png"
         ));
         let image = image::load_from_memory(fixture).unwrap().into_rgba8();
-        let result = recognize(&image).unwrap();
+        let result = recognize(Arc::new(image), None, Arc::new(AtomicBool::new(false))).unwrap();
         assert!(result.text.contains("OCR"), "{}", result.text);
         assert!(result.text.contains("SN-A1"), "{}", result.text);
         assert!(!result.paragraphs.is_empty());

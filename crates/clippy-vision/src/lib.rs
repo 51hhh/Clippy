@@ -6,12 +6,14 @@ use std::sync::Arc;
 pub mod code_detection;
 mod enhanced;
 mod executable;
+mod native;
 mod process;
 mod protocol;
 mod runtime;
 mod tesseract;
 
 pub use enhanced::OcrHealthStatus;
+pub use native::NativeOcr;
 pub use protocol::{OcrLine, OcrParagraph, OcrPipeline, StructuredOcr};
 use runtime::ocr_runtime;
 

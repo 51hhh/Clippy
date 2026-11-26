@@ -15,7 +15,6 @@ use std::time::{Duration, Instant};
 
 pub(super) const MANIFEST_ENV: &str = "CLIPPY_OCR_MANIFEST";
 const MAX_INPUT: usize = 64 * 1024 * 1024;
-const MAX_PIXELS: u64 = 32 * 1024 * 1024;
 const MODULES: [&str; 4] = [
     "pipeline.py",
     "edge_features.py",
@@ -479,12 +478,7 @@ pub(super) fn image_dimensions(png: &[u8]) -> Result<(u32, u32), String> {
     let (width, height) = reader
         .into_dimensions()
         .map_err(|_| "OCR 图片不是有效 PNG".to_string())?;
-    if width == 0
-        || height == 0
-        || width > 16384
-        || height > 16384
-        || u64::from(width) * u64::from(height) > MAX_PIXELS
-    {
+    if clippy_ocr_protocol::rgba_bytes(width, height).is_err() {
         return Err("OCR 图片超过像素上限".into());
     }
     Ok((width, height))
@@ -500,7 +494,7 @@ fn cache() -> &'static Mutex<Cache> {
     CACHE.get_or_init(|| Mutex::new(VecDeque::new()))
 }
 
-fn cached(key: &str) -> Option<StructuredOcr> {
+pub(super) fn cached(key: &str) -> Option<StructuredOcr> {
     cache()
         .lock()
         .ok()?
@@ -509,7 +503,7 @@ fn cached(key: &str) -> Option<StructuredOcr> {
         .map(|(_, result)| result.clone())
 }
 
-fn remember(key: String, result: &StructuredOcr) {
+pub(super) fn remember(key: String, result: &StructuredOcr) {
     // 有 fallbackReason 的结果不能遮住修好的配置/模型；单次输出有界，最多缓存8项。
     if result.fallback_reason.is_some() {
         return;

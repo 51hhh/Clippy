@@ -297,6 +297,6 @@ async fn production_structured_job_reaps_after_last_consumer_cancels_before_rele
         assert_eq!(entry.try_recv(), Ok(()));
         assert_eq!(result.text, "recovered");
         assert_reaped(&pid);
-        assert!(runtime.snapshots.lock().unwrap().is_empty());
+        assert!(runtime.snapshots_are_empty());
     }
 }

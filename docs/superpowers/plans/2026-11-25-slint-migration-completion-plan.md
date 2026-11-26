@@ -396,6 +396,16 @@ ScreenCaptureKit 取 `SCStreamFrameInfoDisplayTime`。原生时间缺失或超�
 
 **Out of Scope** 正式播放器切换、macOS 部署目标变更、音频采集时间戳变更。
 
+#### 阶段 5 · 按需离线识别进程
+
+**Goal** 让 Slint 的全尺寸识字窗和历史预览共用可运行的 PP-OCRv6 small 候选，进程退出后归还模型内存。
+
+**Requirements** 在明确配置资源目录的 QA 构建中按需启动独立 worker。Rust/ORT 依赖与主应用分开构建，固定 det、rec 和字典的摘要。按源图尺寸和已有 32 Mi 像素上限直传 RGBA，复用单次执行、两项排队、相同输入合并和 60 秒识别预算。连续请求复用模型，停用 10 秒后回收进程。关闭窗口或切换预览只取消相应消费者，最后一个消费者离开时先回收子进程再释放执行许可。返回真实四点框、行文字和行置信度。
+
+**Acceptance Criteria** 从真实 Slint 入口验证源图坐标、复制和两张不同图片连续识别，核对子进程 PID 复用及退出。复现运行中取消、模型缺失、失效资源、空闲退出和应用退出。记录进程树热态 PSS 与回落，重复实际识别后检查队列预算。使用固定模型和语料继续验证布局与翻译。
+
+**Out of Scope** 此步保留逐行选择能力。段落归组、多栏与旋转质量、正式安装包的资源分发与默认引擎选择继续按阶段 5 验收。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -810,10 +820,28 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   | 两张图与进程启动合计 | 1.98–2.08 s | 1.24–1.30 s |
   | 进程峰值 RSS | 293.6–295.6 MiB | 289.7–290.8 MiB |
 
-- 后续用固定线程参数作为主线基准，接入按需 worker 和 `StructuredOcr`，测取消与空闲退出回落。
-  完整语料的几何、文字、排序、旋转、多栏、冷热 P95 和三平台包仍需验证。当前记录位于
+- 固定线程参数作为接入主线的基准。当前记录位于
   `target/test-artifacts/slint-stage5-ocr/`，核对 `ort-probe/thread-probe-summary.json`、
   `ort-probe/corpus-smoke-assessment.json` 及 `runtime/runtime.sha256`。
+
+### 阶段 5 · Slint 接入离线识别进程
+
+- `apps/ocr-worker` 独立构建。Linux QA 可用 `cargo build --locked --release --manifest-path apps/ocr-worker/Cargo.toml`
+  生成 `clippy-ocr-worker`。把它与 ONNX Runtime 1.24.2 的 CPU 库放到同一目录，把探针固定的 det、rec 和字典放进
+  `models/`，用 `CLIPPY_QA_OCR_DIR` 指向此绝对目录。独立进程校验三份资源摘要，在没有 Python 的路径环境下
+  同一 PID 依次返回 `compressed-status` 的 3 行和 `long-document` 的 30 行。损坏资源会给出摘要错误。
+- 隔离 X11 的 100% 和 125% 缩放均验证历史预览和全尺寸窗共用模型，点击原图行框得到 `CPU 23.7% RAM 1,024 MB`。
+  本地翻译服务仅收到该行，译文覆盖定位正确。测试覆盖关闭渲染窗、切图、缺少模型、空闲 10 秒退出、同图缓存和应用退出。
+  队列测试覆盖取消一个等待者及上次任务仍在回收时重试同一张图。
+- 两轮冷托盘总 PSS 为 32.8–33.3 MiB，识字后为 466.6–467.5 MiB。子进程退出、界面关闭后为 200.6–201.4 MiB，
+  下降约 266 MiB。数据来自隔离桌面的 QA 构建。正式渲染器选择和五次真实桌面空闲验收仍按发布门槛执行。
+- 真实 worker 跑完五套固定语料共 23 张。旋转集的 4 个行框均命中，180° 和 270° 文本误识别。UI 压力集的
+  空白 F1 为 0.559，英文空格集为 0.717，浏览器 UI 集的行框 Hmean 为 0.856。当前结果保留逐行坐标，段落与阅读顺序
+  待补。用固定模型对照这些质量和冷热延迟，再定正式包资源布局。
+- Linux 本地完整门禁 11 项通过、0 项失败、0 项跳过。独立 worker 通过测试及严格 Clippy，Windows GNU 交叉检查
+  覆盖 Slint 主程序。Windows/macOS 原生 worker 和安装测试待跑。当前本机构建的 worker 需要 `GLIBC_2.43`，Ubuntu
+  22.04 包需用目标环境重建。证据位于 `target/test-artifacts/slint-stage5-ocr/`，包括 `ci-local-native-ocr.log`、
+  `worker-tests-final.log`、`worker-clippy-final.log`、`worker-corpus/*-report.json` 和 `slint-native-ocr-x11-selection-*.log`。
 
 ## Acceptance Criteria
 

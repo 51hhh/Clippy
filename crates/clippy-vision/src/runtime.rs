@@ -5,6 +5,7 @@ use super::StructuredResult;
 use super::{OcrResult, StructuredOcr};
 use std::collections::HashMap;
 use std::future::Future;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::{oneshot, Semaphore};
 
@@ -16,7 +17,32 @@ pub(super) struct OcrRuntime {
     admission: Arc<Semaphore>,
     #[cfg(test)]
     pub(super) in_flight: Mutex<HashMap<String, Vec<oneshot::Sender<OcrResult>>>>,
-    pub(super) snapshots: Mutex<HashMap<String, Vec<oneshot::Sender<StructuredResult>>>>,
+    snapshots: Mutex<HashMap<String, Arc<SnapshotWaiters>>>,
+}
+
+struct SnapshotWaiters(Mutex<Vec<Waiter>>);
+
+impl SnapshotWaiters {
+    fn has_consumers(&self) -> bool {
+        self.0.lock().unwrap().iter().any(Waiter::active)
+    }
+}
+
+struct Waiter {
+    result: oneshot::Sender<StructuredResult>,
+    cancelled: Option<Arc<AtomicBool>>,
+}
+
+impl Waiter {
+    fn cancelled(&self) -> bool {
+        self.cancelled
+            .as_ref()
+            .is_some_and(|cancelled| cancelled.load(Ordering::Acquire))
+    }
+
+    fn active(&self) -> bool {
+        !self.result.is_closed() && !self.cancelled()
+    }
 }
 
 impl OcrRuntime {
@@ -148,7 +174,25 @@ impl OcrRuntime {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .get(key)
-            .is_some_and(|waiters| waiters.iter().any(|waiter| !waiter.is_closed()))
+            .is_some_and(|waiters| waiters.has_consumers())
+    }
+
+    pub(super) fn retire_abandoned_snapshot(&self, key: &str) -> bool {
+        let mut flights = self.snapshots.lock().unwrap();
+        if flights
+            .get(key)
+            .is_some_and(|waiters| waiters.has_consumers())
+        {
+            return false;
+        }
+        // 回收可能尚未结束。此时同一张图的新请求要排进下一批，不能加入已决定取消的任务。
+        flights.remove(key);
+        true
+    }
+
+    #[cfg(test)]
+    pub(super) fn snapshots_are_empty(&self) -> bool {
+        self.snapshots.lock().unwrap().is_empty()
     }
 
     pub(super) async fn run_structured<F, Fut>(
@@ -160,27 +204,46 @@ impl OcrRuntime {
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = StructuredResult> + Send + 'static,
     {
+        self.run_structured_cancellable(key, None, work).await
+    }
+
+    pub(super) async fn run_structured_cancellable<F, Fut>(
+        &'static self,
+        key: String,
+        cancelled: Option<Arc<AtomicBool>>,
+        work: F,
+    ) -> StructuredResult
+    where
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: Future<Output = StructuredResult> + Send + 'static,
+    {
         let (sender, receiver) = oneshot::channel();
-        let admission = {
+        let waiter = Waiter {
+            result: sender,
+            cancelled,
+        };
+        let (admission, snapshot) = {
             let mut flights = self
                 .snapshots
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
-            if let Some(waiters) = flights.get_mut(&key) {
-                waiters.retain(|waiter| !waiter.is_closed());
+            if let Some(snapshot) = flights.get(&key) {
+                let mut waiters = snapshot.0.lock().unwrap();
+                waiters.retain(|waiter| !waiter.result.is_closed());
                 if waiters.len() >= 64 {
                     return Err("OCR 等待者超过上限".into());
                 }
-                waiters.push(sender);
-                None
+                waiters.push(waiter);
+                (None, Arc::clone(snapshot))
             } else {
                 let admission = self
                     .admission
                     .clone()
                     .try_acquire_owned()
                     .map_err(|_| "OCR 队列已满，请稍后重试".to_string())?;
-                flights.insert(key.clone(), vec![sender]);
-                Some(admission)
+                let snapshot = Arc::new(SnapshotWaiters(Mutex::new(vec![waiter])));
+                flights.insert(key.clone(), snapshot.clone());
+                (Some(admission), snapshot)
             }
         };
         if let Some(admission) = admission {
@@ -190,29 +253,30 @@ impl OcrRuntime {
                 let result = match &permit {
                     Err(_) => Err("OCR 并发控制器已关闭".to_string()),
                     Ok(_) => {
-                        let waiting = self
-                            .snapshots
-                            .lock()
-                            .unwrap_or_else(|error| error.into_inner())
-                            .get(&key)
-                            .is_some_and(|waiters| {
-                                waiters.iter().any(|waiter| !waiter.is_closed())
-                            });
-                        if waiting {
+                        if snapshot.has_consumers() {
                             work().await
                         } else {
                             Err("OCR 排队请求已取消".into())
                         }
                     }
                 };
-                let waiters = self
-                    .snapshots
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .remove(&key)
-                    .unwrap_or_default();
+                {
+                    let mut flights = self.snapshots.lock().unwrap();
+                    if flights
+                        .get(&key)
+                        .is_some_and(|active| Arc::ptr_eq(active, &snapshot))
+                    {
+                        flights.remove(&key);
+                    }
+                }
+                let waiters = std::mem::take(&mut *snapshot.0.lock().unwrap());
                 for waiter in waiters {
-                    let _ = waiter.send(result.clone());
+                    let result = if waiter.cancelled() {
+                        Err("OCR 请求已取消".into())
+                    } else {
+                        result.clone()
+                    };
+                    let _ = waiter.result.send(result);
                 }
                 // 登记清理与结果发布属于同一个并发槽，避免新任务并入已结束的旧 key。
                 drop(permit);
@@ -250,7 +314,7 @@ mod tests {
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
                     .get(key)
-                    .map_or(0, Vec::len);
+                    .map_or(0, |waiters| waiters.0.lock().unwrap().len());
                 if count == expected {
                     return;
                 }
@@ -297,6 +361,75 @@ mod tests {
         })
         .await
         .expect("OCR 任务必须在时限内完成清理");
+    }
+
+    #[tokio::test]
+    async fn cancelling_one_snapshot_consumer_keeps_the_other_alive() {
+        let runtime: &'static OcrRuntime = Box::leak(Box::new(OcrRuntime::new(1)));
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let first_cancelled = cancelled.clone();
+        let (release, ready) = oneshot::channel();
+        let first = tokio::spawn(async move {
+            runtime
+                .run_structured_cancellable("frame".into(), Some(first_cancelled), || async {
+                    ready.await.unwrap();
+                    Ok(StructuredOcr::tesseract(1, 1, "same frame".into(), None))
+                })
+                .await
+        });
+        wait_for_waiters(runtime, "frame", 1).await;
+        let second = tokio::spawn(async move {
+            runtime
+                .run_structured("frame".into(), || async {
+                    panic!("同一帧只能进入执行槽一次");
+                })
+                .await
+        });
+        wait_for_waiters(runtime, "frame", 2).await;
+        cancelled.store(true, Ordering::Release);
+        assert!(runtime.has_consumers("frame"));
+        release.send(()).unwrap();
+        assert_eq!(first.await.unwrap().unwrap_err(), "OCR 请求已取消");
+        assert_eq!(second.await.unwrap().unwrap().text, "same frame");
+    }
+
+    #[tokio::test]
+    async fn same_image_can_queue_again_while_the_cancelled_worker_is_reaping() {
+        let runtime: &'static OcrRuntime = Box::leak(Box::new(OcrRuntime::new(1)));
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let first_cancelled = cancelled.clone();
+        let (entered, running) = oneshot::channel();
+        let (reaped, wait_for_reap) = oneshot::channel();
+        let first = tokio::spawn(async move {
+            runtime
+                .run_structured_cancellable("frame".into(), Some(first_cancelled), || async {
+                    entered.send(()).unwrap();
+                    wait_for_reap.await.unwrap();
+                    Err("OCR 请求已取消".into())
+                })
+                .await
+        });
+        running.await.unwrap();
+        cancelled.store(true, Ordering::Release);
+        assert!(runtime.retire_abandoned_snapshot("frame"));
+        let (started, mut second_entered) = oneshot::channel();
+        let second = tokio::spawn(async move {
+            runtime
+                .run_structured("frame".into(), || async {
+                    started.send(()).unwrap();
+                    Ok(StructuredOcr::tesseract(1, 1, "new result".into(), None))
+                })
+                .await
+        });
+        wait_for_waiters(runtime, "frame", 1).await;
+        assert!(matches!(
+            second_entered.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty),
+        ));
+        reaped.send(()).unwrap();
+        assert!(first.await.unwrap().is_err());
+        assert_eq!(second.await.unwrap().unwrap().text, "new result");
+        assert_eq!(second_entered.try_recv(), Ok(()));
     }
 
     #[tokio::test]

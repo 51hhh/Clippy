@@ -150,7 +150,7 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
             tray: tray.clone_strong(),
             longshot: None,
             capture_task_id: 0,
-            vision: vision::Vision::default(),
+            vision: vision::Vision::new(identity.channel),
             recordings: recording::Recordings::default(),
             tools: tools::Tools::default(),
             launcher: launcher::Launcher::default(),
@@ -171,6 +171,7 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
     APP.with(|app| {
         if let Some(app) = app.borrow_mut().take() {
             app.capture_shutdown.cancel();
+            app.vision.shutdown();
         }
     });
     result?;

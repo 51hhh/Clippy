@@ -3,6 +3,7 @@ members = [
     "crates/clippy-capture",
     "crates/clippy-core",
     "crates/clippy-media",
+    "crates/clippy-ocr-protocol",
     "crates/clippy-platform",
     "crates/clippy-storage",
     "crates/clippy-translate",
@@ -22,6 +23,7 @@ default-members = [
     "apps/slint",
 ]
 exclude = [
+    "apps/ocr-worker",
     "apps/legacy-tauri/native/vendor/libspa",
     "apps/legacy-tauri/native/vendor/xcap",
 ]
