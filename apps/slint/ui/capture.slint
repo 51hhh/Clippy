@@ -10,6 +10,10 @@ export struct CaptureMosaic {
 }
 export struct CaptureAnnotation { geometry: CaptureMark, points: [CapturePoint], path: string, text: string, mosaic: CaptureMosaic }
 export struct CaptureWindowTarget { left: int, top: int, right: int, bottom: int, title: string }
+export struct DesktopPreview {
+    active: bool, dragging: bool, controls: bool, left: float, top: float, right: float, bottom: float,
+    edge-left: bool, edge-top: bool, edge-right: bool, edge-bottom: bool, pixel-width: int, pixel-height: int,
+}
 struct ToolButton { label: string, tool: CaptureTool, drawing: string }
 struct CaptureCommand { label: string, action: CaptureAction, drawing: string }
 struct OverlayInk { ink: color, label: string }
@@ -97,6 +101,9 @@ export component CaptureWindow inherits Window {
     in property <int> source-width;
     in property <int> source-height;
     in property <[CaptureWindowTarget]> window-targets;
+    in property <bool> desktop-enabled;
+    in property <bool> owns-selection: true;
+    in property <DesktopPreview> desktop-preview;
     out property <int> snapped-window: -1;
     in property <[CaptureAnnotation]> marks;
     in property <[CaptureAnnotation]> undone-marks;
@@ -105,6 +112,10 @@ export component CaptureWindow inherits Window {
     in-out property <string> annotation-error;
     callback cancel();
     callback confirm(CaptureAction, float, float, float, float);
+    callback begin-desktop-selection();
+    callback update-desktop-selection(float, float, float, float, bool);
+    callback reset-desktop-selection();
+    callback confirm-desktop(CaptureAction);
     callback add-mark(CaptureAnnotation) -> bool;
     callback undo-mark();
     callback redo-mark();
@@ -120,23 +131,30 @@ export component CaptureWindow inherits Window {
     private property <length> bottom;
     private property <length> selection-width: root.right - root.left;
     private property <length> selection-height: root.bottom - root.top;
-    private property <bool> selected: root.selection-width >= 1px && root.selection-height >= 1px;
-    private property <bool> ready: selected && !drag.pressed;
+    private property <bool> selected: root.owns-selection && root.selection-width >= 1px && root.selection-height >= 1px;
+    private property <bool> ready: root.selected && !drag.pressed && !root.desktop-preview.active;
     private property <CaptureTool> active-tool;
-    private property <bool> marking: root.active-tool != CaptureTool.select;
+    private property <bool> marking: root.owns-selection && root.active-tool != CaptureTool.select;
     private property <bool> covers-output: root.selection-width >= root.width - 1px
         && root.selection-height >= root.height - 1px;
     private property <int> pressed-window: -1;
     private property <int> hovered-window: drag.has-hover && !drag.pressed && !root.marking
-        && !root.mosaic-pending && !root.near-selection(drag.mouse-x, drag.mouse-y)
+        && !root.desktop-preview.active && !root.mosaic-pending && !root.near-selection(drag.mouse-x, drag.mouse-y)
         ? root.hit-window(drag.mouse-x, drag.mouse-y) : -1;
     private property <SelectionBounds> hover-bounds: root.hovered-window >= 0
         ? root.window-bounds(root.window-targets[root.hovered-window])
         : { left: 0px, top: 0px, right: 0px, bottom: 0px };
-    private property <SelectionBounds> revealed: root.selected
-        ? { left: root.left, top: root.top, right: root.right, bottom: root.bottom }
-        : root.hover-bounds;
-    private property <bool> reveals-region: root.selected || root.hovered-window >= 0;
+    private property <SelectionBounds> desktop-bounds: {
+        left: root.desktop-preview.left * root.width, right: root.desktop-preview.right * root.width,
+        top: root.desktop-preview.top * root.height, bottom: root.desktop-preview.bottom * root.height,
+    };
+    private property <bool> desktop-visible: root.desktop-preview.right > root.desktop-preview.left
+        && root.desktop-preview.bottom > root.desktop-preview.top;
+    private property <bool> desktop-valid: root.desktop-preview.pixel-width > 0;
+    private property <SelectionBounds> revealed: root.desktop-preview.active ? root.desktop-bounds
+        : root.selected ? { left: root.left, top: root.top, right: root.right, bottom: root.bottom } : root.hover-bounds;
+    private property <bool> reveals-region: root.desktop-preview.active
+        ? root.desktop-visible : root.selected || root.hovered-window >= 0;
     private property <color> active-ink: #ff3b30;
     private property <float> stroke: 3.0;
     private property <SelectionGesture> gesture;
@@ -184,6 +202,8 @@ export component CaptureWindow inherits Window {
         { ink: #0a84ff, label: "Blue" }, { ink: #ffffff, label: "White" }, { ink: #17191f, label: "Black" },
     ];
     private property <string> cancel-icon: "M5 5l14 14 M19 5L5 19";
+    private property <string> save-icon: "M4 3h13l4 4v14H3V3Z M7 3v7h10V3 M7 21v-7h10v7";
+    private property <string> copy-icon: "M5 12l4 4L19 6";
 
     title: "Clippy Screenshot";
     no-frame: true;
@@ -192,7 +212,7 @@ export component CaptureWindow inherits Window {
 
     pure function near-selection(x: length, y: length) -> bool {
         let margin = 7px;
-        return root.selected && x >= root.left - margin && x <= root.right + margin
+        return !root.desktop-preview.active && root.selected && x >= root.left - margin && x <= root.right + margin
             && y >= root.top - margin && y <= root.bottom + margin;
     }
 
@@ -224,6 +244,13 @@ export component CaptureWindow inherits Window {
             right: clamp(max(x0, x1), 0px, root.width),
             bottom: clamp(max(y0, y1), 0px, root.height),
         });
+    }
+
+    function update-drag(x0: length, y0: length, x1: length, y1: length, released: bool) {
+        root.drag-bounds(x0, y0, x1, y1);
+        if root.desktop-enabled {
+            root.update-desktop-selection(x0 / root.width, y0 / root.height, x1 / root.width, y1 / root.height, released);
+        }
     }
 
     function commit(action: CaptureAction) {
@@ -281,6 +308,23 @@ export component CaptureWindow inherits Window {
         border-color: #0a84ff;
         background: transparent;
     }
+    if root.desktop-preview.active && root.desktop-visible: Rectangle {
+        x: root.desktop-bounds.left;
+        y: root.desktop-bounds.top;
+        width: root.desktop-bounds.right - self.x;
+        height: root.desktop-bounds.bottom - self.y;
+        Path {
+            width: parent.width; height: parent.height;
+            fit: preserve;
+            stroke: #0a84ff; stroke-width: 2px; stroke-dash-array: [5px, 4px];
+            property <float> end-x: max(1.0, self.width / 1px - 1);
+            property <float> end-y: max(1.0, self.height / 1px - 1);
+            commands: (root.desktop-preview.edge-top ? "M 0 1 H " + (self.width / 1px) + " " : "")
+                + (root.desktop-preview.edge-bottom ? "M 0 " + end-y + " H " + (self.width / 1px) + " " : "")
+                + (root.desktop-preview.edge-left ? "M 1 0 V " + (self.height / 1px) + " " : "")
+                + (root.desktop-preview.edge-right ? "M " + end-x + " 0 V " + (self.height / 1px) : "");
+        }
+    }
 
     drag := TouchArea {
         enabled: !root.marking && !root.mosaic-pending;
@@ -301,6 +345,13 @@ export component CaptureWindow inherits Window {
                 if root.gesture == SelectionGesture.select {
                     root.pressed-window = root.hit-window(point-x, point-y);
                     root.snapped-window = -1;
+                    if root.desktop-enabled {
+                        root.begin-desktop-selection();
+                        root.active-tool = CaptureTool.select;
+                        if root.entering-text {
+                            root.dismiss-caption();
+                        }
+                    }
                     root.clear-marks();
                     root.drag-bounds(point-x, point-y, point-x, point-y);
                 }
@@ -310,18 +361,23 @@ export component CaptureWindow inherits Window {
                 let dx = (self.mouse-x - self.pressed-x) / 1px;
                 let dy = (self.mouse-y - self.pressed-y) / 1px;
                 if dx * dx + dy * dy < 16.0 {
+                    if root.desktop-enabled {
+                        root.reset-desktop-selection();
+                    }
                     root.snapped-window = root.pressed-window;
                     root.set-bounds(root.snapped-window >= 0
                         ? root.window-bounds(root.window-targets[root.snapped-window])
                         : { left: 0px, top: 0px, right: root.width, bottom: root.height });
                 } else {
-                    root.drag-bounds(self.pressed-x, self.pressed-y, self.mouse-x, self.mouse-y);
+                    root.update-drag(self.pressed-x, self.pressed-y, self.mouse-x, self.mouse-y, true);
                 }
+            } else if event.kind == PointerEventKind.cancel && root.desktop-preview.dragging {
+                root.reset-desktop-selection();
             }
         }
         moved => {
             if self.pressed && root.gesture == SelectionGesture.select {
-                root.drag-bounds(self.pressed-x, self.pressed-y, self.mouse-x, self.mouse-y);
+                root.update-drag(self.pressed-x, self.pressed-y, self.mouse-x, self.mouse-y, false);
             } else if self.pressed && (self.mouse-x != self.pressed-x || self.mouse-y != self.pressed-y) {
                 if !root.moved-selection {
                     root.clear-marks();
@@ -362,7 +418,7 @@ export component CaptureWindow inherits Window {
         }
     }
 
-    if root.selected: Rectangle {
+    if root.selected && !root.desktop-preview.active: Rectangle {
         x: root.left;
         y: root.top;
         width: root.right - root.left;
@@ -473,7 +529,7 @@ export component CaptureWindow inherits Window {
         }
     }
 
-    if root.selected: Rectangle {
+    if root.selected && !root.desktop-preview.active: Rectangle {
         x: clamp(root.left, root.gap, root.width - self.width - root.gap);
         y: root.chip-y;
         width: dimensions.preferred-width + 14px;
@@ -493,7 +549,7 @@ export component CaptureWindow inherits Window {
         }
     }
 
-    if !root.selected && !drag.pressed && root.hovered-window < 0: Rectangle {
+    if !root.selected && !root.desktop-preview.active && !drag.pressed && root.hovered-window < 0: Rectangle {
         x: (parent.width - self.width) / 2;
         y: 16px;
         width: 260px;
@@ -596,12 +652,12 @@ export component CaptureWindow inherits Window {
                 clicked => { root.clear-marks(); keys.focus(); }
             }
             OverlayButton {
-                label: "Save PNG"; drawing: "M4 3h13l4 4v14H3V3Z M7 3v7h10V3 M7 21v-7h10v7";
+                label: "Save PNG"; drawing: root.save-icon;
                 width: root.tool-width; enabled: !root.mosaic-pending;
                 clicked => { root.commit(CaptureAction.save); }
             }
             OverlayButton {
-                label: "Copy"; drawing: "M5 12l4 4L19 6"; ink: #6ee7a8;
+                label: "Copy"; drawing: root.copy-icon; ink: #6ee7a8;
                 width: root.tool-width; enabled: !root.mosaic-pending;
                 clicked => { root.commit(CaptureAction.copy); }
             }
@@ -609,8 +665,45 @@ export component CaptureWindow inherits Window {
         }
     }
 
+    if root.desktop-preview.controls: Rectangle {
+        x: clamp(root.desktop-bounds.right - self.width, root.gap, root.width - self.width - root.gap);
+        y: root.desktop-bounds.bottom + self.height + 2 * root.gap <= root.height
+            ? root.desktop-bounds.bottom + root.gap : max(root.gap, root.desktop-bounds.top - self.height - root.gap);
+        width: 144px; height: 46px; border-radius: 8px; background: #202124;
+        TouchArea { }
+        HorizontalLayout {
+            padding: 8px;
+            OverlayButton {
+                label: "Edit image"; drawing: root.commands[0].drawing; enabled: root.desktop-valid;
+                clicked => { root.confirm-desktop(CaptureAction.edit); }
+            }
+            OverlayButton {
+                label: "Save PNG"; drawing: root.save-icon; enabled: root.desktop-valid;
+                clicked => { root.confirm-desktop(CaptureAction.save); }
+            }
+            OverlayButton {
+                label: "Copy"; drawing: root.copy-icon; ink: #6ee7a8; enabled: root.desktop-valid;
+                clicked => { root.confirm-desktop(CaptureAction.copy); }
+            }
+            OverlayButton { label: "Cancel"; drawing: root.cancel-icon; clicked => { root.cancel(); } }
+        }
+        Rectangle {
+            x: clamp(root.desktop-bounds.left - parent.x, root.gap - parent.x,
+                root.width - parent.x - self.width - root.gap);
+            y: parent.y >= root.gap + self.height + 4px ? -self.height - 4px : parent.height + 4px;
+            width: desktop-size.preferred-width + 14px; height: root.chip-height;
+            border-radius: 5px; background: #202124;
+            desktop-size := Text {
+                text: root.desktop-valid ? "" + root.desktop-preview.pixel-width + " × " + root.desktop-preview.pixel-height
+                    : "Selection is too large";
+                font-size: 12px; color: white;
+                horizontal-alignment: center; vertical-alignment: center;
+            }
+        }
+    }
+
     caption-entry := FocusScope {
-        visible: root.entering-text;
+        visible: root.owns-selection && root.entering-text && !root.desktop-preview.active;
         x: clamp(root.left + root.draft-mark.x0 * root.selection-width, root.gap, root.width - self.width - root.gap);
         y: clamp(root.top + root.draft-mark.y0 * root.selection-height, root.gap, root.height - self.height - root.gap);
         width: min(260px, root.width - 2 * root.gap);
@@ -630,7 +723,7 @@ export component CaptureWindow inherits Window {
             accepted => { root.finish-caption(); }
         }
     }
-    if root.mosaic-pending || root.annotation-error != "": Rectangle {
+    if root.owns-selection && (root.mosaic-pending || root.annotation-error != ""): Rectangle {
         x: (root.width - self.width) / 2; y: root.gap;
         width: annotation-status.preferred-width + 20px; height: 28px;
         background: #202124; border-radius: 6px;
@@ -646,6 +739,12 @@ export component CaptureWindow inherits Window {
         key-pressed(event) => {
             if event.text == Key.Escape {
                 root.cancel();
+                return accept;
+            }
+            if root.desktop-preview.active && event.text == Key.Return {
+                if root.desktop-valid {
+                    root.confirm-desktop(CaptureAction.copy);
+                }
                 return accept;
             }
             if root.ready && event.text == Key.Return {

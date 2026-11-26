@@ -12,6 +12,7 @@ use std::{
 
 #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 mod clock;
+pub mod desktop;
 #[cfg(target_os = "linux")]
 pub mod gnome;
 #[cfg(any(target_os = "linux", target_os = "macos", test))]

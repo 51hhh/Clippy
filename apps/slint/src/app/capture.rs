@@ -11,7 +11,9 @@ use clippy_capture::{
 };
 use clippy_core::image_output::{filename_candidates, SaveTarget};
 use clippy_platform::capture::{
-    self, window_pick, CaptureSource, DesktopRect, FrozenCapture, FrozenOutput, Region,
+    self,
+    desktop::{Composition, Frame, OutputGeometry},
+    window_pick, CaptureSource, DesktopRect, FrozenCapture, FrozenOutput, Region,
     RegionCancellation,
 };
 use image::{
@@ -36,6 +38,8 @@ use slint::{PhysicalPosition, PhysicalSize};
 use std::{
     cell::RefCell, fmt::Write as _, fs, io, path::PathBuf, rc::Rc, sync::Arc, thread, time::Instant,
 };
+
+mod desktop;
 
 pub(super) struct Selection {
     views: Vec<View>,
@@ -100,6 +104,15 @@ struct OverlayFrame {
     geometry: DesktopRect,
 }
 
+impl OverlayFrame {
+    fn output_geometry(&self) -> OutputGeometry {
+        OutputGeometry {
+            desktop: self.geometry,
+            pixels: (self.pixels.width(), self.pixels.height()),
+        }
+    }
+}
+
 impl From<FrozenOutput> for OverlayFrame {
     fn from(output: FrozenOutput) -> Self {
         let pixels = &output.pixels;
@@ -112,12 +125,21 @@ impl From<FrozenOutput> for OverlayFrame {
     }
 }
 
-pub(super) enum Destination {
+pub(super) enum StillDestination {
     Clipboard,
     File(SaveTarget),
     Editor,
+}
+
+pub(super) enum Destination {
+    Still(StillDestination),
     Longshot,
     Record,
+}
+
+pub(super) enum Area {
+    Display { index: usize, bounds: [f32; 4] },
+    Desktop(Composition),
 }
 
 pub(super) type EditedCapture = (Arc<RgbaImage>, ImageProject);
@@ -242,7 +264,7 @@ pub(super) fn present(
     diagnostics: bool,
 ) -> Result<Selection> {
     let single_output = capture.output_count == 1;
-    let views = capture
+    let views: Vec<_> = capture
         .outputs
         .into_iter()
         .enumerate()
@@ -305,13 +327,15 @@ pub(super) fn present(
                 let window = view.window.as_weak();
                 move |action, left, top, right, bottom| {
                     post(Event::CaptureSelection {
-                        index,
                         action,
-                        bounds: capture_bounds(
-                            &window.unwrap(),
-                            source_size,
-                            [left, top, right, bottom],
-                        ),
+                        area: Area::Display {
+                            index,
+                            bounds: capture_bounds(
+                                &window.unwrap(),
+                                source_size,
+                                [left, top, right, bottom],
+                            ),
+                        },
                     });
                 }
             });
@@ -365,6 +389,9 @@ pub(super) fn present(
             Ok(view)
         })
         .collect::<Result<_>>()?;
+    if views.len() > 1 {
+        desktop::connect(&views);
+    }
     Ok(Selection {
         views,
         source: capture.source,
@@ -542,10 +569,19 @@ fn start_mosaic(
 
 pub(super) fn output(
     selection: Selection,
-    index: usize,
-    bounds: [f32; 4],
+    area: Area,
     destination: Destination,
 ) -> io::Result<Option<PendingOutput>> {
+    let (index, bounds) = match area {
+        Area::Display { index, bounds } => (index, bounds),
+        Area::Desktop(composition) => {
+            let Destination::Still(destination) = destination else {
+                unreachable!("跨屏工具栏只提供静态截图动作");
+            };
+            output_desktop(selection, composition, destination)?;
+            return Ok(None);
+        }
+    };
     let Selection {
         mut views, source, ..
     } = selection;
@@ -604,6 +640,32 @@ pub(super) fn output(
     Ok(None)
 }
 
+fn output_desktop(
+    selection: Selection,
+    composition: Composition,
+    destination: StillDestination,
+) -> io::Result<()> {
+    let frames: Vec<_> = selection
+        .views
+        .iter()
+        .filter(|view| composition.intersects(view.frame.geometry))
+        .map(|view| (view.frame.output_geometry(), view.frame.pixels.clone()))
+        .collect();
+    drop(selection);
+    thread::Builder::new()
+        .name("clippy-screenshot-output".into())
+        .spawn(move || {
+            let started = Instant::now();
+            let image = composition.render(frames.iter().map(|(output, pixels)| Frame {
+                output: *output,
+                rgba: pixels.as_bytes(),
+            }));
+            drop(frames);
+            finish_still(Ok(image), &[], destination, started);
+        })?;
+    Ok(())
+}
+
 impl OutputJob {
     fn start(self) -> io::Result<()> {
         let Self {
@@ -628,21 +690,9 @@ impl OutputJob {
                 }
                 let result = capture::crop_rgba(pixels.as_bytes(), width, height, bounds);
                 match destination {
-                    Destination::File(target) => post(Event::CaptureFinished(
-                        result.and_then(|image| {
-                            let image = render_marks(image, &marks)?;
-                            let path = save_png(&image, &target)?;
-                            Ok(format!("Saved to {}", path.display()))
-                        }),
-                        started,
-                    )),
-                    Destination::Clipboard => post(Event::CaptureClipboard(
-                        result.and_then(|image| render_marks(image, &marks)),
-                        started,
-                    )),
-                    Destination::Editor => post(Event::EditorOpen(
-                        result.and_then(|image| edit_project(image, &marks)),
-                    )),
+                    Destination::Still(destination) => {
+                        finish_still(result, &marks, destination, started)
+                    }
                     Destination::Longshot => {
                         post(Event::LongshotStart(result.map(|image| (region, image))))
                     }
@@ -650,6 +700,31 @@ impl OutputJob {
                 }
             })?;
         Ok(())
+    }
+}
+
+fn finish_still(
+    result: Result<RgbaImage>,
+    marks: &[OutputMark],
+    destination: StillDestination,
+    started: Instant,
+) {
+    match destination {
+        StillDestination::File(target) => post(Event::CaptureFinished(
+            result.and_then(|image| {
+                let image = render_marks(image, marks)?;
+                let path = save_png(&image, &target)?;
+                Ok(format!("Saved to {}", path.display()))
+            }),
+            started,
+        )),
+        StillDestination::Clipboard => post(Event::CaptureClipboard(
+            result.and_then(|image| render_marks(image, marks)),
+            started,
+        )),
+        StillDestination::Editor => post(Event::EditorOpen(
+            result.and_then(|image| edit_project(image, marks)),
+        )),
     }
 }
 

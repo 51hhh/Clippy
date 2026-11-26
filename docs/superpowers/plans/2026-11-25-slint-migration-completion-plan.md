@@ -476,6 +476,27 @@ Core Graphics 窗口字典。用每块冻结帧自身的坐标变换裁剪窗口
 
 **Out of Scope** 跨屏合成、Shell 扩展安装入口及最终发布矩阵按各自步骤验收。
 
+#### 阶段 6 · 跨屏框选与静态图像合成
+
+**Goal** 从一块显示器拖到另一块时，在各屏同时看到同一个桌面选区。松开后可以复制、存 PNG，
+或把合成图送入现有图片编辑器。
+
+**Requirements** 继续显示各自冻结帧。拖拽按起点覆盖层的坐标变换同步到冻结时的桌面布局，只传选区矩形。
+每屏预览裁在自己的可见范围，工具栏放在松手所在的屏上。取证时分别检查 X11 和 Windows 的物理桌面坐标，
+以及 GNOME、其他直接采集 Wayland 和 macOS 的逻辑桌面坐标。Wayland 沿用按下时由合成器建立的指针抓取。
+[Wayland 输入与坐标合同](https://wayland.freedesktop.org/docs/book/Protocol.html#input)
+
+确认后才在后台分配选区画布。统一像素密度取参与合成屏幕中的最大值，每块输出映射到同一个像素网格，
+低密度区域按最近邻采样，屏幕间空隙透明。密度相同且像素对齐时直接复制行。继续遵循现有截图及编辑器
+的像素预算。跨屏工具栏提供复制、保存、编辑和取消；回到单屏后仍可用单屏标注、长截图和录屏。
+
+**Acceptance Criteria** 单测覆盖负原点、混合密度、旋转后的画面尺寸、布局空隙、正反方向和超预算。
+在双屏桌面验证按住鼠标跨屏预览、松开后点第二屏工具栏、回到单屏、取消重开。复制和 PNG 用已知底图
+逐像素校验，编辑器的画布应显示同一合成结果。记录隔离桌面以及 Windows/macOS 原生实机各自的验收结果。
+
+**Out of Scope** 跨屏长截图和跨屏录屏仍需要各自的多源持续采集设计。单输出 Portal 授权按其选择器范围处理，
+多输出授权属于单独的会话合同。显示器热插拔和目标系统的混合 DPI 继续纳入平台验收。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -1020,6 +1041,26 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   `openbox-scale125.log`、`gnome-shell-window-pick.log`、`gnome-picked-0.png`、`gnome-picked-1.png`、
   `ci-local-final.log`、`windows-gnu-qa.log`、`macos-platform.log`、
   `windows-xcap-vendor-lint.log` 和 `macos-xcap-vendor-lint.log`。
+
+#### 阶段 6 · 跨屏框选与图像合成接入结果
+
+- 每个覆盖层继续持有自己的冻结帧。按住鼠标跨屏时，只把同一个桌面选区裁到各屏显示。松手后，复制、保存和
+  进入编辑器都使用同一份已校验的合成参数。后台按最高参与密度对齐像素，空隙保留透明，同密度行直接拷贝。
+  超过现有图像预算时，工具栏提示缩小选区。单屏继续使用原有框选、窗口速选、标注及持续采集入口。
+- 单测覆盖负原点、逆向拖拽、布局空隙、1× 与 2× 采样、纵向帧、分数密度接缝和像素预算。Xvfb 的两个
+  RandR 输出在 125% Slint 缩放下实际显示了同一个框选，第二屏工具栏保存的 780×480 PNG、反向拖拽
+  复制和编辑器重新复制都与源像素一致。还验证了接着做单屏框选及两种取消方式。
+- GNOME 50.1 的隔离双屏分别运行在 1× 和 2×。持鼠标跨屏时两屏实时揭示选区，目标屏保存的 900×460 PNG
+  与两块独立冻结帧按 2× 投影的结果逐像素一致。Sway 隔离双屏使用直接采集，保存的 730×520 PNG 同样
+  逐像素一致。两种 Wayland 会话都验证了屏幕间空隙的透明像素。
+- 完整 Linux 门禁 11 项通过、0 失败、0 跳过。Windows GNU 的 Slint QA 入口交叉检查、macOS Intel
+  与 Apple Silicon 平台层交叉 Clippy 通过。
+  Windows/macOS 原生桌面、多输出 Portal 授权及实体显示器热插拔继续验收。
+- QA 二进制 SHA-256 为 `229d11aa760f9d81dd4124857e19ac8920ce3897060493795b89ce38d55ab888`。
+  证据位于 `target/test-artifacts/slint-stage6-desktop-capture/` 的 `x11-dual-output.log`、
+  `slint-desktop-drag-x11.png`、`gnome-mixed-output.log`、`gnome-cross-composed.png`、
+  `sway-direct-output.log`、`sway-cross-composed.png`、`ci-local-final.log`、
+  `windows-gnu-qa.log` 和 `macos-platform.log`。
 
 ## Acceptance Criteria
 

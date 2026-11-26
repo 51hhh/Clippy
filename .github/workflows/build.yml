@@ -35,7 +35,7 @@ jobs:
             build-essential pkg-config libfontconfig1-dev libxkbcommon-dev libxkbcommon-x11-0 \
             libwayland-dev libxcb1-dev libegl1-mesa-dev libgl1-mesa-dev \
             libclang-dev libpipewire-0.3-dev libgbm-dev libdrm-dev \
-            xvfb xauth xclip x11-utils libxtst6 dbus-x11 python3-gi gir1.2-gtk-3.0 \
+            xvfb xauth xclip x11-utils x11-xserver-utils libxtst6 dbus-x11 python3-gi gir1.2-gtk-3.0 \
             ffmpeg tesseract-ocr-eng tesseract-ocr-chi-sim
 
       - name: Setup Node.js

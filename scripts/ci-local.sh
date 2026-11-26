@@ -146,6 +146,7 @@ check_prerequisites() {
     require_cmd dbus-run-session "sudo apt install -y dbus"
     require_cmd xclip "sudo apt install -y xclip"
     require_cmd xwininfo "sudo apt install -y x11-utils"
+    require_cmd xrandr "sudo apt install -y x11-xserver-utils"
   fi
   if "$RUN_LEGACY"; then
     require_cmd node "Node.js >= 22.12: https://nodejs.org"

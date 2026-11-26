@@ -234,9 +234,8 @@ enum Event {
     CaptureWindowDestroyed(slint::winit_030::winit::window::WindowId, Instant),
     CaptureCancel,
     CaptureSelection {
-        index: usize,
+        area: capture::Area,
         action: CaptureAction,
-        bounds: [f32; 4],
     },
     CaptureClipboard(Result<image::RgbaImage>, Instant),
     CaptureFinished(Result<String>, Instant),
@@ -481,23 +480,22 @@ impl App {
                     self.set_busy(false);
                 }
             }
-            Event::CaptureSelection {
-                index,
-                action,
-                bounds,
-            } => {
+            Event::CaptureSelection { area, action } => {
                 if let Some(selection) = self.capture_selection.take() {
+                    use capture::{Destination, StillDestination};
                     let destination = match action {
-                        CaptureAction::Copy => capture::Destination::Clipboard,
-                        CaptureAction::Edit => capture::Destination::Editor,
-                        CaptureAction::Longshot => capture::Destination::Longshot,
-                        CaptureAction::Record => capture::Destination::Record,
-                        CaptureAction::Save => capture::Destination::File(SaveTarget::from_config(
-                            &self.config,
-                            &self.paths.screenshot_default(self.identity),
-                        )),
+                        CaptureAction::Copy => Destination::Still(StillDestination::Clipboard),
+                        CaptureAction::Edit => Destination::Still(StillDestination::Editor),
+                        CaptureAction::Longshot => Destination::Longshot,
+                        CaptureAction::Record => Destination::Record,
+                        CaptureAction::Save => {
+                            Destination::Still(StillDestination::File(SaveTarget::from_config(
+                                &self.config,
+                                &self.paths.screenshot_default(self.identity),
+                            )))
+                        }
                     };
-                    match capture::output(selection, index, bounds, destination) {
+                    match capture::output(selection, area, destination) {
                         Ok(pending) => self.capture_after_close = pending,
                         Err(error) => self.capture_error(error.into()),
                     }
