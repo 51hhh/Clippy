@@ -7,6 +7,7 @@ pub mod code_detection;
 mod enhanced;
 mod executable;
 mod native;
+mod native_layout;
 mod process;
 mod protocol;
 mod runtime;

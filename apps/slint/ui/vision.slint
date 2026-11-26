@@ -10,6 +10,7 @@ export struct TextBox {
     top: float,
     width: float,
     height: float,
+    translated: string,
 }
 
 export struct TextParagraph {
@@ -20,7 +21,23 @@ export struct TextParagraph {
     top: float,
     width: float,
     height: float,
-    in-place: bool,
+}
+
+component TranslationOverlay inherits Rectangle {
+    in property <string> translated;
+    in property <bool> active;
+    visible: root.active && root.translated != "" && root.width > 60px && root.height > 16px
+        && translated-text.min-width <= root.width && translated-text.preferred-height <= root.height;
+    clip: true;
+    background: #fffffff2;
+    translated-text := Text {
+        width: parent.width;
+        height: self.preferred-height;
+        font-size: clamp(parent.height / 3, 12px, 20px);
+        text: root.translated;
+        color: #1c1d22;
+        wrap: word-wrap;
+    }
 }
 
 export component ImageTextWindow inherits ClippyWindow {
@@ -40,7 +57,7 @@ export component ImageTextWindow inherits ClippyWindow {
     callback select-line(int);
     callback select-paragraph(int);
     callback copy-result();
-    callback translate(int);
+    callback translate();
     callback dismiss();
 
     title: "Clippy Image Text";
@@ -83,23 +100,21 @@ export component ImageTextWindow inherits ClippyWindow {
                     height: box.height * depiction.height;
                     clicked => { root.select-line(box.line); }
                 }
-                for result in root.paragraphs: Rectangle {
+                for result in root.paragraphs: TranslationOverlay {
                     x: result.left * depiction.width;
                     y: result.top * depiction.height;
                     width: result.width * depiction.width;
                     height: result.height * depiction.height;
-                    visible: root.show-translation && result.in-place && result.translated != ""
-                        && self.width > 60px && self.height > 16px;
-                    clip: true;
-                    background: #fffffff2;
-                    Text {
-                        width: parent.width;
-                        height: parent.height;
-                        font-size: clamp(parent.height / 3, 12px, 20px);
-                        text: result.translated;
-                        color: #1c1d22;
-                        wrap: word-wrap;
-                    }
+                    active: root.show-translation && (root.selected-line < 0 || root.selected-paragraph != result.id);
+                    translated: result.translated;
+                }
+                for box in root.boxes: TranslationOverlay {
+                    x: box.left * depiction.width;
+                    y: box.top * depiction.height;
+                    width: box.width * depiction.width;
+                    height: box.height * depiction.height;
+                    active: root.show-translation && box.line == root.selected-line;
+                    translated: box.translated;
                 }
             }
         }
@@ -110,15 +125,19 @@ export component ImageTextWindow inherits ClippyWindow {
             Text { text: root.status; wrap: word-wrap; color: ClippyTheme.muted; }
             ListView {
                 for result in root.paragraphs: Rectangle {
-                    height: result.translated == "" ? 53px : 84px;
+                    height: max(53px, 12px + source-label.height + (translation-label.visible ? 4px + translation-label.height : 0px));
+                    clip: true;
                     background: root.selected-paragraph == result.id ? ClippyTheme.accent-soft : ClippyTheme.surface;
                     TouchArea { clicked => { root.select-paragraph(result.id); } }
-                    VerticalLayout {
-                        padding: 6px;
-                        Text { text: result.source; wrap: word-wrap; overflow: elide; color: ClippyTheme.foreground; }
-                        if result.translated != "": Text {
-                            text: result.translated; wrap: word-wrap; overflow: elide; color: ClippyTheme.accent;
-                        }
+                    source-label := Text {
+                        x: 6px; y: 6px; width: parent.width - 12px; height: self.preferred-height;
+                        text: result.source; wrap: word-wrap; overflow: elide; max-lines: 3; color: ClippyTheme.foreground;
+                    }
+                    translation-label := Text {
+                        x: 6px; y: source-label.y + source-label.height + 4px;
+                        width: parent.width - 12px; height: self.preferred-height;
+                        visible: result.translated != "";
+                        text: result.translated; wrap: word-wrap; overflow: elide; max-lines: 3; color: ClippyTheme.accent;
                     }
                 }
             }
@@ -133,10 +152,12 @@ export component ImageTextWindow inherits ClippyWindow {
                 spacing: 7px;
                 Button { text: "Copy"; enabled: root.original != ""; clicked => { root.copy-result(); } }
                 Button {
-                    text: "Translate with " + root.service;
+                    text: root.selected-line >= 0 ? "Translate Line" : "Translate Paragraph";
+                    accessible-description: "Translate with " + root.service;
+                    horizontal-stretch: 1;
                     visible: root.service != "";
                     enabled: !root.busy && root.selected-paragraph >= 0;
-                    clicked => { root.translate(root.selected-paragraph); }
+                    clicked => { root.translate(); }
                 }
                 Button { text: "Close"; clicked => { root.dismiss(); } }
             }

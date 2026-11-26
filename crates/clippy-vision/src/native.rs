@@ -1,5 +1,6 @@
 use super::{
     enhanced::{cached, remember},
+    native_layout::group_lines,
     runtime::{ocr_runtime, prepare_permit},
     tesseract::RECOGNITION_TIMEOUT,
     OcrLine, OcrParagraph, OcrPipeline, StructuredOcr, StructuredResult,
@@ -297,35 +298,44 @@ async fn read_reply(output: &mut ChildStdout) -> io::Result<Reply> {
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
-fn structured(request: Request, lines: Vec<Line>) -> StructuredOcr {
-    let text = lines
-        .iter()
-        .map(|line| line.text.as_str())
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    let mut paragraphs = Vec::with_capacity(lines.len());
-    let lines = lines
-        .into_iter()
-        .enumerate()
-        .map(|(index, line)| {
-            let id = index as u32;
-            paragraphs.push(OcrParagraph {
-                id,
-                line_ids: vec![id],
-                reading_order: id,
-            });
-            OcrLine {
+fn structured(request: Request, source: Vec<Line>) -> StructuredOcr {
+    let groups = group_lines(&source);
+    let count = source.len();
+    let mut source: Vec<_> = source.into_iter().map(Some).collect();
+    let mut text = String::new();
+    let mut lines = Vec::with_capacity(count);
+    let mut paragraphs = Vec::with_capacity(groups.len());
+    for (index, group) in groups.into_iter().enumerate() {
+        let paragraph_id = index as u32;
+        if index > 0 {
+            text.push_str("\n\n");
+        }
+        let mut line_ids = Vec::with_capacity(group.len());
+        for (offset, index) in group.into_iter().enumerate() {
+            let line = source[index].take().expect("排版为每行分配唯一段落");
+            if offset > 0 {
+                text.push('\n');
+            }
+            text.push_str(&line.text);
+            let id = lines.len() as u32;
+            line_ids.push(id);
+            lines.push(OcrLine {
                 id,
                 quad: line.quad.to_vec(),
                 text: line.text,
                 accepted: true,
                 confidence: line.confidence,
                 char_confidences: Vec::new(),
-                paragraph_id: id,
+                paragraph_id,
                 reading_order: id,
-            }
-        })
-        .collect();
+            });
+        }
+        paragraphs.push(OcrParagraph {
+            id: paragraph_id,
+            line_ids,
+            reading_order: paragraph_id,
+        });
+    }
     StructuredOcr {
         width: request.width,
         height: request.height,
@@ -336,8 +346,12 @@ fn structured(request: Request, lines: Vec<Line>) -> StructuredOcr {
             id: ENGINE_ID.into(),
             engine: ENGINE_ID.into(),
             feature_schema: None,
-            layout_executed: false,
-            layout_reason: Some("line_regions".into()),
+            layout_executed: count > 1,
+            layout_reason: match count {
+                0 => Some("no_text".into()),
+                1 => Some("single_line".into()),
+                _ => None,
+            },
         },
         fallback_reason: None,
     }

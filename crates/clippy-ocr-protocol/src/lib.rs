@@ -5,7 +5,7 @@ pub const WORKER_NAME: &str = if cfg!(windows) {
 } else {
     "clippy-ocr-worker"
 };
-pub const ENGINE_ID: &str = "ppocrv6-small-rust-v1";
+pub const ENGINE_ID: &str = "ppocrv6-small-rust-v2";
 pub const REQUEST_SIZE: usize = 20;
 pub const MAX_REPLY_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_LINES: usize = 512;

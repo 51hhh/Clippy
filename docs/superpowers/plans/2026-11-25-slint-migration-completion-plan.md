@@ -420,6 +420,19 @@ F1、非空白 CER、多栏顺序、耗时及进程峰值。单图空白补全�
 
 **Out of Scope** 本步保持平台安装包和模型分发合同的既有要求。公式结构、其他模型档位和复杂背景去除不加入本步。
 
+#### 阶段 5 · 随包离线识别资源
+
+**Goal** 新安装的 Slint 包从自身资源目录启动 OCR，不需要设置 bundle 环境变量或安装 Python。
+
+**Requirements** 把模型、字典、worker、匹配的 CPU 运行库和许可放入同一版本的安装包。用摘要固定公开资产，在
+干净构建环境生成 worker。按每个安装器的资源目录定位文件，保留按需启动、关闭回收和已批准的最低系统版本。
+
+**Acceptance Criteria** 检查包内路径、运行库架构、实际系统 ABI、资产摘要和许可证。在 Linux x64、Windows x64、
+macOS Intel 和 Apple Silicon 的干净安装上验证冷启动不加载 OCR，打开图像后可离线返回行框和段落，关闭后回收。
+Linux 增加 deb 与 AppImage 资源加载对照，macOS 核对 worker 和运行库的签名及最低部署目标。
+
+**Out of Scope** 正式 updater 签名切换和旧版更新桥仍在阶段 7 验收。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -876,6 +889,29 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
 - 原始证据在 `target/test-artifacts/slint-stage5-quality/`，包括 `final-orientation/*-report.json`、
   `orientation-benchmark.json`、`stages-english.log`、`flatten.log`、`layout-probe.log`、
   `slint-native-ocr-x11-*.log`、`rotated-x11-125-final.log` 和 `ci-local-orientation.log`。
+
+### 阶段 5 · 多栏、段落和译文回填
+
+- 维持 worker 原始四点框，通过共享视觉层按基线组织行，先识别横跨各栏的页眉和密集表格，再判断正文分栏，最后
+  沿正常行距合并。四点框与文字保留原始值。Rust 排版对接真实 worker 的 23 张输出，混合语料倒置从 1/11 降为 0/11，
+  浏览器 UI 从 15/832 降为 14/832，后者的去空白 CER 从 15.11% 降为 8.37%。差异来自阅读顺序，检测结果相同。
+- 100% 和 125% 的隔离 X11 使用一张双栏图与本机翻译服务。左栏点框仅提交被点中的一行，侧栏点段落则提交按序
+  拼接的三行。正常短译文在原图框中显示。四十个宽字母和较长段译文在文字区可完整复制，原图保留源字。
+  侧栏卡片按最多三行原文和三行译文测高，完整文字在下面可滚动的文字区。两种缩放下都可点击关闭按钮。
+- 英文空格仍用固定语料考察更低开销的方案。旋转后的多栏阅读和不规则表格继续纳入后续语料。当前证据在
+  `target/test-artifacts/slint-stage5-quality/` 的 `final-layout/*-report.json`、`layout-tests.log`、
+  `paragraph-final-*.log` 及 `layout-paragraph-translated-125.png`。最终 Linux 本地门禁 11 项通过、0 失败、
+  0 跳过，见 `ci-local-layout-final.log`。
+
+### 阶段 5 · 安装包资源初查
+
+- PyPI 的 ONNX Runtime 1.24.2 Windows x64 CPU wheel 已按发布摘要核对，包含主 DLL、共享 provider DLL、MIT 许可
+  和第三方声明。PE 导入表要求 `MSVCP140` 和 `VCRUNTIME140` 系列组件，需在无开发环境的 Windows 安装中验证。
+  同版本 macOS wheel 仅有标注 macOS 14.0+ 的 ARM64 文件。Intel 以及更早版本需另验原生发布资产或源码构建，
+  部署目标继续按既有合同。 [运行库发布文件](https://pypi.org/project/onnxruntime/1.24.2/#files)
+- `x86_64-pc-windows-gnu` 独立 worker 已成功交叉构建。隔离 Wine 从旁边的 CPU DLL 和文件摘要固定的模型启动，
+  通过四张旋转样图的文字、请求编号及原图坐标检查。证据位于 `target/test-artifacts/slint-stage5-ocr-package/windows/`
+  的 `cross-build.log` 和 `wine-smoke.log`。正式 Windows 安装包和干净 Windows 实机仍待验证。
 
 ## Acceptance Criteria
 

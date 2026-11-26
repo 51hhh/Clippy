@@ -34,10 +34,25 @@ pub(super) enum Message {
     SelectLine(i32),
     SelectParagraph(i32),
     Copy,
-    Translate(i32),
-    Translated(u64, i32, String, Result<TranslationResult>),
+    Translate,
+    Translated(u64, Selection, String, Result<TranslationResult>),
     Status(u64, String),
     Close,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Selection {
+    Line(i32),
+    Paragraph(i32),
+}
+
+impl Selection {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Line(_) => "line",
+            Self::Paragraph(_) => "paragraph",
+        }
+    }
 }
 
 pub(super) enum Recognition {
@@ -78,6 +93,7 @@ struct View {
     id: u64,
     window: ImageTextWindow,
     lines: HashMap<i32, (i32, String)>,
+    boxes: Vec<TextBox>,
     paragraphs: Vec<TextParagraph>,
     cancelled: Arc<AtomicBool>,
 }
@@ -110,7 +126,7 @@ impl View {
         window.on_select_line(|line| send(Message::SelectLine(line)));
         window.on_select_paragraph(|paragraph| send(Message::SelectParagraph(paragraph)));
         window.on_copy_result(|| send(Message::Copy));
-        window.on_translate(|paragraph| send(Message::Translate(paragraph)));
+        window.on_translate(|| send(Message::Translate));
         window.on_dismiss(|| send(Message::Close));
         window.window().on_close_requested(|| {
             send(Message::Close);
@@ -121,6 +137,7 @@ impl View {
             id,
             window,
             lines: HashMap::new(),
+            boxes: Vec::new(),
             paragraphs: Vec::new(),
             cancelled: Arc::new(AtomicBool::new(false)),
         })
@@ -149,7 +166,6 @@ impl View {
         result
             .paragraphs
             .sort_by_key(|paragraph| paragraph.reading_order);
-        let mut boxes = Vec::new();
         let mut paragraph_bounds = HashMap::<u32, [f64; 4]>::new();
         for line in result.lines.into_iter().filter(|line| line.accepted) {
             let [first, second, third, fourth] = line.quad.as_slice() else {
@@ -170,7 +186,7 @@ impl View {
                 bounds[2].max(right),
                 bounds[3].max(bottom),
             ];
-            boxes.push(TextBox {
+            self.boxes.push(TextBox {
                 line: line.id as i32,
                 paragraph: line.paragraph_id as i32,
                 outline: format!(
@@ -189,6 +205,7 @@ impl View {
                 top: (top / height) as f32,
                 width: ((right - left) / width) as f32,
                 height: ((bottom - top) / height) as f32,
+                translated: Default::default(),
             });
             self.lines
                 .insert(line.id as i32, (line.paragraph_id as i32, line.text));
@@ -216,11 +233,10 @@ impl View {
                     top: (top / height) as f32,
                     width: ((right - left) / width) as f32,
                     height: ((bottom - top) / height) as f32,
-                    in_place: false,
                 })
             })
             .collect();
-        self.window.set_boxes(ModelRc::new(VecModel::from(boxes)));
+        self.update_boxes();
         self.window.set_original(result.text.into());
         self.window
             .set_status(format!("OCR · {}", result.pipeline.id).into());
@@ -233,6 +249,47 @@ impl View {
     fn update_paragraphs(&self) {
         self.window
             .set_paragraphs(ModelRc::new(VecModel::from(self.paragraphs.clone())));
+    }
+
+    fn update_boxes(&self) {
+        self.window
+            .set_boxes(ModelRc::new(VecModel::from(self.boxes.clone())));
+    }
+
+    fn selection(&self) -> Option<Selection> {
+        let line = self.window.get_selected_line();
+        let paragraph = self.window.get_selected_paragraph();
+        if line >= 0 {
+            Some(Selection::Line(line))
+        } else {
+            (paragraph >= 0).then_some(Selection::Paragraph(paragraph))
+        }
+    }
+
+    fn remember_translation(&mut self, selection: Selection, translated: &str) {
+        match selection {
+            Selection::Line(id) => {
+                let region = self
+                    .boxes
+                    .iter_mut()
+                    .find(|region| region.line == id)
+                    .expect("当前窗口保留被翻译的行");
+                region.translated = translated.into();
+                self.update_boxes();
+            }
+            Selection::Paragraph(id) => {
+                let region = self
+                    .paragraphs
+                    .iter_mut()
+                    .find(|region| region.id == id)
+                    .expect("当前窗口保留被翻译的段落");
+                region.translated = translated.into();
+                self.update_paragraphs();
+            }
+        }
+        if self.selection() == Some(selection) {
+            self.window.set_current_text(translated.into());
+        }
     }
 }
 
@@ -341,13 +398,18 @@ impl App {
                     }),
                 })?;
             }
-            Message::Translate(paragraph) if !self.vision.translation_running => {
-                let selected = view
-                    .paragraphs
-                    .iter()
-                    .find(|item| item.id == paragraph)
-                    .context("Select a paragraph")?;
-                let text = selected.source.to_string();
+            Message::Translate if !self.vision.translation_running => {
+                let selection = view.selection().context("Select a line or paragraph")?;
+                let text = match selection {
+                    Selection::Line(id) => view.lines[&id].1.clone(),
+                    Selection::Paragraph(id) => view
+                        .paragraphs
+                        .iter()
+                        .find(|region| region.id == id)
+                        .expect("所选段落来自当前窗口")
+                        .source
+                        .to_string(),
+                };
                 let request = translation_request(&self.config, text.clone())?;
                 let id = view.id;
                 let cancel = view.cancelled.clone();
@@ -356,31 +418,19 @@ impl App {
                     .name("clippy-image-translation".into())
                     .spawn(move || {
                         let result = translate(request, &namespace, &cancel);
-                        send(Message::Translated(id, paragraph, text, result));
+                        send(Message::Translated(id, selection, text, result));
                     })?;
                 self.vision.translation_running = true;
                 view.window.set_busy(true);
                 view.window
-                    .set_status("Translating the selected paragraph…".into());
+                    .set_status(format!("Translating the selected {}…", selection.name()).into());
             }
-            Message::Translated(id, paragraph, source, result) if view.id == id => {
+            Message::Translated(id, selection, source, result) if view.id == id => {
                 view.window.set_busy(false);
                 let result = result?;
-                let region = view
-                    .paragraphs
-                    .iter_mut()
-                    .find(|item| item.id == paragraph)
-                    .context("Paragraph no longer exists")?;
-                region.translated = result.translated_text.clone().into();
-                // 字符膨胀较大的结果留在侧栏，避免覆盖到相邻段落。
-                region.in_place =
-                    region.translated.chars().count() <= source.chars().count().saturating_mul(2);
-                view.update_paragraphs();
-                if view.window.get_selected_paragraph() == paragraph {
-                    view.window
-                        .set_current_text(result.translated_text.clone().into());
-                }
-                view.window.set_status("Paragraph translated".into());
+                view.remember_translation(selection, &result.translated_text);
+                view.window
+                    .set_status(format!("Translated {}", selection.name()).into());
                 self.storage.client().execute(
                     move |db| {
                         db.record_translation(&NewTranslation {
