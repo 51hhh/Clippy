@@ -3,10 +3,7 @@ use crate::{locale::tr, ClippyTheme, RecordingFile, RecordingLibrary, RecordingR
 use anyhow::{Context, Result};
 use audio::{AudioOptions, AudioTrack};
 use clippy_core::image_output::{expand_user_path, unique_image_id};
-#[cfg(all(
-    feature = "native-recording-audio",
-    any(target_os = "linux", target_os = "windows")
-))]
+#[cfg(feature = "native-recording-audio")]
 use clippy_media::recording::av_session::{AvRecordingConfig, AvRecordingSession};
 use clippy_media::recording::{
     manifest::{self, RecordingLibraryItem, ResolvedRecordingArtifact},
@@ -145,10 +142,7 @@ impl Drop for Recordings {
 
 enum Session {
     Video(DiagnosticRecordingSession),
-    #[cfg(all(
-        feature = "native-recording-audio",
-        any(target_os = "linux", target_os = "windows")
-    ))]
+    #[cfg(feature = "native-recording-audio")]
     WithAudio(AvRecordingSession),
 }
 
@@ -160,19 +154,21 @@ impl Session {
         track: AudioTrack,
         cancellation: RegionCancellation,
     ) -> Result<Self> {
-        let video = move |clock| {
-            source::Source::open(clock, region, cancellation).map_err(|error| format!("{error:#}"))
+        let video = |region| {
+            move |clock| {
+                source::Source::open(clock, region, cancellation)
+                    .map_err(|error| format!("{error:#}"))
+            }
         };
         match track {
             AudioTrack::Silent => Ok(Self::Video(DiagnosticRecordingSession::start_with_factory(
-                base, config, video,
+                base,
+                config,
+                video(region),
             )?)),
-            #[cfg(all(
-                feature = "native-recording-audio",
-                any(target_os = "linux", target_os = "windows")
-            ))]
-            track @ (AudioTrack::System(_) | AudioTrack::Microphone(_)) => {
-                let plan = track.into_plan();
+            #[cfg(feature = "native-recording-audio")]
+            track => {
+                let plan = track.into_plan(&region);
                 let config = AvRecordingConfig {
                     session_id: config.session_id,
                     source_id: config.source_id,
@@ -188,7 +184,7 @@ impl Session {
                 Ok(Self::WithAudio(AvRecordingSession::start_with_factories(
                     base,
                     config,
-                    video,
+                    video(region),
                     |clock| plan.connect(clock).map_err(|error| error.to_string()),
                 )?))
             }
@@ -204,10 +200,7 @@ impl Session {
                     session.pause()?
                 }
             }
-            #[cfg(all(
-                feature = "native-recording-audio",
-                any(target_os = "linux", target_os = "windows")
-            ))]
+            #[cfg(feature = "native-recording-audio")]
             Self::WithAudio(session) => {
                 if paused {
                     session.resume()?
@@ -222,10 +215,7 @@ impl Session {
     fn terminated(&self) -> bool {
         match self {
             Self::Video(session) => session.has_terminated_worker(),
-            #[cfg(all(
-                feature = "native-recording-audio",
-                any(target_os = "linux", target_os = "windows")
-            ))]
+            #[cfg(feature = "native-recording-audio")]
             Self::WithAudio(session) => session.has_terminated_worker(),
         }
     }
@@ -236,10 +226,7 @@ impl Session {
                 .stop()
                 .map(|report| (report.duration_ns, report.encoded_frames))
                 .map_err(Into::into),
-            #[cfg(all(
-                feature = "native-recording-audio",
-                any(target_os = "linux", target_os = "windows")
-            ))]
+            #[cfg(feature = "native-recording-audio")]
             Self::WithAudio(session) => session
                 .stop()
                 .map(|report| (report.duration_ns, report.video_encoded_frames))

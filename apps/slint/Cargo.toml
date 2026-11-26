@@ -28,6 +28,7 @@ native-recording-audio = [
     "vp9-recording",
     "clippy-media/recording-opus-webm",
     "clippy-media/recording-linux-audio",
+    "clippy-media/recording-macos-audio",
     "clippy-media/recording-windows-audio",
 ]
 

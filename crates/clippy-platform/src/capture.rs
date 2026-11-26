@@ -19,6 +19,8 @@ pub mod gnome;
 mod latest;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(all(target_os = "macos", feature = "macos-recording-audio"))]
+pub use macos::audio as macos_audio;
 #[cfg(any(target_os = "macos", test))]
 mod macos_frame;
 #[cfg(target_os = "linux")]

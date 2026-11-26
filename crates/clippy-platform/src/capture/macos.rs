@@ -36,6 +36,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(feature = "macos-recording-audio")]
+pub mod audio;
+
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(5);
 const STOP_TIMEOUT: Duration = Duration::from_secs(2);
 const FRAME_WAIT: Duration = Duration::from_millis(16);
@@ -49,21 +52,28 @@ const FRAMEWORK_PATH: &str =
     "/System/Library/Frameworks/ScreenCaptureKit.framework/ScreenCaptureKit";
 
 pub(super) fn stream_supported() -> bool {
+    os_at_least(12, 3)
+}
+
+fn os_at_least(major: isize, minor: isize) -> bool {
     NSProcessInfo::processInfo().isOperatingSystemAtLeastVersion(NSOperatingSystemVersion {
-        majorVersion: 12,
-        minorVersion: 3,
+        majorVersion: major,
+        minorVersion: minor,
         patchVersion: 0,
     })
 }
 
-fn frame_key(name: &CStr) -> Result<&'static NSString> {
+fn framework() -> Result<&'static Library> {
     // 框架对象由 Objective-C 运行时登记，进程内保持加载才能保证类和常量有效。
     static FRAMEWORK: OnceLock<Result<Library, libloading::Error>> = OnceLock::new();
-    let library = FRAMEWORK
+    FRAMEWORK
         .get_or_init(|| unsafe { Library::new(FRAMEWORK_PATH) })
         .as_ref()
-        .map_err(|error| anyhow!("Loading ScreenCaptureKit: {error}"))?;
-    let symbol = unsafe { library.get::<*const *const NSString>(name.to_bytes_with_nul())? };
+        .map_err(|error| anyhow!("Loading ScreenCaptureKit: {error}"))
+}
+
+fn frame_key(name: &CStr) -> Result<&'static NSString> {
+    let symbol = unsafe { framework()?.get::<*const *const NSString>(name.to_bytes_with_nul())? };
     unsafe { (**symbol).as_ref() }.with_context(|| format!("Missing ScreenCaptureKit key {name:?}"))
 }
 
@@ -188,6 +198,13 @@ fn display_time_ns(mach_ticks: u64) -> Option<u64> {
     host_time_ns(unsafe { CMClock::make_host_time_from_system_units(mach_ticks) })
 }
 
+fn correlate_host_clock() -> Result<NativeClock> {
+    let host_clock = unsafe { CMClock::host_time_clock() };
+    NativeClock::correlate(|| {
+        host_time_ns(unsafe { host_clock.time() }).context("Invalid Core Media host clock")
+    })
+}
+
 fn host_time_ns(time: CMTime) -> Option<u64> {
     if !time.flags.contains(CMTimeFlags::Valid)
         || time.flags.intersects(CMTimeFlags::ImpliedValueFlagsMask)
@@ -305,17 +322,8 @@ impl ScreenStream {
         let display = DisplayState::current(id);
         let logical = display.bounds.size;
         let region = region_layout(source, (logical.width, logical.height), bounds)?;
-        let active_display = request_display(id, deadline)?;
-        let windows = NSArray::<NSObject>::new();
-        let filter_class = class(c"SCContentFilter")?;
-        let configuration_class = class(c"SCStreamConfiguration")?;
-        let stream_class = class(c"SCStream")?;
-        let filter: Retained<NSObject>;
-        let configuration: Retained<NSObject>;
+        let (filter, configuration) = display_configuration(id, deadline)?;
         unsafe {
-            let filter_alloc: Allocated<NSObject> = msg_send![filter_class, alloc];
-            filter = msg_send![filter_alloc, initWithDisplay: &*active_display, excludingWindows: &*windows];
-            configuration = msg_send![configuration_class, new];
             let [x, y, width, height] = region.points;
             let rect = CGRect::new(CGPoint::new(x, y), CGSize::new(width, height));
             let _: () = msg_send![&*configuration, setSourceRect: rect];
@@ -328,10 +336,7 @@ impl ScreenStream {
         }
 
         let size = region.pixels;
-        let host_clock = unsafe { CMClock::host_time_clock() };
-        let clock = NativeClock::correlate(|| {
-            host_time_ns(unsafe { host_clock.time() }).context("Invalid Core Media host clock")
-        })?;
+        let clock = correlate_host_clock()?;
         let frames = Arc::new(LatestFrames::new());
         let output = FrameOutput::alloc().set_ivars(FrameOutputState {
             frames: Arc::clone(&frames),
@@ -342,19 +347,7 @@ impl ScreenStream {
         });
         let output: Retained<FrameOutput> = unsafe { msg_send![super(output), init] };
         let queue = DispatchQueue::new("com.clippy.slint.screen-stream", DispatchQueueAttr::SERIAL);
-        let stream: Retained<NSObject> = unsafe {
-            let alloc: Allocated<NSObject> = msg_send![stream_class, alloc];
-            msg_send![alloc, initWithFilter: &*filter, configuration: &*configuration, delegate: &*output]
-        };
-        let added: std::result::Result<(), Retained<NSError>> = unsafe {
-            msg_send![&*stream, addStreamOutput: &*output, type: SCREEN, sampleHandlerQueue: &*queue, error: _]
-        };
-        added.map_err(|error| {
-            anyhow!(
-                "Adding ScreenCaptureKit output: {}",
-                error.localizedDescription()
-            )
-        })?;
+        let stream = stream_with_output(&filter, &configuration, &output, SCREEN, &queue)?;
 
         let source = Self {
             stream,
@@ -411,6 +404,48 @@ impl Drop for ScreenStream {
             }
         });
     }
+}
+
+fn display_configuration(
+    id: u32,
+    deadline: Instant,
+) -> Result<(Retained<NSObject>, Retained<NSObject>)> {
+    framework()?;
+    let display = request_display(id, deadline)?;
+    let windows = NSArray::<NSObject>::new();
+    let filter_class = class(c"SCContentFilter")?;
+    let configuration_class = class(c"SCStreamConfiguration")?;
+    unsafe {
+        let filter: Allocated<NSObject> = msg_send![filter_class, alloc];
+        Ok((
+            msg_send![filter, initWithDisplay: &*display, excludingWindows: &*windows],
+            msg_send![configuration_class, new],
+        ))
+    }
+}
+
+fn stream_with_output(
+    filter: &NSObject,
+    configuration: &NSObject,
+    output: &NSObject,
+    kind: isize,
+    queue: &DispatchQueue,
+) -> Result<Retained<NSObject>> {
+    let stream_class = class(c"SCStream")?;
+    let stream: Retained<NSObject> = unsafe {
+        let alloc: Allocated<NSObject> = msg_send![stream_class, alloc];
+        msg_send![alloc, initWithFilter: filter, configuration: configuration, delegate: output]
+    };
+    let added: std::result::Result<(), Retained<NSError>> = unsafe {
+        msg_send![&*stream, addStreamOutput: output, type: kind, sampleHandlerQueue: queue, error: _]
+    };
+    added.map_err(|error| {
+        anyhow!(
+            "Adding ScreenCaptureKit output: {}",
+            error.localizedDescription()
+        )
+    })?;
+    Ok(stream)
 }
 
 struct ShareableDisplay(Retained<NSObject>);

@@ -83,6 +83,9 @@
 
 ### Slint 区域录屏
 
+- macOS 13 及以上的录屏库可选默认系统声。音频沿用本次选定的显示器，请求排除 Clippy 自身声音，
+  并按原生时间戳写入可恢复的 VP9/Opus WebM。macOS 权限和实际设备的长时同步仍待验收。
+  （需求 `SLINT-MIGRATION-CLOSURE-01`）
 - Linux QA 构建启用 `recording-playback-native-qa` 后，可在录屏库用轻量播放器查看有声原件、分段及恢复件。
   隔离 X11 已验证默认音频输出、暂停、定位、播放完成和关窗回收。长时同步、真实设备及正式打包待验收。
   （需求 `SLINT-MIGRATION-CLOSURE-01`）
@@ -105,7 +108,7 @@
 - 框选支持启动 VP9/WebM 录屏，托盘控制暂停、恢复和停止。录屏库可打开、导出及恢复中断的分段，
   默认构建按需调用 `ffplay` 播放，设置音轨可选无声、Linux PipeWire 或 Windows WASAPI 默认设备。
 - X11 已实测 140×100 区域、暂停扣时、文件解析和导出字节一致。实际音频设备、长时音画同步和
-  macOS 系统音频仍待验证或迁移。（需求 `SLINT-NATIVE-PIPELINE-01`）
+  macOS 权限仍待验证。（需求 `SLINT-NATIVE-PIPELINE-01`）
 - 退出 Clippy、关闭录屏库或切换录屏时，等待当前播放器退出并回收子进程。
   （需求 `SLINT-NATIVE-PIPELINE-01`）
 - 图片编辑、识字、滚动截图与录屏库复用原生标题栏和主题。录屏库在暂停完成后显示继续，停止时显示封尾状态。

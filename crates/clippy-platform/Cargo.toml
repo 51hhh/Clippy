@@ -6,6 +6,13 @@ edition = "2021"
 license = "MIT"
 publish = false
 
+[features]
+macos-recording-audio = [
+    "dep:objc2-core-audio-types",
+    "objc2-core-media/CMFormatDescription",
+    "objc2-core-media/objc2-core-audio-types",
+]
+
 [dependencies]
 anyhow = "1"
 arboard = "3"
@@ -49,6 +56,7 @@ objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = [
     "NSPasteboard", "NSResponder", "NSRunningApplication", "NSView", "NSWindow", "NSWorkspace", "std",
 ] }
+objc2-core-audio-types = { version = "0.3", default-features = false, features = ["CoreAudioBaseTypes"], optional = true }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["CFCGTypes", "objc2"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = [
     "CGDirectDisplay", "CGDisplayConfiguration", "CGEvent", "CGEventSource", "CGEventTypes", "CGWindow",
@@ -82,3 +90,6 @@ windows-sys = { version = "0.61", features = [
 
 [dev-dependencies]
 tempfile = "3"
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-core-media = { version = "0.3", default-features = false, features = ["CMBase", "CMBlockBuffer"] }

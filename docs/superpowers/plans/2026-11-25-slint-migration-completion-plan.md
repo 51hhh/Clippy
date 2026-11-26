@@ -22,7 +22,7 @@ GitHub `dev` 仍指向 #27 的合入提交 `abfdeb5`。之前的安装包、三�
 | 冻结截图 | X11 root、GNOME Mutter 原始帧、其他 Wayland 的 wayshot、Windows xcap/WGC 单帧、macOS xcap/CoreGraphics。选区使用单输出源像素 | 复测 v5 速度与 GNOME 瞬时菜单。补窗口速选、旋转和混合 DPI 验收。跨屏选区和合成是原生计划中的新增目标，先固定输出坐标尺度。保留系统截图导入和延时截图。 [平台采集](../../../crates/clippy-platform/src/capture.rs) · [GNOME v5 合同](../specs/2026-10-23-gnome-capture-fast-path-rollback.md) |
 | 标注、查看器、贴图 | 截图层有五个内联工具。编辑器可做更多标注。查看器支持缩放拖动。贴图、修订、工作区分组和缩略图已接入 | 恢复高频内联笔、文字、马赛克等实际入口与撤销/重做。窗口速选和扫码结果交互按旧操作验证。贴图跨屏缩放、层级和重启位置恢复做原生验证。独立查看器持久化工程按现有修订合同接入。 [截图窗](../../../apps/slint/ui/capture.slint) · [编辑器控制](../../../apps/slint/src/app/editor.rs) · [贴图状态](../../../apps/slint/src/app/pins.rs) |
 | 长截图 | 手动追加、撤销、拼接、取消已验证，完成后进入编辑器 | 接自动滚动、到边界判停、目标丢失撤销输入，以及完成后快捷复制、保存、贴图。复用旧版自动输入与共享拼接算法。 [现有控制器](../../../apps/slint/src/app/longshot.rs) · [旧版自动滚动](../../../apps/legacy-tauri/native/src/capture/longshot/auto_scroll.rs) |
-| 区域录屏与回放 | VP9/WebM、暂停/继续、恢复与导出已接入。X11 有安全摆位浮窗。Wayland、WGC、ScreenCaptureKit 已接入原生帧时间。Slint Linux/Windows 支持选择系统音源或麦克风。GStreamer 与轻量播放器都已通过 Linux 隔离桌面的库内短片回归 | 根据长时同步、三平台设备与安装包验证确定正式回放与朗读后端。补跨平台浮窗排除、双源混音和 macOS 音轨。设备移除和长时录音继续按平台验收。 [录屏入口](../../../apps/slint/src/app/recording.rs) · [媒体模块](../../../crates/clippy-media/src/recording/mod.rs) |
+| 区域录屏与回放 | VP9/WebM、暂停/继续、恢复与导出已接入。X11 有安全摆位浮窗。Wayland、WGC、ScreenCaptureKit 已接入原生帧时间。Slint Linux/Windows 支持选择系统音源或麦克风，macOS 13 起可选系统声。GStreamer 与轻量播放器已通过 Linux 隔离桌面的短片回归 | 根据长时同步、三平台设备与安装包验证确定正式回放与朗读后端。补跨平台浮窗排除、双源混音和 macOS 麦克风。设备移除和长时录音继续按平台验收。 [录屏入口](../../../apps/slint/src/app/recording.rs) · [媒体模块](../../../crates/clippy-media/src/recording/mod.rs) |
 | OCR、扫码、图片翻译 | Tesseract TSV 有行框、置信度及段落。配置可用时调用旧增强引擎。打开图像文字窗后可选行、选段及翻译，合适的译文已有覆盖层，长译文留在侧栏 | 打包可分发的离线引擎、补可靠多栏/暗色/旋转排版。统一结果缓存和坐标，补快捷入口和多段按需翻译。扫码从结果文本扩展到共享模型已经提供的位置与逐项操作时，复用真实字段。 [OCR 接口](../../../crates/clippy-vision/src/lib.rs) · [译文回填](../../../apps/slint/src/app/vision.rs#L342) |
 | 预览、工具与归档 | 图片、有限 HTML/Markdown、编解码工具、翻译历史、手动 tmux 捕获、统计、归档导入导出 | 复验旧版实际使用的代码高亮、复杂表格、链接和译文管理。按对照结果补齐入口。归档沿用现有校验合同和 SQLite schema。 [预览解析](../../../apps/slint/src/app/preview_document.rs) · [工具窗口](../../../apps/slint/src/app/tools.rs) · [归档入口](../../../apps/slint/src/app/settings.rs#L509) |
 | 安装、更新与数据 | semver 分流已实现。Slint 有 QA 身份、安装器及草稿发版。首次正式启动会备份配置和数据库，Linux 早期已验证解包运行和备份恢复 | 真实安装器原位升级、旧 updater 取包验签、正式签名/公证策略、失败回滚以及新版自主更新。核对 QA 与生产身份、实际最低系统版本和无 WebView。 [升级备份](../../../apps/slint/src/app/upgrade.rs) · [发行草稿](../../../.github/workflows/release.yml#L813) |
@@ -371,6 +371,22 @@ ScreenCaptureKit 取 `SCStreamFrameInfoDisplayTime`。原生时间缺失或超�
 验证明确目标进入实际会话，目标缺失时不会录到默认音源，并在 Windows 继续实机核对。
 
 **Out of Scope** macOS 音源、双源混音、跨重启偏好、热切换及听感和长时漂移验收另行实施。
+
+#### 阶段 4 · Slint macOS 系统声
+
+**Goal** 在 macOS 13 起可选系统声，同既有区域录像一起编码为可恢复的 VP9/Opus WebM。
+
+**Requirements** 只在明确选择系统声后打开音频，使用冻结时选定的显示器。复用动态 ScreenCaptureKit、采集时钟
+和共享音频 worker。独立音频输出不请求第二份视频画面，暂停关闭音频流，恢复丢弃上一段缓存，正常停止提交已到达
+的尾部。系统声请求 48 kHz 双声道并排除 Clippy 自身声音。将原生 PCM PTS 通过流同步时钟转到视频使用的主机时钟，
+回调交付有界 PCM。保留 macOS 11.0 最低部署目标。
+[Apple 音频采集](https://developer.apple.com/documentation/screencapturekit/scstreamconfiguration/capturesaudio) ·
+[Apple 流同步时钟](https://developer.apple.com/documentation/screencapturekit/scstream/synchronizationclock)
+
+**Acceptance Criteria** 系统声选项遵循实际 13.0 运行时能力。验证交错和分平面 PCM、队列上限、起录及恢复时刻、
+停止尾部和 100 毫秒拆分合同。同一 SHA 三平台门禁，macOS 13+ 实机核对权限、自产声音排除、静音、暂停恢复与长时漂移。
+
+**Out of Scope** 本次接线只覆盖系统声。麦克风、混音和浮窗排除仍由本阶段后续验收。
 
 #### 阶段 4 · GStreamer 库内播放候选
 
@@ -941,6 +957,20 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
 - 完整 Linux 门禁 11 项通过、0 失败、0 跳过。关闭录屏音频特性时通过 Clippy 严格检查，Windows
   GNU 的 Slint QA 入口以默认录屏编解码和 WASAPI 功能通过交叉检查。实际硬件音频与录制中拔出继续验收。
   日志分别为 `ci-local-devices.log`、`no-audio-devices.log` 和 `windows-qa-devices.log`。
+
+### 阶段 4 · Slint macOS 系统声接入结果
+
+- 录屏库在 macOS 13 起提供系统声选项。音频 worker 复用动态 ScreenCaptureKit 加载、显示器校验和主机时钟，
+  仅注册音频输出。首个视频帧后才启动流。暂停关闭音频流并清除缓存，恢复按新启动时刻筛掉迟到样本，
+  正常停止继续提交已到达的尾部。共享 VP9/Opus 录制和分段恢复沿用现有格式。
+- 通过 Core Media 的 PCM 拷贝接口读原生缓冲。回调最多缓存 8 个包，格式异常或队列满会报错。
+  媒体层按 100 毫秒拆块，以流同步时钟换算出的源 PTS 落入共享会话时间线。
+  [平台音频源](../../../crates/clippy-platform/src/capture/macos/audio.rs) ·
+  [录屏音频适配](../../../crates/clippy-media/src/recording/platform/macos_audio.rs)
+- 使用 macOS 11.0 目标对平台和媒体层的 Intel、Apple Silicon 构建图做了 `--all-targets` 交叉 Clippy。
+  Windows GNU 通过关闭录屏编解码特性的 Slint QA 严格检查。日志位于
+  `target/test-artifacts/slint-stage4-macos-audio/`。新增原生 PCM 测试和三平台门禁仍需对应提交的 CI，
+  权限、自身音频排除、暂停和 30 分钟同步仍需 macOS 实机验收。
 
 ### 阶段 4 · GStreamer 库内回放结果
 

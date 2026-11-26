@@ -16,16 +16,24 @@ use clippy_media::recording::audio_devices::{
 use clippy_media::recording::platform::linux_audio::{
     enumerate_recording_audio_devices, LinuxPipeWireAudioSourcePlan as SourcePlan,
 };
+#[cfg(all(feature = "native-recording-audio", target_os = "macos"))]
+use clippy_media::recording::platform::macos_audio::{
+    system_audio_available, MacSystemAudioPlan as SourcePlan,
+};
 #[cfg(all(feature = "native-recording-audio", target_os = "windows"))]
 use clippy_media::recording::platform::windows_audio::{
     enumerate_recording_audio_devices, WindowsWasapiAudioSourcePlan as SourcePlan,
 };
+#[cfg(feature = "native-recording-audio")]
+use clippy_platform::capture::Region;
 use slint::{ModelRc, VecModel};
 use std::io;
 
 #[derive(Clone, PartialEq, Eq)]
 pub(in crate::app) enum AudioTrack {
     Silent,
+    #[cfg(all(feature = "native-recording-audio", target_os = "macos"))]
+    MacSystem,
     #[cfg(all(
         feature = "native-recording-audio",
         any(target_os = "linux", target_os = "windows")
@@ -39,16 +47,16 @@ pub(in crate::app) enum AudioTrack {
 }
 
 impl AudioTrack {
-    #[cfg(all(
-        feature = "native-recording-audio",
-        any(target_os = "linux", target_os = "windows")
-    ))]
-    pub(super) fn into_plan(self) -> SourcePlan {
+    #[cfg(feature = "native-recording-audio")]
+    pub(super) fn into_plan(self, _region: &Region) -> SourcePlan {
         match self {
+            #[cfg(target_os = "macos")]
+            Self::MacSystem => SourcePlan::for_region(_region),
             #[cfg(target_os = "linux")]
             Self::System(id) => SourcePlan::system_audio(id),
             #[cfg(target_os = "windows")]
             Self::System(id) => SourcePlan::system_loopback(id),
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
             Self::Microphone(id) => SourcePlan::microphone(id),
             Self::Silent => unreachable!("无声录屏不打开音频源"),
         }
@@ -179,6 +187,16 @@ impl AudioOptions {
     }
 }
 
+#[cfg(all(feature = "native-recording-audio", target_os = "macos"))]
+fn default_choices() -> Vec<Choice> {
+    let mut choices = vec![Choice::new(AudioTrack::Silent, "No audio")];
+    if system_audio_available() {
+        choices.push(Choice::new(AudioTrack::MacSystem, "Default system audio"));
+    }
+    choices
+}
+
+#[cfg(not(all(feature = "native-recording-audio", target_os = "macos")))]
 fn default_choices() -> Vec<Choice> {
     #[cfg(all(
         feature = "native-recording-audio",
@@ -272,6 +290,17 @@ mod tests {
             AudioOptions::default().selected(),
             Ok(AudioTrack::Silent)
         ));
+    }
+
+    #[cfg(all(feature = "native-recording-audio", target_os = "macos"))]
+    #[test]
+    fn macos_system_audio_choice_follows_the_runtime() {
+        let mut options = AudioOptions::default();
+        options.remember(tr("Default system audio"));
+        assert_eq!(
+            matches!(options.selected(), Ok(AudioTrack::MacSystem)),
+            system_audio_available()
+        );
     }
 
     #[cfg(all(
