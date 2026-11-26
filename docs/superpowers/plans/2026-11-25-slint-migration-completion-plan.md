@@ -1204,6 +1204,19 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   24 个缓冲区的 cycle time 都有效递增。仍须在明确的声画标记上测首样本偏差、重采样、回压、暂停和断流，
   并核对旧 PipeWire 的运行时 ABI。符合现有同步门槛后可扩展支持不交付帧头的设备。变更时间戳合同前需审批。
   [PipeWire 每缓冲区时间](https://docs.pipewire.org/structpw__buffer.html) · [图时钟](https://docs.pipewire.org/structpw__time.html)
+- 在独立 PipeWire 1.6.2 会话用带样本编号的 DSP 信号，分别走常规输出 monitor 和 loopback 麦克风。
+  两个端点的 F32LE 双声道缓冲都收到了连续 PCM。默认协商和 `NO_CONVERT` 各匹配 80 个缓冲，
+  均无 `SPA_META_Header`。按同一序列号运行产品原生采集入口，两路都建立连接并在读取时以缺帧头中止。
+- 48 kHz 下，扣除 `pw_time.delay` 与 converter 缓存后，两路相对于 DSP 标记的图周期仍晚约
+  21.333 ms（512 帧 quantum）和 42.667 ms（1024 帧 quantum）。只阻塞一次 55 ms 的采集主循环，
+  两路各出现一次可由样本编号确认的间断。偏差以生成信号的图周期为基准，实际声卡的端点延迟仍待测量。
+- PipeWire 0.3.48 头文件的 `pw_buffer` 没有 `time`，逐缓冲区字段从 1.0.5 起提供。当前结果还不足以用
+  图周期和 `delay` 恢复首样本采集时刻。下一候选应在采集端点取得和缓冲绑定的源时间，复验两路边界、量子
+  和采样率切换、暂停回压与长时漂移，再评估能否覆盖旧 ABI。
+  [PipeWire 0.3.48 头文件](https://github.com/PipeWire/pipewire/blob/0.3.48/src/pipewire/stream.h#L176) ·
+  [PipeWire 1.6.2 头文件](https://github.com/PipeWire/pipewire/blob/1.6.2/src/pipewire/stream.h#L273)
+- 日志位于 `target/test-artifacts/slint-stage4-audio-clock/clock-final.Xu5hxk/`，包含
+  `matched-clock.log`、`production-sink.log`、`production-source.log` 和各端点的采集明细。
 
 ### 阶段 5 · PP-OCRv6 small 离线探针
 
