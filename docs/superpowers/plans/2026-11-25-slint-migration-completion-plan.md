@@ -308,6 +308,21 @@ xdg-foreign parent，不保存恢复令牌。释放旧读取器后才启动组�
 **Out of Scope** 键盘授权、持久授予远程控制、普通截图入口的授权行为，以及变更现有拼接阈值。
 沿用 [Wayland 长截图规格 `PX-LS-WAYLAND-AUTO-01`](../specs/2026-09-23-longshot-wayland-auto-scroll.md)。
 
+### 阶段 4 · 录屏帧时钟与库内播放
+
+**Goal** 让区域录屏沿用原生采集时刻和会话时钟，并在 Slint 录屏库中播放、定位及关闭媒体。
+
+**Requirements** 把源时间和像素一并送过已有取帧边界。先核对 PipeWire 屏幕帧的单调时间，按现有会话时钟
+校准，随后接 WGC 和 ScreenCaptureKit 原生源。继续使用原有同步截图采样时钟。暂停后恢复时过滤旧帧，
+静止画面、采集前沿和分段封尾共同验证。先用同一批 WebM 对照 GStreamer 和复用现有 VP9/Opus 的候选，
+再根据干净安装、首帧、定位、同步、资源和插件闭包决定播放器。 [共享会话时钟](../specs/2026-09-22-recording-shared-clock.md)
+
+**Acceptance Criteria** 在画面切换的已知源上对照源时间、输出时间与首帧像素，验证缓存帧、静止、
+暂停、继续、停止和带音轨的长时录屏。分别播放最终文件、独立分段和恢复合并产物，核对定位、结束回调
+及关闭后的资源回收，并在干净的三平台安装中复测。
+
+**Out of Scope** 更换 WebM、编码格式与既有音画同步门槛。真实设备和四架构发布包继续按阶段验收。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -528,7 +543,19 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
 - 隔离 Sway 通过手动长截图与 8 轮静止、换色和快速确认的录屏首帧像素回归。Linux 完整门禁
   11 项通过、0 失败、0 跳过，Windows GNU QA 入口交叉检查使用关闭默认录屏编解码的配置。
   记录见 `target/test-artifacts/slint-stage3-wayland/gnome-serial-matrix.log`、`sway-manual-and-first-frame-xvfb.log`
-  和 `ci-local-wayland-final.log`。实体多屏和混合 DPI、系统撤权、KDE 及同一 SHA 原生 CI 仍待验收。
+  和 `ci-local-wayland-final.log`。实体多屏和混合 DPI、KDE 及同一 SHA 原生 CI 仍待验收。
+- 同一 QA 二进制在隔离 GNOME 使用 Shell 停止共享处理函数触发实际撤权。Portal 发出 Closed，原画布
+  可逐像素导出，没有滚轮调用，授权入口可重新打开。日志见
+  `target/test-artifacts/slint-stage3-wayland/gnome-system-revoke-final.log`。
+
+### 阶段 4 · GStreamer 回放基线
+
+- GStreamer 1.28.2 的 `playbin + appsink` 在本机解码了合成 VP9/Opus WebM，以及 Sway 门禁录制的
+  240×150 最终文件和独立分段。三份文件均取得 RGBA 首帧，准确定位至 3.000 / 0.350 / 0.350 秒，
+  正常到达播放结束并返回 Null 状态。首帧单次实测分别为 37.6、28.8、28.7 毫秒。
+- 测试使用静音音频接收器。从运行时原型到原生应用还需补开发依赖与三平台随包插件，真实音频设备、
+  同步、恢复合并产物和播放器候选对照继续验证。日志见
+  `target/test-artifacts/slint-stage4-media/playback-gstreamer-matrix.log`。
 
 ## Acceptance Criteria
 
