@@ -1,22 +1,15 @@
-use super::{capture, clipboard, editor, post, settings, App, Event};
+use super::{capture, clipboard, editor, image_project, post, settings, App, Event};
 use crate::{ClippyTheme, PinnedWindow};
 use anyhow::{anyhow, Context, Result};
 use clippy_capture::{
     editor::{Editor, ImageProject},
-    png_io::encode_png,
-    project::{self, ProjectDocument},
-    render_v2::RENDERER_VERSION,
+    project,
 };
-use clippy_core::{
-    clipboard::{compute_hash, strip_html_tags},
-    image_output::SaveTarget,
-    models::ContentType,
-};
+use clippy_core::{clipboard::strip_html_tags, image_output::SaveTarget, models::ContentType};
 use clippy_storage::{
-    BoundedImageData, ImageRevisionWrite, PinWorkspaceGroup, PinWorkspaceItemWrite,
-    PinWorkspacePresentation, StorageClient, StorageEngine, StorageError, StoredImageRevision,
-    StoredPinPlacement, StoredPinWorkspaceContent, StoredPinWorkspaceItem,
-    StoredPinWorkspaceSummary,
+    BoundedImageData, PinWorkspaceGroup, PinWorkspaceItemWrite, PinWorkspacePresentation,
+    StorageClient, StorageEngine, StorageError, StoredImageRevision, StoredPinPlacement,
+    StoredPinWorkspaceContent, StoredPinWorkspaceItem, StoredPinWorkspaceSummary,
 };
 use image::RgbaImage;
 use slint::winit_030::{winit::window::WindowLevel, WinitWindowAccessor};
@@ -137,9 +130,9 @@ impl Pins {
         thread::Builder::new()
             .name("clippy-pin-output".into())
             .spawn(move || {
-                let encoded = encode_pin(&project, &rendered);
+                let encoded = image_project::EncodedRevision::encode(&project, &rendered);
                 match encoded {
-                    Ok(encoded) => {
+                    Ok((encoded, _)) => {
                         let presentation = new_presentation();
                         let viewport = (
                             f64::from(project.source.width()),
@@ -250,38 +243,6 @@ impl Pins {
     }
 }
 
-struct EncodedPin {
-    source_png: Vec<u8>,
-    source_hash: String,
-    rendered_hash: String,
-    document_hash: String,
-    dimensions: (u32, u32),
-    annotations_json: String,
-    adjustments_json: String,
-}
-
-fn encode_pin(project: &ImageProject, rendered: &RgbaImage) -> Result<EncodedPin> {
-    let dimensions = project.source.dimensions();
-    let source_png = encode_png(project.source.as_raw(), dimensions.0, dimensions.1)?;
-    let rendered_bytes = encode_png(rendered.as_raw(), rendered.width(), rendered.height())?;
-    let annotations_json = project.document.annotations.to_string();
-    let adjustments_json = project.document.adjustments.to_string();
-    Ok(EncodedPin {
-        source_hash: compute_hash(&source_png),
-        source_png,
-        rendered_hash: compute_hash(&rendered_bytes),
-        document_hash: project::revision_document_hash(
-            RENDERER_VERSION,
-            dimensions,
-            &annotations_json,
-            &adjustments_json,
-        ),
-        dimensions,
-        annotations_json,
-        adjustments_json,
-    })
-}
-
 fn new_presentation() -> PinWorkspacePresentation {
     PinWorkspacePresentation {
         scale: 1.0,
@@ -333,22 +294,11 @@ fn store_clip_pin(db: &StorageEngine, id: i64) -> Result<PinInput, StorageError>
 
 fn store_pin(
     db: &StorageEngine,
-    data: &EncodedPin,
+    data: &image_project::EncodedRevision,
     state: &PinWorkspacePresentation,
     size: (f64, f64),
 ) -> Result<i64, StorageError> {
-    let revision = db.register_image_revision(ImageRevisionWrite {
-        source_png: &data.source_png,
-        source_hash: &data.source_hash,
-        source_width: data.dimensions.0,
-        source_height: data.dimensions.1,
-        renderer_version: RENDERER_VERSION,
-        annotations_json: &data.annotations_json,
-        adjustments_json: &data.adjustments_json,
-        document_hash: &data.document_hash,
-        rendered_hash: &data.rendered_hash,
-        root_clip_id: None,
-    })?;
+    let revision = data.register(db)?;
     db.upsert_pin_workspace_item(PinWorkspaceItemWrite {
         id: None,
         group_id: None,
@@ -368,27 +318,7 @@ fn store_pin(
 }
 
 fn decode_revision(revision: StoredImageRevision) -> Result<(Arc<RgbaImage>, ImageProject)> {
-    anyhow::ensure!(
-        revision.renderer_version == RENDERER_VERSION,
-        "Stored renderer version is unsupported"
-    );
-    let source = project::decode_png(
-        &revision.source_png,
-        project::MAX_SOURCE_PNG_BYTES,
-        "Pin source",
-    )
-    .map_err(anyhow::Error::msg)?;
-    anyhow::ensure!(
-        source.dimensions() == (revision.source_width, revision.source_height),
-        "Pin source dimensions changed"
-    );
-    let project = ImageProject {
-        source: Arc::new(source),
-        document: ProjectDocument {
-            annotations: revision.annotations,
-            adjustments: revision.adjustments,
-        },
-    };
+    let project = image_project::decode_revision(revision)?;
     let image = Arc::new(project.render().map_err(anyhow::Error::msg)?);
     Ok((image, project))
 }

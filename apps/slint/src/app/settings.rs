@@ -138,13 +138,17 @@ fn connect_window_events<T: ComponentHandle + 'static>(
     });
 }
 
-fn connect_shortcut_recorder(window: &AppWindow) {
+fn connect_app_inputs(window: &AppWindow) {
     let mut modifiers = ModifiersState::empty();
     connect_window_events(
         window,
-        AppWindow::invoke_titlebar_contains,
+        |window, x, y| window.get_show_settings() && window.invoke_titlebar_contains(x, y),
         move |window, event| {
             match event {
+                WindowEvent::DroppedFile(path) if !window.get_show_settings() => {
+                    post(Event::EditorOpenFile(window.as_weak(), path.clone()));
+                    return EventResult::PreventDefault;
+                }
                 WindowEvent::ModifiersChanged(value) => modifiers = value.state(),
                 WindowEvent::Focused(false) => {
                     // X11 已注册热键会临时接管键盘，录制仍由 Esc、切页和关闭结束。
@@ -185,6 +189,10 @@ fn connect_shortcut_recorder(window: &AppWindow) {
             EventResult::Propagate
         },
     );
+}
+
+pub(super) fn choose_png(app: &mut App) -> Result<()> {
+    file_dialog::start(app, FileChoice::OpenImage, "")
 }
 
 fn recorded_shortcut(key: KeyCode, modifiers: ModifiersState) -> Option<String> {
@@ -243,6 +251,7 @@ pub(super) fn connect(window: &AppWindow, config: &AppConfig) {
     window.set_provider_index(index as i32);
     translation(window, config, index as i32).expect("设置页中的翻译服务索引有效");
     window.set_tmux_available(cfg!(target_os = "linux"));
+    connect_app_inputs(window);
     if window.get_show_settings() {
         let defaults = AppConfig::default();
         window.set_shortcut_defaults(ModelRc::new(VecModel::from(vec![
@@ -266,7 +275,6 @@ pub(super) fn connect(window: &AppWindow, config: &AppConfig) {
                 })
             });
         }
-        connect_shortcut_recorder(window);
         let owner = window.as_weak();
         window.on_refresh_ocr_status(move || send(Message::RefreshOcr(owner.clone())));
     }

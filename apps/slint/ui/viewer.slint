@@ -22,6 +22,7 @@ export component ViewerPane inherits Rectangle {
     in property <bool> can-undo;
     in property <bool> can-redo;
     in property <bool> output-ready;
+    in property <bool> editable-save-available;
     in property <string> status;
     callback start-stroke(float, float);
     callback move-stroke(float, float);
@@ -30,6 +31,7 @@ export component ViewerPane inherits Rectangle {
     callback redo();
     callback copy();
     callback save();
+    callback save-editable();
     callback recognize();
     callback scan-code();
     callback pin();
@@ -197,9 +199,18 @@ export component ViewerPane inherits Rectangle {
             height: 28px; background: ClippyTheme.background;
             Rectangle { x: 0px; y: 0px; height: 1px; background: ClippyTheme.border; }
             Text {
-                x: 12px; width: parent.width - 24px; height: parent.height;
+                x: 12px; width: root.editable-save-available ? editable-save.x - 20px : parent.width - 24px; height: parent.height;
                 text: root.status != "" ? root.status : @tr("Wheel to zoom · Drag to pan · Image tools use the opened snapshot");
                 color: ClippyTheme.muted; font-size: 11px; vertical-alignment: center; overflow: elide;
+            }
+            editable-save := SurfaceButton {
+                label: @tr("Save editable copy");
+                caption: self.label;
+                x: parent.width - self.width - 8px; y: 2px;
+                width: 144px; height: 24px;
+                visible: root.editable-save-available;
+                enabled: root.output-ready && !root.busy;
+                clicked => { root.save-editable(); }
             }
         }
     }

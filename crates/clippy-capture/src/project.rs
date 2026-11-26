@@ -8,6 +8,7 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
 use std::collections::HashSet;
 
 pub const PROJECT_KEYWORD: &str = "clippy-project";
@@ -261,6 +262,10 @@ impl PinProject {
 }
 
 impl RuntimeProject {
+    pub fn into_document(self) -> ProjectDocument {
+        self.document
+    }
+
     /// 从 SQLite 管理的根图 + 操作文档恢复运行时工程。预览摘要仍按当前 clip 的扁平
     /// 像素生成，因此未编辑直接另存时也能安全物化为兼容的自包含 v3 PNG。
     pub fn from_managed(
@@ -452,22 +457,20 @@ pub fn embed(png: &[u8], project: &PinProject) -> Result<Vec<u8>, String> {
 
 /// 重新编码为不含任何工程块的普通 PNG。扁平导出不能信任前端传来的 PNG 没有元数据。
 pub fn flatten(png: &[u8]) -> Result<Vec<u8>, String> {
-    validate_rendered_png(png)?;
-    encode_flattened(png)
+    let image = decode_png(png, MAX_RENDERED_PNG_BYTES, "合成 PNG")?;
+    encode_flattened(&image)
 }
 
 /// 打开可编辑容器时只让 `pin-frame` 交付 IDAT 重编码后的轻量预览，不把内嵌原图
 /// 一起复制进显示路径。
 pub fn flatten_container(png: &[u8]) -> Result<Vec<u8>, String> {
-    validate_rendered_png_container(png)?;
-    encode_flattened(png)
+    let sanitized = strip_project_chunks(png)?;
+    let image =
+        super::image_validation::decode_strict_png(&sanitized, MAX_RENDERED_PNG_BYTES, "合成 PNG")?;
+    encode_flattened(&image)
 }
 
-fn encode_flattened(png: &[u8]) -> Result<Vec<u8>, String> {
-    let sanitized = strip_project_chunks(png)?;
-    let image = image::load_from_memory_with_format(&sanitized, image::ImageFormat::Png)
-        .map_err(|_| "合成 PNG 无法完整解码".to_string())?
-        .into_rgba8();
+fn encode_flattened(image: &image::RgbaImage) -> Result<Vec<u8>, String> {
     let (width, height) = image.dimensions();
     let flat = crate::png_io::encode_png(image.as_raw(), width, height)
         .map_err(|error| format!("扁平 PNG 编码失败: {error}"))?;
@@ -480,10 +483,25 @@ fn encode_flattened(png: &[u8]) -> Result<Vec<u8>, String> {
 /// 元数据缺失、损坏、v1、未来版本或信任边界校验失败均返回 `Ok(None)`；只有容器本身不是
 /// PNG 才返回 `Err`。
 pub fn extract(png: &[u8]) -> Result<Option<PinProject>, String> {
+    decode_with_project(png).map(|(_, project)| project)
+}
+
+/// 打开文件时直接返回已校验的预览像素，避免预览摘要与查看器分别解码。
+pub fn decode_with_project(png: &[u8]) -> Result<(image::RgbaImage, Option<PinProject>), String> {
     if png.len() > MAX_CONTAINER_BYTES {
         return Err("PNG 文件超过 160 MiB 上限".to_string());
     }
-    let actual_preview = validate_rendered_png_container(png)?;
+    let sanitized = strip_project_chunks(png)?;
+    let image =
+        super::image_validation::decode_strict_png(&sanitized, MAX_RENDERED_PNG_BYTES, "合成 PNG")?;
+    let project = match sanitized {
+        Cow::Borrowed(_) => None,
+        Cow::Owned(_) => extract_metadata(png, &image),
+    };
+    Ok((image, project))
+}
+
+fn extract_metadata(png: &[u8], image: &image::RgbaImage) -> Option<PinProject> {
     let decoder = png::Decoder::new(std::io::Cursor::new(png));
     let reader = match decoder.read_info() {
         Ok(reader) => reader,
@@ -491,7 +509,7 @@ pub fn extract(png: &[u8]) -> Result<Option<PinProject>, String> {
             // IDAT 已通过去除工程块后的完整解码。此处失败只可能来自工程辅助块本身，
             // 因而安全降级，不让损坏元数据阻止图片打开。
             log::info!("贴图工程块解析失败，按普通图片处理: {error}");
-            return Ok(None);
+            return None;
         }
     };
     for chunk in &reader.info().utf8_text {
@@ -504,18 +522,16 @@ pub fn extract(png: &[u8]) -> Result<Option<PinProject>, String> {
             .is_err()
         {
             log::info!("贴图工程解压失败或超过上限，按普通图片处理");
-            return Ok(None);
+            return None;
         }
         let Ok(text) = chunk.get_text() else {
             log::info!("贴图工程文本无效，按普通图片处理");
-            return Ok(None);
+            return None;
         };
         if text.len() > MAX_PROJECT_JSON_BYTES {
-            return Ok(None);
+            return None;
         }
-        let Ok(value) = serde_json::from_str::<Value>(&text) else {
-            return Ok(None);
-        };
+        let value = serde_json::from_str::<Value>(&text).ok()?;
         // v1 的 `version` 与 v2/v3 的 `formatVersion` 明确区分；不猜测旧坐标语义。
         let format_version = value.get("formatVersion").and_then(Value::as_u64);
         if !matches!(
@@ -524,39 +540,32 @@ pub fn extract(png: &[u8]) -> Result<Option<PinProject>, String> {
                 if version == u64::from(LEGACY_PROJECT_VERSION)
                     || version == u64::from(PROJECT_VERSION)
         ) {
-            return Ok(None);
+            return None;
         }
-        let Ok(project) = serde_json::from_value::<PinProject>(value) else {
-            return Ok(None);
-        };
+        let project = serde_json::from_value::<PinProject>(value).ok()?;
         if let Err(error) = project.validate() {
             log::info!("贴图工程校验失败，按普通图片处理: {error}");
-            return Ok(None);
+            return None;
         }
-        if let Err(error) = project.validate_preview_fingerprint(&actual_preview) {
+        if let Err(error) =
+            project.validate_preview_fingerprint(&preview_fingerprint_from_image(image))
+        {
             log::info!("贴图工程与合成图不匹配，按普通图片处理: {error}");
-            return Ok(None);
+            return None;
         }
-        return Ok(Some(project));
+        return Some(project);
     }
-    Ok(None)
-}
-
-fn validate_rendered_png_container(png: &[u8]) -> Result<ProjectPreview, String> {
-    let sanitized = strip_project_chunks(png)?;
-    let image = decode_png(&sanitized, MAX_RENDERED_PNG_BYTES, "合成 PNG")?;
-    Ok(preview_fingerprint_from_image(&image))
+    None
 }
 
 /// 删除 raw PNG 流里 keyword 为 `clippy-project` 的 iTXt。这里不解析文本、不信任 CRC，
 /// 因而即使该块的压缩流/CRC 损坏，也能继续验证并显示其余 IDAT。
-fn strip_project_chunks(png: &[u8]) -> Result<Vec<u8>, String> {
+fn strip_project_chunks(png: &[u8]) -> Result<Cow<'_, [u8]>, String> {
     const SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
     if png.len() < SIGNATURE.len() || &png[..8] != SIGNATURE {
         return Err("文件不是合法 PNG".to_string());
     }
-    let mut out = Vec::with_capacity(png.len());
-    out.extend_from_slice(SIGNATURE);
+    let mut out = None;
     let mut cursor = 8usize;
     let mut saw_iend = false;
     while cursor < png.len() {
@@ -582,7 +591,13 @@ fn strip_project_chunks(png: &[u8]) -> Result<Vec<u8>, String> {
                 .split(|byte| *byte == 0)
                 .next()
                 .is_some_and(|keyword| keyword == PROJECT_KEYWORD.as_bytes());
-        if !is_project {
+        if is_project {
+            out.get_or_insert_with(|| {
+                let mut kept = Vec::with_capacity(png.len() - (end - cursor));
+                kept.extend_from_slice(&png[..cursor]);
+                kept
+            });
+        } else if let Some(out) = &mut out {
             out.extend_from_slice(&png[cursor..end]);
         }
         cursor = end;
@@ -594,7 +609,7 @@ fn strip_project_chunks(png: &[u8]) -> Result<Vec<u8>, String> {
     if !saw_iend || cursor != png.len() {
         return Err("PNG 缺少有效 IEND".to_string());
     }
-    Ok(out)
+    Ok(out.map_or(Cow::Borrowed(png), Cow::Owned))
 }
 
 fn validate_document(document: &ProjectDocument, width: u32, height: u32) -> Result<(), String> {

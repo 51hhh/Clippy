@@ -948,18 +948,30 @@ pub(super) fn save_screens(target: SaveTarget) -> io::Result<()> {
 }
 
 fn save_rgba(rgba: &[u8], width: u32, height: u32, target: &SaveTarget) -> Result<PathBuf> {
+    commit_png(
+        target,
+        |file| {
+            PngEncoder::new_with_quality(file, CompressionType::Fast, FilterType::Adaptive)
+                .write_image(rgba, width, height, ExtendedColorType::Rgba8)?;
+            Ok(())
+        },
+        || Ok(()),
+    )
+}
+
+pub(super) fn commit_png(
+    target: &SaveTarget,
+    write: impl FnOnce(&mut fs::File) -> Result<()>,
+    before_commit: impl FnOnce() -> Result<()>,
+) -> Result<PathBuf> {
     fs::create_dir_all(&target.directory)?;
     let stem = target.filename_stem("clippy-screenshot");
     let mut staging = tempfile::Builder::new()
         .prefix(".clippy-save-")
         .tempfile_in(&target.directory)?;
-    PngEncoder::new_with_quality(
-        staging.as_file_mut(),
-        CompressionType::Fast,
-        FilterType::Adaptive,
-    )
-    .write_image(rgba, width, height, ExtendedColorType::Rgba8)?;
+    write(staging.as_file_mut())?;
     staging.as_file().sync_all()?;
+    before_commit()?;
     for candidate in filename_candidates(&stem) {
         let path = target.directory.join(candidate);
         match staging.persist_noclobber(&path) {

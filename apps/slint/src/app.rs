@@ -23,7 +23,7 @@ use slint::{
 use std::{
     cell::RefCell,
     fs, io,
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -32,6 +32,7 @@ use std::{
 mod capture;
 mod clipboard;
 mod editor;
+mod image_project;
 mod launcher;
 mod longshot;
 mod pins;
@@ -81,6 +82,7 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
     crate::locale::apply(&config.language);
     tray.set_product_name(identity.product_name.into());
     tray.on_open_panel(|| handle(Event::Open(false)));
+    tray.on_open_png(|| handle(Event::ChoosePng));
     tray.on_screenshot(|| handle(Event::CaptureStart));
     tray.on_delayed_screenshot(|| {
         use_app(|app| {
@@ -160,6 +162,7 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
             delayed_capture: Timer::default(),
             editor: None,
             editor_id: 0,
+            editor_import_pending: false,
             pins: pins::Pins::default(),
             preview: preview::Preview::default(),
             thumbnails: thumbnails::Thumbnails::default(),
@@ -219,6 +222,7 @@ fn load_config(paths: &AppPaths, identity: &DeploymentIdentity) -> Result<AppCon
 
 enum Event {
     Open(bool),
+    ChoosePng,
     GlobalShortcut(Action),
     Hide,
     HistoryChanged,
@@ -263,6 +267,9 @@ enum Event {
     EditorAction(editor::Action),
     EditorRendered(u64, Result<image::RgbaImage>),
     EditorOutput(u64, Result<String>),
+    EditorRevisionSaved(u64, Result<PathBuf>),
+    EditorOpenFile(slint::Weak<AppWindow>, PathBuf),
+    EditorFileOpened(slint::Weak<AppWindow>, Result<image_project::Prepared>),
     Pins(pins::Message),
     LongshotStart(Result<(Region, image::RgbaImage)>),
     Longshot(longshot::Message),
@@ -315,6 +322,7 @@ struct App {
     delayed_capture: Timer,
     editor: Option<editor::View>,
     editor_id: u64,
+    editor_import_pending: bool,
     pins: pins::Pins,
     preview: preview::Preview,
     thumbnails: thumbnails::Thumbnails,
@@ -356,6 +364,13 @@ impl App {
                 }
             }
             Event::Open(_) => {}
+            Event::ChoosePng => {
+                if self.capture_selection.is_none() {
+                    if let Err(error) = self.open(false).and_then(|()| settings::choose_png(self)) {
+                        self.status(error.to_string());
+                    }
+                }
+            }
             Event::Hide => self.hide(),
             Event::HistoryChanged => self.reload(),
             Event::History(generation, result) if generation == self.generation => {
@@ -600,6 +615,9 @@ impl App {
             Event::EditorAction(action) => self.edit(action),
             Event::EditorRendered(id, result) => self.editor_rendered(id, result),
             Event::EditorOutput(id, result) => self.editor_output(id, result),
+            Event::EditorRevisionSaved(id, result) => self.editor_revision_saved(id, result),
+            Event::EditorOpenFile(owner, path) => self.open_editor_file(owner, path),
+            Event::EditorFileOpened(owner, result) => self.editor_file_opened(owner, result),
             Event::Pins(message) => self.pin_message(message),
             Event::LongshotStart(result) => self.start_longshot(result),
             Event::Longshot(message) => self.longshot_message(message),

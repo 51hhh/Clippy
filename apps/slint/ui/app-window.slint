@@ -18,6 +18,7 @@ export component ClippyTray inherits SystemTrayIcon {
     in property <string> product-name;
     in property <bool> scrolling;
     callback open-panel();
+    callback open-png();
     callback screenshot();
     callback delayed-screenshot();
     callback save-screens();
@@ -36,6 +37,7 @@ export component ClippyTray inherits SystemTrayIcon {
 
     Menu {
         MenuItem { title: @tr("Open Clipboard"); activated => { root.open-panel(); } }
+        MenuItem { title: @tr("Open PNG…"); activated => { root.open-png(); } }
         MenuItem { title: @tr("Screenshot"); activated => { root.screenshot(); } }
         MenuItem { title: @tr("Screenshot in 3 seconds"); activated => { root.delayed-screenshot(); } }
         MenuItem { title: @tr("Save screens to PNG"); activated => { root.save-screens(); } }
@@ -170,9 +172,15 @@ export component AppWindow inherits Window {
             focus-on-click: false;
             capture-key-pressed(event) => {
                 if (event.modifiers.control || event.modifiers.meta) && !event.modifiers.alt
-                    && !event.modifiers.shift && event.text == "k" {
-                    root.open-launcher();
-                    return accept;
+                    && !event.modifiers.shift {
+                    if event.text == "k" {
+                        root.open-launcher();
+                        return accept;
+                    }
+                    if event.text == "o" {
+                        if !root.file-dialog-pending { root.choose-path(FileChoice.open-image, ""); }
+                        return accept;
+                    }
                 }
                 reject
             }

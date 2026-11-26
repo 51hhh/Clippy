@@ -13,7 +13,14 @@ pub(super) fn start(app: &mut App, kind: FileChoice, path: &str) -> Result<()> {
         !app.file_dialog_pending,
         "Close the current file chooser first"
     );
-    let window = app.window.as_ref().expect("设置窗口已打开");
+    if kind == FileChoice::OpenImage {
+        ensure!(
+            app.editor.is_none(),
+            "Close the current image before opening another one"
+        );
+        ensure!(!app.editor_import_pending, "An image is already opening");
+    }
+    let window = app.window.as_ref().expect("文件选择器的父窗口已打开");
     let requester = window.as_weak();
     let path = expand_user_path(path.trim());
     let request = match kind {
@@ -52,6 +59,14 @@ pub(super) fn start(app: &mut App, kind: FileChoice, path: &str) -> Result<()> {
             title: tr("Import Clippy archive"),
             directory: None,
         },
+        FileChoice::OpenImage => Request {
+            mode: Mode::Open {
+                label: tr("PNG images"),
+                extension: "png",
+            },
+            title: tr("Open PNG"),
+            directory: None,
+        },
     };
     slint::spawn_local(async move {
         let result = choose(&requester, request)
@@ -65,7 +80,7 @@ pub(super) fn start(app: &mut App, kind: FileChoice, path: &str) -> Result<()> {
 }
 
 async fn choose(requester: &Weak<AppWindow>, request: Request) -> Result<Option<PathBuf>> {
-    let window = requester.upgrade().context("Settings closed")?;
+    let window = requester.upgrade().context("Window closed")?;
     let native = window.window().winit_window().await?;
     drop(window);
     #[cfg(target_os = "linux")]
@@ -99,8 +114,14 @@ pub(super) fn completed(
     {
         return;
     }
-    let result = result.and_then(|path| path.map(|path| selected_path(kind, path)).transpose());
-    let result = match result {
+    let path = match result {
+        Ok(Some(path)) if kind == FileChoice::OpenImage => {
+            app.open_editor_file(requester, path);
+            return;
+        }
+        other => other.and_then(|path| path.map(|path| selected_path(kind, path)).transpose()),
+    };
+    let result = match path {
         Ok(Some(path)) => match kind {
             FileChoice::ScreenshotDirectory => {
                 window.set_save_directory_draft(path.into());
@@ -112,6 +133,7 @@ pub(super) fn completed(
             }
             FileChoice::ExportArchive => app.data_action(1, &path),
             FileChoice::ImportArchive => app.data_action(2, &path),
+            FileChoice::OpenImage => unreachable!("图片路径无需转成 UTF-8"),
         },
         Ok(None) => Ok(()),
         Err(error) => Err(error),
@@ -150,7 +172,7 @@ fn selected_path(kind: FileChoice, mut path: PathBuf) -> Result<String> {
             value.ends_with(ARCHIVE_SUFFIX),
             "Choose a .clippy.zip archive"
         ),
-        FileChoice::ExportArchive => {}
+        FileChoice::ExportArchive | FileChoice::OpenImage => {}
     }
     Ok(value.to_owned())
 }

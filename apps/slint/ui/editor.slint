@@ -6,6 +6,7 @@ import { ViewerPane } from "viewer.slint";
 export component EditorWindow inherits ClippyWindow {
     in property <image> picture;
     in property <bool> browse;
+    in property <bool> editable-save-available;
     in property <float> aspect: 1;
     in property <[string]> tools;
     in property <int> text-tool-index;
@@ -24,6 +25,7 @@ export component EditorWindow inherits ClippyWindow {
     callback redo();
     callback copy();
     callback save();
+    callback save-editable();
     callback close-editor();
     callback pin();
     callback recognize();
@@ -47,6 +49,7 @@ export component EditorWindow inherits ClippyWindow {
         can-undo: root.can-undo;
         can-redo: root.can-redo;
         output-ready: root.output-ready;
+        editable-save-available: root.editable-save-available;
         status: root.status;
         start-stroke(x, y) => { root.start-stroke(x, y); }
         move-stroke(x, y) => { root.move-stroke(x, y); }
@@ -55,6 +58,7 @@ export component EditorWindow inherits ClippyWindow {
         redo => { root.redo(); }
         copy => { root.copy(); }
         save => { root.save(); }
+        save-editable => { root.save-editable(); }
         recognize => { root.recognize(); }
         scan-code => { root.scan-code(); }
         pin => { root.pin(); }

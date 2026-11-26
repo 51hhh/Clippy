@@ -286,6 +286,12 @@ msgstr "无法检查 OCR"
 msgid "Could not open the file chooser"
 msgstr "无法打开文件选择器"
 
+msgid "Could not open PNG: {0}"
+msgstr "无法打开 PNG：{0}"
+
+msgid "Close the current image before opening another one"
+msgstr "请先关闭当前图片"
+
 msgid "Could not refresh audio devices"
 msgstr "无法刷新音频设备"
 
@@ -727,6 +733,9 @@ msgstr "未识别到二维码或条码"
 msgid "An image is already being analyzed"
 msgstr "正在识别另一张图片"
 
+msgid "An image is already opening"
+msgstr "正在打开另一张图片"
+
 msgid "No matching actions"
 msgstr "没有匹配的动作"
 
@@ -774,6 +783,18 @@ msgstr "打开"
 
 msgid "Open Clipboard"
 msgstr "打开剪贴板"
+
+msgid "Open PNG"
+msgstr "打开 PNG"
+
+msgid "Open PNG…"
+msgstr "打开 PNG…"
+
+msgid "Opening PNG…"
+msgstr "正在打开 PNG…"
+
+msgid "PNG images"
+msgstr "PNG 图片"
 
 msgid "Open in Actions"
 msgstr "在动作面板打开"
@@ -1047,6 +1068,21 @@ msgstr "运行"
 
 msgid "Save PNG"
 msgstr "保存 PNG"
+
+msgid "Save editable copy"
+msgstr "保存可编辑副本"
+
+msgid "Saved and copied {0}"
+msgstr "已保存并复制：{0}"
+
+msgid "Saved to {0}"
+msgstr "已保存到 {0}"
+
+msgid "Saved to {0}, but could not copy: {1}"
+msgstr "已保存到 {0}，复制失败：{1}"
+
+msgid "Saving…"
+msgstr "正在保存…"
 
 msgid "Save a clipboard image to the screenshot folder"
 msgstr "把剪贴板图片保存到截图目录"

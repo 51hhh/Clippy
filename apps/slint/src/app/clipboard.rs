@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context, Result};
+use clippy_capture::png_io::encode_png;
 use clippy_core::clipboard::{
     compute_hash, is_sensitive_text, rgba_fingerprint, strip_html_tags, validate_image_layout,
 };
@@ -8,7 +9,7 @@ use clippy_platform::{
     paste::{Paste, Target},
 };
 use clippy_storage::{BoundedImageData, StorageClient, StorageEngine, StorageError};
-use image::{codecs::png::PngEncoder, ExtendedColorType, ImageEncoder, ImageFormat, ImageReader};
+use image::{ImageFormat, ImageReader};
 use std::borrow::Cow;
 use std::io::Cursor;
 use std::path::PathBuf;
@@ -438,18 +439,7 @@ fn store_snapshot(
             )
         }
         Content::Image(image) => {
-            let mut png = Vec::new();
-            PngEncoder::new_with_quality(
-                &mut png,
-                image::codecs::png::CompressionType::Fast,
-                image::codecs::png::FilterType::Adaptive,
-            )
-            .write_image(
-                &image.bytes,
-                image.width as u32,
-                image.height as u32,
-                ExtendedColorType::Rgba8,
-            )?;
+            let png = encode_png(&image.bytes, image.width as u32, image.height as u32)?;
             let size = png.len();
             let hash = compute_hash(&png);
             (ContentType::Image, None, None, Some(png), hash, size)

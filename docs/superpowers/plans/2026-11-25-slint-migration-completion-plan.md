@@ -774,6 +774,25 @@ Tesseract 状态、停用及清除自定义路径后恢复内置引擎。真实�
 
 **Out of Scope** 新码制、扫码历史、自动打开链接和网络请求。
 
+#### 阶段 6 · 查看器可编辑保存与重开
+
+**Goal** 从 Slint 查看器保存图片的可编辑修订，重启后由落盘 PNG 或剪贴板历史恢复原图和标注。
+
+**Requirements** 保留普通 PNG 导出。显式保存可编辑副本时，登记共享 SQLite 根图与修订，再用原子写入和系统
+剪贴板提交同一份合成像素。输出文件和剪贴板只有扁平 PNG。使用现有 PNG 编码、哈希、renderer v2 和相同的
+SQLite 查询，不改变文件命名、数据库或归档格式。文件发布失败时给出错误，文件已保存但复制失败时显示对应状态。
+内存模式只提供现有的普通 PNG 导出。
+应用通过系统选取文件或 Winit 支持的本地文件拖入打开图片。输入按现有 PNG 尺寸和字节预算读取，一次只处理一个
+导入。扁平文件只有精确匹配合成像素的本机修订才恢复标注。旧版 iTXt v2/v3 用共享解析器读取，renderer v2
+保留原图和操作，renderer v1 延续旧版以合成图为新根图的迁移行为。
+
+**Acceptance Criteria** 在隔离桌面从查看器绘制并保存，比较文件和剪贴板的解码像素，核对 SQLite 修订和 PNG
+均符合现有合同。重启后通过拖入或原生文件选择重开，从历史再次贴图，验证恢复和撤销标注，并记录源图及输出摘要。
+另验证一个像素改动、重复文件名、文件保存失败、取消选择，以及旧版 iTXt v2/v3 的导入和另存为 SQLite 修订。
+跟踪各目标系统的原生拖入能力，Wayland 至少验证同一导入路径的系统文件选择器。
+
+**Out of Scope** 新工程文件格式、在 PNG 中写回原图、迁移 renderer v1 标注坐标以及修改 Winit。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -1806,6 +1825,23 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   `editor-delay-baseline/run.log`、`editor-delay-fixed/run.log` 和 `ocr-paragraph-125/run.log`。
   同目录 `full-ci-final/run.log` 记录当前源码的 Linux 完整门禁为 11 通过、0 失败、0 跳过。
   Windows、macOS 和实体 Wayland 的安装包待验收。
+
+#### 阶段 6 · 查看器可编辑保存与重开结果
+
+- 查看器沿用同一合成像素，先准备原子 PNG 写入，再登记 SQLite 修订，文件发布后复制图像。贴图和查看器使用
+  同一套根图编码、修订登记和读取。普通导出继续流式编码到临时文件。
+- 隔离 X11 实际拖入 PNG，绘制矩形后保存两次。文件和剪贴板像素一致，两个文件均为扁平 PNG，重名保留
+  原文件和同一修订。重启后再次拖入，复制结果的 RGBA 摘要匹配，撤销恢复根图。历史贴图复用原修订。
+  实测回归发现标注坐标读取时末位变动会新建修订，启用 SQLite 文档数值的精确解析后通过。
+- 同一 X11 用例还通过一个像素改动后的普通图像打开，及三个独立数据库的旧 iTXt 导入。renderer v2 的旧格式
+  v2 和 v3 保留原图与标注。renderer v1 从旧合成图开始新修订。另存文件均不写回工程块。
+- 隔离 X11 与无 XWayland 的隔离 GNOME Wayland 均使用真实 GTK Portal 取消并选择本地 PNG。X11 保存
+  与复制的像素相同。GNOME 保存像素一致，剪贴板后端尝试连接 X11 后失败，界面显示文件已保存及复制失败。
+  纯 Wayland 剪贴板和实体 Wayland 的安装包验收继续保留。
+- 证据位于 `target/test-artifacts/slint-stage6-viewer-revisions.Wda94EXv/`，包括 `viewer-x11-r8/run.log` 的根图、
+  合成 PNG 和重开 RGBA 摘要，以及 `gtk-picker-final.log`、`gnome-picker-final.log`。完整 Linux 门禁
+  11 通过、0 失败、0 跳过，见 `full-ci/run.log`。门禁验证了目录写入失败不登记修订，存储不可用不留下半成品。
+  Windows 和 macOS 安装包的文件拖入、选择器及重开待验收。
 
 ## Acceptance Criteria
 

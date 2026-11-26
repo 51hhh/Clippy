@@ -1,5 +1,8 @@
-use super::{capture, clipboard, post, settings, use_app, vision, App, Event};
-use crate::{locale::tr, ClippyTheme, EditorWindow};
+use super::{capture, clipboard, image_project, post, settings, use_app, vision, App, Event};
+use crate::{
+    locale::{message, tr},
+    AppWindow, ClippyTheme, EditorWindow,
+};
 use anyhow::{anyhow, Result};
 use clippy_capture::editor::{Editor, ImageProject, Tool};
 use clippy_core::image_output::SaveTarget;
@@ -7,7 +10,11 @@ use image::RgbaImage;
 use slint::{
     CloseRequestResponse, ComponentHandle, ModelRc, Rgba8Pixel, SharedPixelBuffer, VecModel,
 };
-use std::{sync::Arc, thread};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    thread,
+};
 
 const COLORS: [&str; 6] = [
     "#ff3b30", "#ff9500", "#34c759", "#0a84ff", "#ffffff", "#171717",
@@ -30,6 +37,7 @@ pub(super) enum Action {
     Adjust(bool, f32),
     Copy,
     Save,
+    SaveEditable,
     Close,
     Pin,
     Analyze(vision::Mode),
@@ -56,9 +64,11 @@ impl View {
         document: Editor,
         theme: i32,
         browse: bool,
+        editable_save_available: bool,
     ) -> Result<Self> {
         let window = EditorWindow::new()?;
         window.set_browse(browse);
+        window.set_editable_save_available(editable_save_available);
         let appearance = window.global::<ClippyTheme>();
         appearance.set_index(theme);
         settings::connect_window_frame(&window, appearance);
@@ -123,6 +133,7 @@ impl View {
         });
         window.on_copy(|| action(Action::Copy));
         window.on_save(|| action(Action::Save));
+        window.on_save_editable(|| action(Action::SaveEditable));
         window.on_pin(|| action(Action::Pin));
         window.on_recognize(|| action(Action::Analyze(vision::Mode::Recognize)));
         window.on_scan_code(|| action(Action::Analyze(vision::Mode::Scan)));
@@ -215,7 +226,69 @@ fn edit_sync(edit: impl FnOnce(&mut View)) {
     });
 }
 
+fn editable_save_status(path: &Path, clipboard: Result<()>) -> String {
+    match clipboard {
+        Ok(()) => message("Saved and copied {0}", &[&path.display()]),
+        Err(error) => message(
+            "Saved to {0}, but could not copy: {1}",
+            &[&path.display(), &error],
+        ),
+    }
+}
+
 impl App {
+    fn history_owner(&self, owner: &slint::Weak<AppWindow>) -> Option<AppWindow> {
+        let current = self.window.as_ref()?;
+        owner.upgrade().filter(|window| {
+            !current.get_show_settings() && std::ptr::eq(window.window(), current.window())
+        })
+    }
+
+    pub(super) fn open_editor_file(&mut self, owner: slint::Weak<AppWindow>, path: PathBuf) {
+        let Some(window) = self.history_owner(&owner) else {
+            return;
+        };
+        if self.editor.is_some() {
+            self.status("Close the current image before opening another one");
+            return;
+        }
+        if self.editor_import_pending {
+            self.status("An image is already opening");
+            return;
+        }
+        let storage = self.storage.client();
+        match thread::Builder::new()
+            .name("clippy-png-open".into())
+            .spawn(move || {
+                let result = image_project::open(&path, &storage);
+                post(Event::EditorFileOpened(owner, result));
+            }) {
+            Ok(_) => {
+                self.editor_import_pending = true;
+                window.set_action_status(tr("Opening PNG…").into());
+            }
+            Err(error) => self.status(error.to_string()),
+        }
+    }
+
+    pub(super) fn editor_file_opened(
+        &mut self,
+        owner: slint::Weak<AppWindow>,
+        result: Result<image_project::Prepared>,
+    ) {
+        self.editor_import_pending = false;
+        if self.history_owner(&owner).is_none() {
+            return;
+        }
+        match result.and_then(|(image, project)| self.open_viewer_project(image, project)) {
+            Ok(()) => {
+                self.status("");
+                self.hide();
+            }
+            Err(error) => self.status(message("Could not open PNG: {0}", &[&error])),
+        }
+    }
+
     pub(super) fn open_editor(&mut self, image: RgbaImage) -> Result<()> {
         let image = Arc::new(image);
         self.show_editor(image.clone(), Editor::new(image), false)
@@ -260,6 +333,7 @@ impl App {
             document,
             settings::theme_index(&self.config.theme),
             browse,
+            self.config.storage_mode != "memory",
         )?);
         Ok(())
     }
@@ -275,6 +349,29 @@ impl App {
             editor
                 .set_status(result.unwrap_or_else(|error| format!("Image output failed: {error}")));
             editor.set_busy(false);
+        }
+    }
+
+    pub(super) fn editor_revision_saved(&mut self, id: u64, result: Result<PathBuf>) {
+        let Some(editor) = self.editor.as_ref().filter(|editor| editor.id == id) else {
+            return;
+        };
+        let path = match result {
+            Ok(path) => path,
+            Err(error) => return self.editor_output(id, Err(error)),
+        };
+        let copied_path = path.clone();
+        let result = self.clipboard.submit(clipboard::Request::WriteImage {
+            image: editor.current.clone(),
+            finish: Box::new(move |result| {
+                post(Event::EditorOutput(
+                    id,
+                    Ok(editable_save_status(&copied_path, result)),
+                ));
+            }),
+        });
+        if let Err(error) = result {
+            self.editor_output(id, Ok(editable_save_status(&path, Err(error))));
         }
     }
 
@@ -325,7 +422,7 @@ impl App {
                     Err(error) => editor.set_status(error.to_string()),
                 }
             }
-            Action::Save => {
+            Action::Save | Action::SaveEditable => {
                 if !editor.window.get_output_ready() {
                     return;
                 }
@@ -335,14 +432,23 @@ impl App {
                 );
                 let id = editor.id;
                 let image = editor.current.clone();
+                let revision = matches!(action, Action::SaveEditable)
+                    .then(|| (editor.document.snapshot(), self.storage.client()));
                 editor.set_busy(true);
-                editor.set_status("Saving…".to_owned());
+                editor.set_status(tr("Saving…").to_owned());
                 if let Err(error) = thread::Builder::new()
                     .name("clippy-image-save".into())
-                    .spawn(move || {
-                        let result = capture::save_png(&image, &target)
-                            .map(|path| format!("Saved to {}", path.display()));
-                        post(Event::EditorOutput(id, result));
+                    .spawn(move || match revision {
+                        Some((project, storage)) => {
+                            let result =
+                                image_project::save_editable(&project, &image, &target, &storage);
+                            post(Event::EditorRevisionSaved(id, result));
+                        }
+                        None => {
+                            let result = capture::save_png(&image, &target)
+                                .map(|path| message("Saved to {0}", &[&path.display()]));
+                            post(Event::EditorOutput(id, result));
+                        }
                     })
                 {
                     self.editor_output(id, Err(anyhow!(error)));
