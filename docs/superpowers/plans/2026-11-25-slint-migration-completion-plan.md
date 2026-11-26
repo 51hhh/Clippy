@@ -141,8 +141,8 @@ flowchart LR
 
 帧与选区由采集层确定来源、拓扑代次、逻辑/物理变换、stride、格式、色彩和时间。快照只读，持续帧由每次
 操作的会话持有，以当前图或下一帧的用途限定数据流。Slint 消费模型和反馈。存储线程只持有 SQLite 请求，
-图片编码和归档压缩通过后台工作完成。当前归档导出在 SQLite 回调里做 `write_new_archive`，适合移出并
-测大归档期间的历史入库延迟。录屏首帧预览前会校验文件，可对长录屏采用绑定产物身份的私有缩略图缓存，
+图片编码和 ZIP 组装与写入通过后台工作完成。归档导出在 SQLite 工作线程生成一致性快照，再由单独线程执行
+`write_new_archive`。录屏首帧预览前会校验文件，可对长录屏采用绑定产物身份的私有缩略图缓存，
 保留播放和导出的完整验证。 [存储工作线程](../../../crates/clippy-storage/src/service.rs) · [归档导出](../../../apps/slint/src/app/settings.rs#L528) · [首帧校验](../../../crates/clippy-media/src/recording/mux/webm_remux.rs#L248)
 
 ## 串行实施顺序
@@ -155,7 +155,7 @@ flowchart LR
 | 3 自动长截图 | 从 X11 测试页面跑通自动步进，复用共享长图 session。随后迁 Windows/macOS 原生输入、Wayland 同源授权输入与流。接直接复制、保存、贴图。 | 四方向、固定页眉、低纹理、到页尾、撤销和切换目标。每次只建立一条源会话，输入取消后没有延迟事件，输出与拼接金图一致。 |
 | 4 录屏与回放 | 用阶段 2 的帧源替换重复抓图，补窗口排除、音轨设备和按需播放器。在可播放的本地产物上先原型比选，固定一个播放器后端。 | 无声和实际可用音轨录制、暂停、继续、强杀恢复、导出、正常回放、seek、关闭释放。每平台至少一份 30 分钟有声证据与音画漂移记录。 |
 | 5 离线 OCR 和图片翻译 | 固定 PP-OCRv6 small 的参照输入，首个包验证无需用户安装 Python。用 `StructuredOcr` 接三处入口和同一段落框。用本地服务验证首次与多段译文。 | CER、框 Hmean、阅读顺序和空白 F1 按现有语料判定。模型缺失、取消、切图和敏感项覆盖。三平台冷/热延迟、峰值、退出回落。高 DPI、旋转下译文与对应段落对齐。 |
-| 6 日常操作、UI 和输出 | 根据矩阵补齐旧入口。内联高频标注与查看器复用编辑模型，贴图位置/层级按平台处理，补语言、原生文件选择、快捷键动态保存和数据管理。将归档压缩移出 SQLite 回调。 | 复用现有双主题对照与 X11 自动测试。新入口用真实动作验收。归档的图像修订可重新编辑，大小图和长视频均能释放。 |
+| 6 日常操作、UI 和输出 | 根据矩阵补齐旧入口。内联高频标注与查看器复用编辑模型，贴图位置/层级按平台处理，补语言、原生文件选择、快捷键动态保存和数据管理。将 ZIP 组装与写入移出 SQLite 回调。 | 复用现有双主题对照与 X11 自动测试。新入口用真实动作验收。归档的图像修订可重新编辑，大小图和长视频均能释放。 |
 | 7 从 QA 到正式更新 | 固定候选 SHA，生成四架构 QA 和对应正式安装器草稿。完成实机升级、签名、还原、依赖和进程树检查，再确定是否需要末代 v0.1.x 更新桥。按实际签名及安装结果发布。 | 同一 SHA 的 Linux/Windows/macOS CI、各安装包、人工 QA、五次 PSS 与备份回滚均有证据。旧版稳定更新入口保持正确版本路线。 |
 
 每个候选使用固定输入记录原始问题、替代方案、收益和回退点。连续两次候选无指标或测试推进时记录阻塞，
@@ -1211,10 +1211,28 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
 - 独立 D-Bus 用延迟响应核对关窗后旧选择不会触发归档，非本地 URI 被拒绝。没有 FileChooser 的独立会话显示
   错误反馈，手填路径仍成功导出。ELF 依赖检查确认 QA 程序未链接 GTK、WebKit 或 JavaScriptCore。
 - 完整 Linux 门禁 11 项通过、0 失败、0 跳过。Windows GNU 的默认 Slint QA 入口交叉检查与 macOS 双架构
-  平台层严格 Clippy 通过。Wayland、Windows 和 macOS 原生桌面与安装包继续验收。
+  平台层严格 Clippy 通过。归档线程变更后，隔离 GNOME Wayland 实际打开 GTK 选择器并取消。D-Bus 记录确认
+  `OpenFile` 带 Wayland 父窗口句柄，取消保留配置。证据位于 `gnome-picker.log` 和 `gnome-picker-dbus.log`。
+  其他 Wayland 桌面、Windows 和 macOS 原生桌面及安装包继续验收。
 - QA 二进制 SHA-256 为 `ff6579e561dd4e0180f5c3c3b87df63a32b1f1f2ba4e5495a2ed8e53446376d9`。
   证据位于 `target/test-artifacts/slint-stage6-file-dialogs/`，包括 `real-x11.log`、`late-x11.log`、
   `unavailable-x11.log`、`linux-dependencies.log`、`ci-local.log`、`windows-gnu-qa.log` 和 `macos-platform.log`。
+
+#### 阶段 6 · 归档后台写入结果
+
+- SQLite 工作线程把一次归档快照经容量为一的通道交给按需启动的写入线程。ZIP 清单、内容摘要、私有临时文件、
+  同步及禁止覆盖沿用原协议。归档作业收尾或正常退出时回收写入线程。
+- 用隔离 X11 下同一份合成数据导出 25,178,986 字节的 ZIP。在同目录临时文件的 `fsync` 暂停写入。
+  修复前的同步发生在 `clippy-storage`，1.8 秒观察内新复制的文本未入库，放行后才可查。修复后同步发生在
+  `clippy-archive-export`，新剪贴板文本在单次样本约 155 毫秒内入库，恢复写入前已能在历史列表看到。
+  两份 ZIP 的 CRC 校验均通过，新文本未进入已经交付的快照。
+- 另以短归档验证正常退出等待落盘、注入同步错误后清理临时文件以及重试成功。真实 Portal 导入导出、
+  重名保留原件和截图目录选择在最新二进制通过复测。完整 Linux 门禁 11 项通过、0 失败、0 跳过，
+  Windows GNU 的 Slint QA 入口交叉检查通过。
+- 对照来自 `7bff5f5` 的 QA 构建。新 QA 二进制 SHA-256 为
+  `fe1386acd6838931f1adea63b0597d5359ef91e5afdefb77cd06e6356c41990d`。证据位于
+  `target/test-artifacts/slint-stage6-archive-worker/`，包括 `before.log`、`after.log`、`quit.log`、`retry.log`、
+  `real-file-dialogs.log`、`ci-local.log` 和 `windows-gnu-qa.log`。原生安装包的并发和磁盘故障验收仍待复测。
 
 ## Acceptance Criteria
 

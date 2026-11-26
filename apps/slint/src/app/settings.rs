@@ -23,7 +23,7 @@ use slint::{
     },
     ComponentHandle, ModelRc, SharedString, VecModel,
 };
-use std::{path::PathBuf, thread};
+use std::{path::PathBuf, sync::mpsc, thread};
 
 mod file_dialog;
 #[cfg(target_os = "linux")]
@@ -665,30 +665,45 @@ impl App {
                 },
             )?,
             1 | 2 => {
-                ensure!(!self.busy, "Wait for the current operation");
+                ensure!(
+                    !self.busy && self.archive_export.is_none(),
+                    "Wait for the current operation"
+                );
                 let path = expand_user_path(path.trim());
                 ensure!(
                     path.is_absolute() && path.to_string_lossy().ends_with(".clippy.zip"),
                     "Enter an absolute .clippy.zip path"
                 );
                 if action == 1 {
+                    let (ready, snapshot) = mpsc::sync_channel(1);
                     client.execute(
                         |storage| storage.export_archive_snapshot(ArchiveScope::Full, false),
-                        move |snapshot| {
-                            let result =
-                                snapshot.map_err(anyhow::Error::from).and_then(|snapshot| {
-                                    write_new_archive(&path, &snapshot)
-                                        .map_err(anyhow::Error::msg)
-                                        .map(|archive| {
-                                            format!(
-                                                "Exported {} clips and {} pins to {}",
-                                                archive.clips, archive.workspaces, archive.path
-                                            )
-                                        })
-                                });
-                            send(Message::Data(result));
+                        move |result| {
+                            // SQLite 只交付快照，大归档的校验和 I/O 不能挡住新入库。
+                            let _ = ready.try_send(result);
                         },
                     )?;
+                    self.archive_export = Some(
+                        thread::Builder::new()
+                            .name("clippy-archive-export".into())
+                            .spawn(move || {
+                                let result = snapshot
+                                    .recv()
+                                    .context("Archive snapshot unavailable")
+                                    .and_then(|result| result.map_err(Into::into))
+                                    .and_then(|snapshot| {
+                                        write_new_archive(&path, &snapshot)
+                                            .map_err(anyhow::Error::msg)
+                                    })
+                                    .map(|archive| {
+                                        format!(
+                                            "Exported {} clips and {} pins to {}",
+                                            archive.clips, archive.workspaces, archive.path
+                                        )
+                                    });
+                                send(Message::Data(result));
+                            })?,
+                    );
                 } else {
                     thread::Builder::new().name("clippy-archive-import".into()).spawn(move || {
                         let queued = read_archive(&path).map_err(anyhow::Error::msg).and_then(|snapshot| {
@@ -721,6 +736,12 @@ impl App {
             _ => {}
         }
         Ok(())
+    }
+
+    pub(super) fn join_archive_export(&mut self) {
+        if let Some(worker) = self.archive_export.take() {
+            let _ = worker.join();
+        }
     }
 
     #[cfg(target_os = "linux")]
@@ -770,6 +791,7 @@ impl App {
                 file_dialog::completed(self, kind, window, result);
             }
             Message::Data(result) => {
+                self.join_archive_export();
                 self.set_busy(false);
                 self.settings_result(result);
                 self.reload();

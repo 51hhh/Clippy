@@ -24,6 +24,7 @@ use std::{
     fs, io,
     path::Path,
     sync::Arc,
+    thread::JoinHandle,
     time::{Duration, Instant},
 };
 
@@ -137,6 +138,7 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
             generation: 0,
             busy: false,
             file_dialog_pending: false,
+            archive_export: None,
             #[cfg(target_os = "linux")]
             gnome_helper_busy: false,
             #[cfg(target_os = "linux")]
@@ -180,9 +182,10 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
     let result = slint::run_event_loop_until_quit();
     timer.stop();
     APP.with(|app| {
-        if let Some(app) = app.borrow_mut().take() {
+        if let Some(mut app) = app.borrow_mut().take() {
             app.capture_shutdown.cancel();
             app.vision.shutdown();
+            app.join_archive_export();
         }
     });
     result?;
@@ -289,6 +292,7 @@ struct App {
     generation: u64,
     busy: bool,
     file_dialog_pending: bool,
+    archive_export: Option<JoinHandle<()>>,
     #[cfg(target_os = "linux")]
     gnome_helper_busy: bool,
     #[cfg(target_os = "linux")]
