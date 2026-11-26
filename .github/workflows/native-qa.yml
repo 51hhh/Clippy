@@ -673,7 +673,7 @@ jobs:
             --sha $env:GITHUB_SHA `
             --output qa-slint-artifacts/QA-BUILD.txt `
             --field packager=cargo-packager-0.11.8 `
-            --field recording-playback=wasapi `
+            --field recording_playback=wasapi `
             --field target=x86_64-pc-windows-msvc
           if ($LASTEXITCODE -ne 0) { throw "QA metadata exited with $LASTEXITCODE" }
           Get-ChildItem qa-slint-artifacts -File | Where-Object Name -ne 'SHA256SUMS.txt' |
@@ -805,7 +805,7 @@ jobs:
             --output qa-slint-artifacts/QA-BUILD.txt \
             --field packager=cargo-packager-0.11.8 \
             --field minimum_system_version=12.3 \
-            --field recording-playback=coreaudio
+            --field recording_playback=coreaudio
           (cd qa-slint-artifacts && shasum -a 256 ./*.dmg OCR-BUNDLE.json > SHA256SUMS.txt)
 
       - name: Upload Slint macOS QA artifact

@@ -143,6 +143,8 @@
 
 ### Slint 设置、备份和安装包路由
 
+- 修复 Windows 和 macOS QA 出包的播放后端元数据字段。安装包随附的 `QA-BUILD.txt` 记录实际后端。
+  已复测元数据生成，原生出包待验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 - 设置新增跟随系统、简体中文和英文。保存后立即更新托盘和原生界面，下次启动沿用已保存语言。
   Linux 隔离桌面已验证保存失败、重启和主要窗口，Windows/macOS 原生桌面仍待验收。
   （需求 `SLINT-MIGRATION-CLOSURE-01`）

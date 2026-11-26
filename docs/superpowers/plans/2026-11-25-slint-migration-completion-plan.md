@@ -521,7 +521,7 @@ CPAL 的 WASAPI 共享模式打开播放流，沿用 48 kHz 双声道与现有�
 的 `DefaultOutput` AudioUnit 连接系统默认输出。在 AudioUnit 的客户端总线协商 48 kHz 双声道 Float32，
 由系统管理物理设备格式和缓冲。固定版 CPAL 的 macOS 路径会尝试设置硬件物理格式和设备缓冲大小，因此
 这里直接使用默认输出 AudioUnit。用回调的有效 host time 和当前主机时钟估算播放位置，时间无效时报告错误。
-暂停、定位和关窗都释放当前 AudioUnit。QA 构建记录 `recording-playback=coreaudio`。
+暂停、定位和关窗都释放当前 AudioUnit。QA 构建记录 `recording_playback=coreaudio`。
 [Apple 默认输出 AudioUnit](https://developer.apple.com/library/archive/documentation/MusicAudio/Conceptual/CoreAudioOverview/SystemAudioUnits/SystemAudioUnits.html) ·
 [CPAL 0.18.2 输出路径](https://github.com/RustAudio/cpal/blob/e1612d5d98152f8dc2a62e1b51ef7cbf4f7f26b7/src/host/coreaudio/macos/device.rs#L819)
 
@@ -1271,7 +1271,10 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
 ### 阶段 4 · Windows 轻量播放器结果
 
 - Windows QA 共用已有的索引解码、PCM 队列和画面。播放时通过 WASAPI 共享模式打开 48 kHz 双声道流。出包步骤
-  以相同特性编译测试和安装包，并在 `QA-BUILD.txt` 记录 `recording-playback=wasapi`。
+  以相同特性编译测试和安装包，并在 `QA-BUILD.txt` 记录 `recording_playback=wasapi`。
+- Windows 原生任务产出 NSIS 和 MSI，并从 MSI 解包运行 OCR worker。最后生成 `QA-BUILD.txt` 时，工作流
+  传入的连字符键不符合既有字段语法。Windows 和 macOS 都使用下划线键，发行脚本的测试直接验证工作流参数。
+  [Windows 出包结果](https://github.com/51hhh/Clippy/actions/runs/45897197292/job/140173928972)
 - 交叉链接 Windows x64 探针后，在独立 Wine 与 PipeWire 会话中检查真实解码像素和输出。原件、独立分段和恢复件
   均通过正反定位与自然结束。虚拟默认输出分别收到 1.000、1.020 和 1.400 秒有效信号，测得 441.0、620.4 和
   619.7 Hz。暂停保持媒体位置并释放流，继续播放建立新流，关窗所用的播放器释放路径移除活动输出。无声段在
