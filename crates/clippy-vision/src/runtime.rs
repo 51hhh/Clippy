@@ -190,7 +190,7 @@ impl OcrRuntime {
         true
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(super) fn snapshots_are_empty(&self) -> bool {
         self.snapshots.lock().unwrap().is_empty()
     }

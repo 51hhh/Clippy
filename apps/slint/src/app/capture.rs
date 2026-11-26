@@ -651,7 +651,7 @@ pub(super) fn output(
         source: if needs_stream {
             source
         } else {
-            drop(source);
+            let _closed_source = source;
             CaptureSource::default()
         },
     };
