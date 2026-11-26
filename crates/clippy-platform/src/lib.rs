@@ -1,5 +1,9 @@
 pub mod capture;
 pub mod clipboard;
+#[cfg(target_os = "linux")]
+pub mod gnome_extension;
+#[cfg(target_os = "linux")]
+mod gnome_settings;
 pub mod identity;
 pub mod instance;
 pub mod paste;

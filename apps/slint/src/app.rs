@@ -136,6 +136,8 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
             storage,
             generation: 0,
             busy: false,
+            #[cfg(target_os = "linux")]
+            gnome_helper_busy: false,
             shortcut_status,
             action_status: SharedString::default(),
             capture_selection: None,
@@ -277,6 +279,8 @@ struct App {
     storage: StorageRuntime,
     generation: u64,
     busy: bool,
+    #[cfg(target_os = "linux")]
+    gnome_helper_busy: bool,
     shortcut_status: String,
     action_status: SharedString,
     capture_selection: Option<capture::Selection>,

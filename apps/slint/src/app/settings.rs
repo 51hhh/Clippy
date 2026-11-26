@@ -23,6 +23,9 @@ use slint::{
 };
 use std::thread;
 
+#[cfg(target_os = "linux")]
+mod gnome_helper;
+
 const THEMES: [&str; 6] = [
     "light",
     "dark",
@@ -36,6 +39,8 @@ pub(super) enum Message {
     Data(Result<String>),
     Stats(Result<String>),
     Credentials(Result<String>),
+    #[cfg(target_os = "linux")]
+    GnomeHelper(Result<clippy_platform::gnome_extension::Status>),
 }
 
 pub(super) fn namespace(identity: &DeploymentIdentity) -> String {
@@ -233,6 +238,10 @@ pub(super) fn connect(window: &AppWindow, config: &AppConfig) {
         ])));
         window.set_wayland_session(clippy_platform::session::is_wayland());
         window.set_gnome_session(clippy_platform::session::is_gnome());
+        #[cfg(target_os = "linux")]
+        if window.get_wayland_session() && window.get_gnome_session() {
+            gnome_helper::connect(window);
+        }
         connect_shortcut_recorder(window);
     }
     window.on_apply_general(|settings| {
@@ -642,6 +651,8 @@ impl App {
                 self.set_busy(false);
                 self.settings_result(result);
             }
+            #[cfg(target_os = "linux")]
+            Message::GnomeHelper(result) => gnome_helper::completed(self, result),
         }
     }
 }

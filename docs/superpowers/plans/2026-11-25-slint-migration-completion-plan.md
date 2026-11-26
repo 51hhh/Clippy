@@ -497,6 +497,24 @@ Core Graphics 窗口字典。用每块冻结帧自身的坐标变换裁剪窗口
 **Out of Scope** 跨屏长截图和跨屏录屏仍需要各自的多源持续采集设计。单输出 Portal 授权按其选择器范围处理，
 多输出授权属于单独的会话合同。显示器热插拔和目标系统的混合 DPI 继续纳入平台验收。
 
+#### 阶段 6 · GNOME 窗口速选扩展管理
+
+**Goal** GNOME Wayland 用户能从 Screenshot 设置安装和启用内嵌扩展，查看何时可以窗口速选，并可停用或移除
+当前用户安装的 Clippy 扩展。
+
+**Requirements** 继续使用仓库唯一的 v5 扩展及原有 UUID。安装按用户目录交付离线文件，已有私有令牌直接沿用。
+首次安装时保留其他扩展的启用设置，登记当前 UUID 并说明下次登录生效。GNOME 已识别的扩展通过 Shell 启用或
+停用。安装、升级和移除只在用户点击后执行。较新协议、其他路径管理的扩展和不受支持的 Shell 版本显示各自状态。
+窗口速选与设置页使用同一个已鉴权的窗口列表调用。状态读取和写入在设置页按需执行。
+[GNOME 扩展启停实现](https://github.com/GNOME/gnome-shell/blob/50.1/js/ui/extensionSystem.js) ·
+[用户级扩展目录](https://teams.pages.gitlab.gnome.org/Websites/help.gnome.org/system-admin-guide/extensions.html)
+
+**Acceptance Criteria** 在隔离的真实 GNOME Wayland D-Bus 会话，从空目录经设置安装，检查文件、权限和列出的
+UUID。重启隔离 Shell 后，从设置看到可用并实际悬停、选择及保存窗口。停用、再次启用和移除均走实际按钮。
+单测覆盖未知文件保留、只修改目标 UUID、沿用旧令牌和识别更高版本。多平台构建和普通截图继续通过现有门禁。
+
+**Out of Scope** 系统 UI 的冻结和全局截图快捷键依旧按 v5 采集计划单独验收。扩展的贴图摆位能力按贴图任务接入。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -1061,6 +1079,23 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   `slint-desktop-drag-x11.png`、`gnome-mixed-output.log`、`gnome-cross-composed.png`、
   `sway-direct-output.log`、`sway-cross-composed.png`、`ci-local-final.log`、
   `windows-gnu-qa.log` 和 `macos-platform.log`。
+
+#### 阶段 6 · GNOME 窗口速选扩展管理结果
+
+- 截图设置按需读取状态并安装内嵌 v5 扩展。首装写入当前用户的扩展目录并提示重新登录。已经加载的扩展通过
+  Shell 启停，只有携带有效私有令牌的窗口列表调用成功后才显示可用。更高版本和其他路径安装的扩展由原渠道管理。
+- 隔离 GNOME 50.1 从空目录经实际设置按钮安装，保留另一个已启用扩展，生成权限为 `0600` 的令牌。
+  在独立 D-Bus、PipeWire 和 Shell 会话重新登录后，设置显示 v5 可用。真实指针悬停并点击重叠的合成窗口，
+  保存的 403×257 PNG 与上层窗口逐像素一致。独立回归还验证了下层窗口露出部分的 261×179 PNG。
+- 全局用户扩展开关关闭时设置显示对应状态。停用再启用沿用原令牌，修复替换权限过宽的令牌，移除清理自身的
+  文件和设置条目。四个测试分别覆盖内嵌协议与私有权限、保留旧令牌和未知文件、保护较新版本和符号链接、
+  以及其他扩展条目中的引号和逗号。
+- 完整 Linux 门禁 11 项通过、0 失败、0 跳过。Windows GNU 的 Slint QA 入口交叉检查和 macOS 双架构平台层
+  交叉 Clippy 通过。正式安装包和其他 GNOME 版本继续验收。系统瞬态菜单和实体全局截图快捷键仍按 v5 计划验证。
+- QA 二进制 SHA-256 为 `9e6f491f8a91dd91c6a5b4ebacd170e384f1c5bb1c310ae0b2dd7c9302d7038e`。
+  证据位于 `target/test-artifacts/slint-stage6-gnome-helper/`，包括 `gnome-fresh-login.log`、
+  `gnome-window-regression.log`、`helper-awaiting-login.png`、`helper-ready.png`、`helper-window-pick.png`、
+  `ci-local-final.log`、`windows-gnu-qa.log` 和 `macos-platform.log`。
 
 ## Acceptance Criteria
 

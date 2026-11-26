@@ -24,6 +24,10 @@ export struct TranslationSettings {
 }
 
 export enum ShortcutField { none, clipboard, pin, screenshot }
+export enum GnomeHelperAction { refresh, install, enable, disable, remove }
+export struct GnomeHelperView {
+    title: string, detail: string, action: GnomeHelperAction, action-label: string, removable: bool,
+}
 
 component FieldLabel inherits Text {
     color: ClippyTheme.foreground;
@@ -159,6 +163,8 @@ export component SettingsPane inherits Rectangle {
     in property <[string]> shortcut-defaults;
     in property <bool> wayland-session;
     in property <bool> gnome-session;
+    in property <bool> gnome-helper-busy;
+    in property <GnomeHelperView> gnome-helper;
     in property <string> build-label;
     in property <string> data-status;
     in-out property <ShortcutField> recording-shortcut;
@@ -168,6 +174,7 @@ export component SettingsPane inherits Rectangle {
     callback paste-setting(bool);
     callback authorize-paste();
     callback forget-paste();
+    callback gnome-helper-action(GnomeHelperAction);
     callback set-autostart(bool);
     callback apply-general(GeneralSettings);
     callback select-provider(int);
@@ -207,6 +214,9 @@ export component SettingsPane inherits Rectangle {
                         root.page = index;
                         root.recording-shortcut = ShortcutField.none;
                         page-scroll.content-y = 0px;
+                        if index == 1 && root.wayland-session && root.gnome-session {
+                            root.gnome-helper-action(GnomeHelperAction.refresh);
+                        }
                         if index == 3 { root.data-action(0, ""); }
                     }
                 }
@@ -295,11 +305,11 @@ export component SettingsPane inherits Rectangle {
                 }
                 if root.page == 1: VerticalLayout {
                     spacing: 8px;
-                    FieldLabel { text: root.wayland-session && !root.gnome-session ? "Screen Capture Service" : "GNOME Screen Helper"; }
+                    FieldLabel { text: "Screen Capture Service"; }
                     Rectangle {
                         height: 113px; border-radius: 12px; border-width: 1px;
                         border-color: ClippyTheme.border; background: ClippyTheme.surface;
-                        Rectangle { width: 3px; height: parent.height; border-radius: 2px; background: ClippyTheme.subtle; }
+                        Rectangle { x: 0px; y: 0px; width: 3px; height: parent.height; border-radius: 2px; background: ClippyTheme.subtle; }
                         VerticalLayout {
                             padding: 15px; spacing: 8px; alignment: start;
                             FieldLabel {
@@ -319,6 +329,39 @@ export component SettingsPane inherits Rectangle {
                         }
                     }
                     SettingHint { text: "The screenshot shortcut uses the fast native capture path. System Screenshot opens the desktop’s own selector on Wayland."; }
+                    if root.wayland-session && root.gnome-session: VerticalLayout {
+                        spacing: 8px;
+                        FieldLabel { text: "GNOME Window Picking"; }
+                        Rectangle {
+                            height: 116px; border-radius: 12px; border-width: 1px;
+                            border-color: ClippyTheme.border; background: ClippyTheme.surface;
+                            VerticalLayout {
+                                padding: 15px; spacing: 6px; alignment: start;
+                                FieldLabel {
+                                    text: root.gnome-helper-busy ? "Checking helper…" : root.gnome-helper.title;
+                                }
+                                SettingHint { text: root.gnome-helper.detail; }
+                                HorizontalLayout {
+                                    alignment: start; spacing: 8px;
+                                    if root.gnome-helper.action-label != "": SurfaceButton {
+                                        label: root.gnome-helper.action-label; height: 28px;
+                                        primary: true; enabled: !root.gnome-helper-busy;
+                                        clicked => { root.gnome-helper-action(root.gnome-helper.action); }
+                                    }
+                                    SurfaceButton {
+                                        label: "Refresh"; height: 28px;
+                                        enabled: !root.gnome-helper-busy;
+                                        clicked => { root.gnome-helper-action(GnomeHelperAction.refresh); }
+                                    }
+                                    if root.gnome-helper.removable: SurfaceButton {
+                                        label: "Remove"; height: 28px; danger: true;
+                                        enabled: !root.gnome-helper-busy;
+                                        clicked => { root.gnome-helper-action(GnomeHelperAction.remove); }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     SettingDivider { }
                     ShortcutInput {
                         label: "Screenshot Shortcut";

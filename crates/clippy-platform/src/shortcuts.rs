@@ -112,10 +112,10 @@ impl Shortcuts {
 #[cfg(target_os = "linux")]
 mod wayland {
     use super::*;
+    use crate::gnome_settings::run as gsettings;
     use ashpd::desktop::global_shortcuts::{GlobalShortcuts, NewShortcut};
     use futures_util::StreamExt;
     use global_hotkey::hotkey::Modifiers;
-    use std::process::Command;
     use std::thread;
     use std::time::Duration;
     use tokio::sync::oneshot;
@@ -303,14 +303,6 @@ mod wayland {
                 Ok(entry.to_owned())
             })
             .collect()
-    }
-
-    fn gsettings(args: &[&str]) -> Result<String> {
-        let result = Command::new("gsettings").args(args).output()?;
-        if !result.status.success() {
-            bail!("{}", String::from_utf8_lossy(&result.stderr).trim());
-        }
-        Ok(String::from_utf8(result.stdout)?.trim().to_owned())
     }
 
     fn trigger(hotkey: HotKey, gnome: bool) -> Result<String> {
