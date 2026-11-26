@@ -34,6 +34,7 @@ mod wayland;
 mod wayland_outputs;
 #[cfg(target_os = "linux")]
 pub mod wayland_scroll;
+pub mod window_pick;
 #[cfg(target_os = "linux")]
 mod x11;
 
@@ -504,13 +505,17 @@ fn native_freeze() -> Result<Vec<FrozenOutput>> {
         .iter()
         .map(|monitor| {
             let image = monitor.capture_image()?;
+            #[cfg(target_os = "macos")]
+            let (width, height) = (monitor.width()?, monitor.height()?);
+            #[cfg(target_os = "windows")]
+            let (width, height) = image.dimensions();
             Ok(FrozenOutput {
                 name: monitor.name()?,
                 geometry: DesktopRect {
                     x: monitor.x()?,
                     y: monitor.y()?,
-                    width: image.width(),
-                    height: image.height(),
+                    width,
+                    height,
                 },
                 pixels: image.into(),
             })

@@ -18,7 +18,10 @@ const recorder = readFileSync(
 const patches = readFileSync(join(vendorRoot, "PATCHES.md"), "utf8");
 
 const patchedFiles = {
-  "src/lib.rs": "0eebde4a80996983830289f22d427cf37db88070949a3d3143b56c3aace319c4",
+  "src/lib.rs": "6e1992bb6ffb1e907c52bb35a8a8bc4ccf9e7ad2c21685fc704dd2001843c68c",
+  "src/window.rs": "e29cacdb676015b539dd69a373fb62db629369837bfd2dea887ec8593f82185d",
+  "src/windows/impl_window.rs":
+    "ce8533c9ccc81809e4bed2c965177697c94b1390bbb71433acc32d49853c526f",
   "src/windows/wgc_video_recorder.rs":
     "549b0b847d116984d7ebcfc71fb555d754753d5b578aae80353f386793ef5c81",
   "src/windows/mod.rs":
@@ -36,7 +39,7 @@ const patchedFiles = {
   "src/windows/utils.rs": "e8c6677fbb9148d2e9cfb421e56e5f4d98addca4f8c50f1cb08a6faf9f55834f",
   "src/macos/capture.rs": "14ba152c8a2a9d967d1d9a82eac197a86d5a89995842c8ea4ec13cd117c3e48e",
   "src/macos/impl_window.rs":
-    "65a6c9fe1334cbfde0f370ca30df6b64d225a431247a9e604766d8a7388a38e0",
+    "ac6a32a909144d4b2a1686becef2ae592cddba6e6e1ca433477104c6f073c6a6",
   "src/macos/impl_video_recorder.rs":
     "09c964ba782d1f5cd8b170b1e2a6a239f5de84d4a4cc4c71ed89bee18896d742",
   "src/macos/impl_monitor.rs":
@@ -137,5 +140,5 @@ if (!lockedXcap || /^(source|checksum) =/m.test(lockedXcap[1])) {
 }
 
 console.log(
-  "xcap patch check passed: pinned source, WGC region reader and cursor capture, macOS region recorder, path override, license",
+  "xcap patch check passed: pinned source, WGC region reader and cursor capture, macOS region recorder, window snapshots, path override, license",
 );

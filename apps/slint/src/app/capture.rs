@@ -1,6 +1,7 @@
 use super::{editor, post, Event};
 use crate::{
     CaptureAnnotation, CaptureMark, CaptureMosaic, CapturePoint, CaptureTool, CaptureWindow,
+    CaptureWindowTarget,
 };
 use anyhow::{Context, Result};
 use clippy_capture::{
@@ -10,7 +11,8 @@ use clippy_capture::{
 };
 use clippy_core::image_output::{filename_candidates, SaveTarget};
 use clippy_platform::capture::{
-    self, CaptureSource, DesktopRect, FrozenCapture, FrozenOutput, Region, RegionCancellation,
+    self, window_pick, CaptureSource, DesktopRect, FrozenCapture, FrozenOutput, Region,
+    RegionCancellation,
 };
 use image::{
     codecs::png::{CompressionType, FilterType, PngEncoder},
@@ -25,9 +27,12 @@ use slint::winit_030::{
     EventResult, WinitWindowAccessor,
 };
 use slint::{
-    CloseRequestResponse, ComponentHandle, Model, ModelRc, PhysicalPosition, PhysicalSize,
-    Rgba8Pixel, SharedPixelBuffer, VecModel,
+    CloseRequestResponse, ComponentHandle, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, VecModel,
 };
+#[cfg(target_os = "macos")]
+use slint::{LogicalPosition, LogicalSize};
+#[cfg(not(target_os = "macos"))]
+use slint::{PhysicalPosition, PhysicalSize};
 use std::{
     cell::RefCell, fmt::Write as _, fs, io, path::PathBuf, rc::Rc, sync::Arc, thread, time::Instant,
 };
@@ -35,6 +40,53 @@ use std::{
 pub(super) struct Selection {
     views: Vec<View>,
     source: CaptureSource,
+    started: Instant,
+}
+
+impl Selection {
+    pub(super) fn install_window_targets(
+        &self,
+        started: Instant,
+        result: Result<Vec<Vec<window_pick::WindowTarget>>>,
+        diagnostics: bool,
+    ) {
+        if self.started != started {
+            return;
+        }
+        let targets = match result {
+            Ok(targets) => targets,
+            Err(error) => {
+                if diagnostics {
+                    eprintln!("capture_windows unavailable: {error}");
+                }
+                return;
+            }
+        };
+        if diagnostics {
+            eprintln!(
+                "capture_windows candidates={} elapsed_ms={:.1}",
+                targets.iter().map(Vec::len).sum::<usize>(),
+                started.elapsed().as_secs_f64() * 1000.0,
+            );
+        }
+        for (view, targets) in self.views.iter().zip(targets) {
+            let targets: Vec<_> = targets
+                .into_iter()
+                .map(|target| {
+                    let [left, top, right, bottom] = target.pixels.map(|edge| edge as i32);
+                    CaptureWindowTarget {
+                        left,
+                        top,
+                        right,
+                        bottom,
+                        title: target.title.into(),
+                    }
+                })
+                .collect();
+            view.window
+                .set_window_targets(ModelRc::new(VecModel::from(targets)));
+        }
+    }
 }
 
 struct View {
@@ -159,7 +211,26 @@ pub(super) fn start(started: Instant, cancellation: RegionCancellation) -> io::R
         .name("clippy-freeze".into())
         .spawn(move || {
             capture::freeze_selection(&cancellation, |result| {
+                let outputs = result
+                    .as_ref()
+                    .ok()
+                    .filter(|capture| !capture.source.uses_portal())
+                    .map(|capture| {
+                        capture
+                            .outputs
+                            .iter()
+                            .map(|output| {
+                                (output.geometry, (output.pixels.width, output.pixels.height))
+                            })
+                            .collect::<Vec<_>>()
+                    });
                 post(Event::CaptureReady { started, result });
+                if let Some(outputs) = outputs {
+                    post(Event::CaptureWindows {
+                        started,
+                        result: window_pick::for_outputs(&outputs),
+                    });
+                }
             });
         })?;
     Ok(())
@@ -182,35 +253,68 @@ pub(super) fn present(
             let view = View { window, frame };
             let geometry = view.frame.geometry;
             let pixels = &view.frame.pixels;
+            let source_size = (pixels.width(), pixels.height());
             view.window.set_source_width(pixels.width() as i32);
             view.window.set_source_height(pixels.height() as i32);
             view.window
                 .set_frame(slint::Image::from_rgba8(pixels.clone()));
-            view.window
-                .window()
-                .set_position(PhysicalPosition::new(geometry.x, geometry.y));
-            let dimensions = if wayland {
-                (pixels.width(), pixels.height())
-            } else {
-                (geometry.width, geometry.height)
-            };
-            view.window
-                .window()
-                .set_size(PhysicalSize::new(dimensions.0, dimensions.1));
+            #[cfg(target_os = "macos")]
+            {
+                // Core Graphics 的全局坐标是逻辑点，Retina 帧保留独立的源像素尺寸。
+                let window = view.window.window();
+                window.set_position(LogicalPosition::new(geometry.x as f32, geometry.y as f32));
+                window.set_size(LogicalSize::new(
+                    geometry.width as f32,
+                    geometry.height as f32,
+                ));
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                let window = view.window.window();
+                window.set_position(PhysicalPosition::new(geometry.x, geometry.y));
+                let (width, height) = if wayland {
+                    source_size
+                } else {
+                    (geometry.width, geometry.height)
+                };
+                window.set_size(PhysicalSize::new(width, height));
+            }
             view.window.on_cancel(|| post(Event::CaptureCancel));
+            view.window.on_window_at({
+                let window = view.window.as_weak();
+                move |x, y| {
+                    window
+                        .unwrap()
+                        .get_window_targets()
+                        .iter()
+                        .position(|target| {
+                            x >= target.left as f32
+                                && x < target.right as f32
+                                && y >= target.top as f32
+                                && y < target.bottom as f32
+                        })
+                        .map_or(-1, |index| index as i32)
+                }
+            });
             configure_annotations(&view.window, pixels);
             view.window.window().on_close_requested(|| {
                 post(Event::CaptureCancel);
                 CloseRequestResponse::HideWindow
             });
-            view.window
-                .on_confirm(move |action, left, top, right, bottom| {
+            view.window.on_confirm({
+                let window = view.window.as_weak();
+                move |action, left, top, right, bottom| {
                     post(Event::CaptureSelection {
                         index,
                         action,
-                        bounds: [left, top, right, bottom],
+                        bounds: capture_bounds(
+                            &window.unwrap(),
+                            source_size,
+                            [left, top, right, bottom],
+                        ),
                     });
-                });
+                }
+            });
             let ready_name = view.frame.name.clone();
             let placement_window = view.window.as_weak();
             let mut needs_placement = wayland;
@@ -264,7 +368,23 @@ pub(super) fn present(
     Ok(Selection {
         views,
         source: capture.source,
+        started,
     })
+}
+
+fn capture_bounds(window: &CaptureWindow, size: (u32, u32), manual: [f32; 4]) -> [f32; 4] {
+    let index = window.get_snapped_window();
+    if index < 0 {
+        return manual;
+    }
+    let target = window
+        .get_window_targets()
+        .row_data(index as usize)
+        .expect("吸附目标来自当前覆盖层的窗口列表");
+    window_pick::normalized_pixel_bounds(
+        [target.left, target.top, target.right, target.bottom].map(|edge| edge as u32),
+        size,
+    )
 }
 
 fn configure_annotations(window: &CaptureWindow, source: &SharedPixelBuffer<Rgba8Pixel>) {
@@ -354,7 +474,12 @@ fn configure_annotations(window: &CaptureWindow, source: &SharedPixelBuffer<Rgba
         let window = window.as_weak();
         move |mark, left, top, right, bottom| {
             let window = window.unwrap();
-            if let Err(error) = start_mosaic(&window, &source, mark, [left, top, right, bottom]) {
+            let bounds = capture_bounds(
+                &window,
+                (source.width(), source.height()),
+                [left, top, right, bottom],
+            );
+            if let Err(error) = start_mosaic(&window, &source, mark, bounds) {
                 window.set_annotation_error(format!("Could not apply mosaic: {error}").into());
             }
         }
@@ -421,7 +546,9 @@ pub(super) fn output(
     bounds: [f32; 4],
     destination: Destination,
 ) -> io::Result<Option<PendingOutput>> {
-    let Selection { mut views, source } = selection;
+    let Selection {
+        mut views, source, ..
+    } = selection;
     let selected = views.swap_remove(index);
     let needs_stream = matches!(destination, Destination::Longshot | Destination::Record);
     let window_id = if needs_stream && source.uses_portal() {

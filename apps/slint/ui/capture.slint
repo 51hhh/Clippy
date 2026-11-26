@@ -9,6 +9,7 @@ export struct CaptureMosaic {
     source: image, x: float, y: float, width: float, height: float, tiled-width: float, tiled-height: float, work-pixels: int
 }
 export struct CaptureAnnotation { geometry: CaptureMark, points: [CapturePoint], path: string, text: string, mosaic: CaptureMosaic }
+export struct CaptureWindowTarget { left: int, top: int, right: int, bottom: int, title: string }
 struct ToolButton { label: string, tool: CaptureTool, drawing: string }
 struct CaptureCommand { label: string, action: CaptureAction, drawing: string }
 struct OverlayInk { ink: color, label: string }
@@ -95,6 +96,8 @@ export component CaptureWindow inherits Window {
     in property <image> frame;
     in property <int> source-width;
     in property <int> source-height;
+    in property <[CaptureWindowTarget]> window-targets;
+    out property <int> snapped-window: -1;
     in property <[CaptureAnnotation]> marks;
     in property <[CaptureAnnotation]> undone-marks;
     in property <string> pen-path;
@@ -109,6 +112,7 @@ export component CaptureWindow inherits Window {
     callback sample-pen(bool, float, float, float, float);
     callback finish-pen(CaptureMark);
     callback render-mosaic(CaptureMark, float, float, float, float);
+    pure callback window-at(float, float) -> int;
 
     private property <length> left;
     private property <length> top;
@@ -120,6 +124,19 @@ export component CaptureWindow inherits Window {
     private property <bool> ready: selected && !drag.pressed;
     private property <CaptureTool> active-tool;
     private property <bool> marking: root.active-tool != CaptureTool.select;
+    private property <bool> covers-output: root.selection-width >= root.width - 1px
+        && root.selection-height >= root.height - 1px;
+    private property <int> pressed-window: -1;
+    private property <int> hovered-window: drag.has-hover && !drag.pressed && !root.marking
+        && !root.mosaic-pending && !root.near-selection(drag.mouse-x, drag.mouse-y)
+        ? root.hit-window(drag.mouse-x, drag.mouse-y) : -1;
+    private property <SelectionBounds> hover-bounds: root.hovered-window >= 0
+        ? root.window-bounds(root.window-targets[root.hovered-window])
+        : { left: 0px, top: 0px, right: 0px, bottom: 0px };
+    private property <SelectionBounds> revealed: root.selected
+        ? { left: root.left, top: root.top, right: root.right, bottom: root.bottom }
+        : root.hover-bounds;
+    private property <bool> reveals-region: root.selected || root.hovered-window >= 0;
     private property <color> active-ink: #ff3b30;
     private property <float> stroke: 3.0;
     private property <SelectionGesture> gesture;
@@ -173,6 +190,42 @@ export component CaptureWindow inherits Window {
     background: #161616;
     forward-focus: keys;
 
+    pure function near-selection(x: length, y: length) -> bool {
+        let margin = 7px;
+        return root.selected && x >= root.left - margin && x <= root.right + margin
+            && y >= root.top - margin && y <= root.bottom + margin;
+    }
+
+    pure function hit-window(x: length, y: length) -> int {
+        return root.window-targets.length == 0 ? -1
+            : root.window-at(x / root.width * root.source-width, y / root.height * root.source-height);
+    }
+
+    pure function window-bounds(target: CaptureWindowTarget) -> SelectionBounds {
+        return {
+            left: target.left / root.source-width * root.width,
+            top: target.top / root.source-height * root.height,
+            right: target.right / root.source-width * root.width,
+            bottom: target.bottom / root.source-height * root.height,
+        };
+    }
+
+    function set-bounds(bounds: SelectionBounds) {
+        root.left = bounds.left;
+        root.top = bounds.top;
+        root.right = bounds.right;
+        root.bottom = bounds.bottom;
+    }
+
+    function drag-bounds(x0: length, y0: length, x1: length, y1: length) {
+        root.set-bounds({
+            left: clamp(min(x0, x1), 0px, root.width),
+            top: clamp(min(y0, y1), 0px, root.height),
+            right: clamp(max(x0, x1), 0px, root.width),
+            bottom: clamp(max(y0, y1), 0px, root.height),
+        });
+    }
+
     function commit(action: CaptureAction) {
         if !root.mosaic-pending && root.finish-caption() {
             root.confirm(action, root.left / root.width, root.top / root.height, root.right / root.width, root.bottom / root.height);
@@ -204,15 +257,29 @@ export component CaptureWindow inherits Window {
         image-fit: fill;
     }
 
-    if !root.selected: Rectangle { x: 0px; y: 0px; width: root.width; height: root.height; background: #00000061; }
-    if root.selected: Rectangle { x: 0px; y: 0px; width: root.width; height: root.top; background: root.shade; }
-    if root.selected: Rectangle { x: 0px; y: root.bottom; width: root.width; height: root.height - root.bottom; background: root.shade; }
-    if root.selected: Rectangle {
-        x: 0px; y: root.top; width: root.left; height: root.bottom - root.top; background: root.shade;
+    if !root.reveals-region: Rectangle { x: 0px; y: 0px; width: root.width; height: root.height; background: #00000061; }
+    if root.reveals-region: Rectangle {
+        x: 0px; y: 0px; width: root.width; height: root.revealed.top; background: root.shade;
     }
-    if root.selected: Rectangle {
-        x: root.right; y: root.top; width: root.width - root.right; height: root.bottom - root.top;
-        background: root.shade;
+    if root.reveals-region: Rectangle {
+        x: 0px; y: root.revealed.bottom; width: root.width; height: root.height - root.revealed.bottom; background: root.shade;
+    }
+    if root.reveals-region: Rectangle {
+        x: 0px; y: root.revealed.top; width: root.revealed.left;
+        height: root.revealed.bottom - root.revealed.top; background: root.shade;
+    }
+    if root.reveals-region: Rectangle {
+        x: root.revealed.right; y: root.revealed.top; width: root.width - root.revealed.right;
+        height: root.revealed.bottom - root.revealed.top; background: root.shade;
+    }
+    if root.hovered-window >= 0: Rectangle {
+        x: root.hover-bounds.left;
+        y: root.hover-bounds.top;
+        width: root.hover-bounds.right - self.x;
+        height: root.hover-bounds.bottom - self.y;
+        border-width: 2px;
+        border-color: #0a84ff;
+        background: transparent;
     }
 
     drag := TouchArea {
@@ -223,34 +290,42 @@ export component CaptureWindow inherits Window {
                 let point-x = self.mouse-x;
                 let point-y = self.mouse-y;
                 let margin = 7px;
-                let near = root.selected && point-x >= root.left - margin && point-x <= root.right + margin
-                    && point-y >= root.top - margin && point-y <= root.bottom + margin;
+                let near = root.near-selection(point-x, point-y);
                 root.resize-x = abs(point-x - root.left) <= margin ? -1 : abs(point-x - root.right) <= margin ? 1 : 0;
                 root.resize-y = abs(point-y - root.top) <= margin ? -1 : abs(point-y - root.bottom) <= margin ? 1 : 0;
                 root.annotation-error = "";
-                root.gesture = !near ? SelectionGesture.select
-                    : root.resize-x != 0 || root.resize-y != 0 ? SelectionGesture.resize : SelectionGesture.move;
+                root.gesture = near && (root.resize-x != 0 || root.resize-y != 0) ? SelectionGesture.resize
+                    : near && !root.covers-output ? SelectionGesture.move : SelectionGesture.select;
                 root.drag-start = { left: root.left, top: root.top, right: root.right, bottom: root.bottom };
                 root.moved-selection = false;
                 if root.gesture == SelectionGesture.select {
+                    root.pressed-window = root.hit-window(point-x, point-y);
+                    root.snapped-window = -1;
                     root.clear-marks();
-                    root.left = point-x;
-                    root.right = point-x;
-                    root.top = point-y;
-                    root.bottom = point-y;
+                    root.drag-bounds(point-x, point-y, point-x, point-y);
                 }
                 keys.focus();
+            } else if event.kind == PointerEventKind.up && event.button == PointerEventButton.left
+                && root.gesture == SelectionGesture.select {
+                let dx = (self.mouse-x - self.pressed-x) / 1px;
+                let dy = (self.mouse-y - self.pressed-y) / 1px;
+                if dx * dx + dy * dy < 16.0 {
+                    root.snapped-window = root.pressed-window;
+                    root.set-bounds(root.snapped-window >= 0
+                        ? root.window-bounds(root.window-targets[root.snapped-window])
+                        : { left: 0px, top: 0px, right: root.width, bottom: root.height });
+                } else {
+                    root.drag-bounds(self.pressed-x, self.pressed-y, self.mouse-x, self.mouse-y);
+                }
             }
         }
         moved => {
             if self.pressed && root.gesture == SelectionGesture.select {
-                root.left = clamp(min(self.pressed-x, self.mouse-x), 0px, root.width);
-                root.top = clamp(min(self.pressed-y, self.mouse-y), 0px, root.height);
-                root.right = clamp(max(self.pressed-x, self.mouse-x), 0px, root.width);
-                root.bottom = clamp(max(self.pressed-y, self.mouse-y), 0px, root.height);
+                root.drag-bounds(self.pressed-x, self.pressed-y, self.mouse-x, self.mouse-y);
             } else if self.pressed && (self.mouse-x != self.pressed-x || self.mouse-y != self.pressed-y) {
                 if !root.moved-selection {
                     root.clear-marks();
+                    root.snapped-window = -1;
                     root.moved-selection = true;
                 }
                 let dx = self.mouse-x - self.pressed-x;
@@ -269,6 +344,21 @@ export component CaptureWindow inherits Window {
                     if root.resize-y > 0 { root.bottom = clamp(root.drag-start.bottom + dy, root.drag-start.top + 1px, root.height); }
                 }
             }
+        }
+    }
+
+    if root.hovered-window >= 0 && root.window-targets[root.hovered-window].title != "": Rectangle {
+        x: clamp(root.hover-bounds.left, root.gap, root.width - self.width - root.gap);
+        y: max(root.gap, root.hover-bounds.top - root.chip-height - 4px);
+        width: min(title-text.preferred-width + 14px, 280px, root.width - 2 * root.gap);
+        height: root.chip-height;
+        border-radius: 5px;
+        background: #202124;
+        title-text := Text {
+            x: 7px; y: 0px; width: parent.width - 14px; height: parent.height;
+            text: root.window-targets[root.hovered-window].title;
+            font-size: 12px; color: #ffffff; vertical-alignment: center;
+            overflow: elide;
         }
     }
 
@@ -391,8 +481,11 @@ export component CaptureWindow inherits Window {
         border-radius: 5px;
         background: #202124;
         dimensions := Text {
-            text: "" + (ceil(root.right / root.width * root.source-width) - floor(root.left / root.width * root.source-width))
-                + " × " + (ceil(root.bottom / root.height * root.source-height) - floor(root.top / root.height * root.source-height));
+            text: root.snapped-window >= 0
+                ? "" + (root.window-targets[root.snapped-window].right - root.window-targets[root.snapped-window].left)
+                    + " × " + (root.window-targets[root.snapped-window].bottom - root.window-targets[root.snapped-window].top)
+                : "" + (ceil(root.right / root.width * root.source-width) - floor(root.left / root.width * root.source-width))
+                    + " × " + (ceil(root.bottom / root.height * root.source-height) - floor(root.top / root.height * root.source-height));
             font-size: 12px;
             color: #ffffff;
             vertical-alignment: center;
@@ -400,19 +493,18 @@ export component CaptureWindow inherits Window {
         }
     }
 
-    if !root.selected: Rectangle {
+    if !root.selected && !drag.pressed && root.hovered-window < 0: Rectangle {
         x: (parent.width - self.width) / 2;
         y: 16px;
         width: 260px;
         height: 44px;
         border-radius: 8px;
         background: #202124;
-        TouchArea { }
         HorizontalLayout {
             padding: 8px;
             spacing: 6px;
             Text {
-                text: "Drag to select an area";
+                text: root.window-targets.length > 0 ? "Click a window or drag an area" : "Drag to select an area";
                 color: #ffffff;
                 font-size: 13px;
                 vertical-alignment: center;

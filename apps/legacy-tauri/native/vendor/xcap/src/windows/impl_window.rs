@@ -5,7 +5,7 @@ use image::RgbaImage;
 use widestring::U16CString;
 use windows::{
     Win32::{
-        Foundation::{GetLastError, HANDLE, HWND, LPARAM, MAX_PATH, TRUE},
+        Foundation::{GetLastError, HANDLE, HWND, LPARAM, MAX_PATH, RECT, TRUE},
         Graphics::{
             Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute},
             Gdi::{IsRectEmpty, MONITOR_DEFAULTTONEAREST, MonitorFromWindow},
@@ -24,7 +24,7 @@ use windows::{
     core::{BOOL, HSTRING, PCWSTR},
 };
 
-use crate::error::XCapResult;
+use crate::{WindowSnapshot, error::XCapResult};
 
 use super::{
     capture::capture_window,
@@ -61,11 +61,14 @@ fn is_window_cloaked(hwnd: HWND) -> bool {
 }
 
 // https://webrtc.googlesource.com/src.git/+/refs/heads/main/modules/desktop_capture/win/window_capture_utils.cc#52
-fn is_valid_window(hwnd: HWND) -> bool {
+fn visible_bounds(hwnd: HWND, include_own: bool) -> Option<RECT> {
     unsafe {
         // ignore invisible windows
         if !IsWindow(Some(hwnd)).as_bool() || !IsWindowVisible(hwnd).as_bool() {
-            return false;
+            return None;
+        }
+        if !include_own && get_window_pid(hwnd) == GetCurrentProcessId() {
+            return None;
         }
 
         // 特别说明，与webrtc中源码有区别，子窗口也枚举进来，所以就不需要下面的代码了：
@@ -78,14 +81,14 @@ fn is_valid_window(hwnd: HWND) -> bool {
         let mut lp_class_name = [0u16; MAX_PATH as usize];
         let lp_class_name_length = GetClassNameW(hwnd, &mut lp_class_name) as usize;
         if lp_class_name_length < 1 {
-            return false;
+            return None;
         }
 
         let class_name = U16CString::from_vec_truncate(&lp_class_name[0..lp_class_name_length])
             .to_string()
             .unwrap_or_default();
         if class_name.is_empty() {
-            return false;
+            return None;
         }
 
         let gwl_ex_style = WINDOW_EX_STYLE(GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32);
@@ -96,60 +99,57 @@ fn is_valid_window(hwnd: HWND) -> bool {
 
             // windows 任务栏可以捕获
             if class_name.ne(&"Shell_TrayWnd") && title.is_empty() {
-                return false;
+                return None;
             }
-        }
-
-        // GetWindowText* are potentially blocking operations if `hwnd` is
-        // owned by the current process. The APIs will send messages to the window's
-        // message loop, and if the message loop is waiting on this operation we will
-        // enter a deadlock.
-        // https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowtexta#remarks
-        //
-        // To help consumers avoid this, there is a DesktopCaptureOption to ignore
-        // windows owned by the current process. Consumers should either ensure that
-        // the thread running their message loop never waits on this operation, or use
-        // the option to exclude these windows from the source list.
-        let lp_dw_process_id = get_window_pid(hwnd);
-        if lp_dw_process_id == GetCurrentProcessId() {
-            return false;
         }
 
         // Skip Program Manager window.
         if class_name.eq("Progman") {
-            return false;
+            return None;
         }
         // Skip Start button window on Windows Vista, Windows 7.
         // On Windows 8, Windows 8.1, Windows 10 Start button is not a top level
         // window, so it will not be examined here.
         if class_name.eq("Button") {
-            return false;
+            return None;
         }
 
         if is_window_cloaked(hwnd) {
-            return false;
+            return None;
         }
 
-        if let Ok(rect) = get_window_bounds(hwnd) {
-            if IsRectEmpty(&rect).as_bool() {
-                return false;
-            }
-        } else {
-            return false;
-        }
+        let rect = get_window_bounds(hwnd).ok()?;
+        (!IsRectEmpty(&rect).as_bool()).then_some(rect)
     }
-
-    true
 }
 
 extern "system" fn enum_valid_windows(hwnd: HWND, state: LPARAM) -> BOOL {
     unsafe {
         let state = Box::leak(Box::from_raw(state.0 as *mut Vec<HWND>));
 
-        if is_valid_window(hwnd) {
+        if visible_bounds(hwnd, false).is_some() {
             state.push(hwnd);
         }
 
+        TRUE
+    }
+}
+
+extern "system" fn enum_snapshot_windows(hwnd: HWND, state: LPARAM) -> BOOL {
+    unsafe {
+        if !IsIconic(hwnd).as_bool()
+            && let Some(rect) = visible_bounds(hwnd, true)
+        {
+            let windows = &mut *(state.0 as *mut Vec<WindowSnapshot>);
+            windows.push(WindowSnapshot {
+                pid: get_window_pid(hwnd),
+                title: get_window_title(hwnd).unwrap_or_default(),
+                x: rect.left,
+                y: rect.top,
+                width: (rect.right - rect.left) as u32,
+                height: (rect.bottom - rect.top) as u32,
+            });
+        }
         TRUE
     }
 }
@@ -307,6 +307,18 @@ fn get_app_name(pid: u32) -> XCapResult<String> {
 }
 
 impl ImplWindow {
+    pub fn snapshots() -> XCapResult<Vec<WindowSnapshot>> {
+        let mut snapshots = Vec::new();
+        // 自己进程的窗口可能用 WM_GETTEXT 回到 UI 线程，调用方须让 UI 继续处理消息。
+        unsafe {
+            EnumWindows(
+                Some(enum_snapshot_windows),
+                LPARAM((&mut snapshots as *mut Vec<WindowSnapshot>) as isize),
+            )?;
+        }
+        Ok(snapshots)
+    }
+
     fn new(hwnd: HWND) -> ImplWindow {
         ImplWindow { hwnd }
     }

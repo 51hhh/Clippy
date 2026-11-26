@@ -7,7 +7,24 @@ pub struct Window {
     pub(crate) impl_window: ImplWindow,
 }
 
+/// One visible window's metadata in the native desktop coordinate space.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+pub struct WindowSnapshot {
+    pub pid: u32,
+    pub title: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
 impl Window {
+    /// Capture visible window metadata in front-to-back order from a worker thread.
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    pub fn snapshots() -> XCapResult<Vec<WindowSnapshot>> {
+        ImplWindow::snapshots()
+    }
+
     pub(crate) fn new(impl_window: ImplWindow) -> Window {
         Window { impl_window }
     }

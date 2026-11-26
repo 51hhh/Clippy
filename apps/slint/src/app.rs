@@ -226,6 +226,10 @@ enum Event {
         started: Instant,
         result: Result<FrozenCapture>,
     },
+    CaptureWindows {
+        started: Instant,
+        result: Result<Vec<Vec<clippy_platform::capture::window_pick::WindowTarget>>>,
+    },
     CapturePlacementFailed(slint::Weak<crate::CaptureWindow>, anyhow::Error),
     CaptureWindowDestroyed(slint::winit_030::winit::window::WindowId, Instant),
     CaptureCancel,
@@ -442,6 +446,15 @@ impl App {
                         self.complete("Screenshot cancelled");
                     }
                     Err(error) => self.capture_error(error),
+                }
+            }
+            Event::CaptureWindows { started, result } => {
+                if let Some(selection) = &self.capture_selection {
+                    selection.install_window_targets(
+                        started,
+                        result,
+                        self.identity.channel == DistributionChannel::Qa,
+                    );
                 }
             }
             Event::CapturePlacementFailed(window, error) => {

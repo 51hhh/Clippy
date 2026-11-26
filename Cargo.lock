@@ -1409,6 +1409,7 @@ dependencies = [
  "objc2-io-surface",
  "pipewire",
  "raw-window-handle",
+ "serde",
  "serde_json",
  "smithay-client-toolkit 0.19.2",
  "tempfile",

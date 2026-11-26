@@ -460,6 +460,22 @@ macOS 核对 Cmd 组合键。检查撤销后新增标注无法恢复旧记录，
 
 **Out of Scope** 接下来的独立步骤处理窗口速选及其混合 DPI 验收。
 
+#### 阶段 6 · 冻结截图窗口速选
+
+**Goal** 截图时悬停显示光标下的最上层窗口，单击锁定该窗口在当前显示器上的区域，再用现有操作复制、
+保存、标注、长截图或录屏。
+
+**Requirements** 冻结帧先交付覆盖层，后台读取当前窗口快照。X11 使用窗口管理器堆叠和可见边框，
+GNOME Wayland 读取已启用的 Clippy Shell 扩展，Windows 使用 DWM 可见矩形，macOS 使用同一批
+Core Graphics 窗口字典。用每块冻结帧自身的坐标变换裁剪窗口交集。点击时锁定当时的候选和源像素边界，
+拖拽仍走自由框选，空白处单击选择该显示器。窗口列表只属于发起它的覆盖层。
+
+**Acceptance Criteria** 自动测试覆盖负原点、两块不同缩放的输出、遮挡顺序和精确源像素边界。隔离桌面
+验证重叠窗口、空白点击、手动拖拽以及取消重开。GNOME 使用真实扩展载荷核对位置。Windows/macOS 在
+各自的混合 DPI 实机继续验收；缺少窗口坐标能力的 Wayland 会话可继续自由框选。
+
+**Out of Scope** 跨屏合成、Shell 扩展安装入口及最终发布矩阵按各自步骤验收。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -984,6 +1000,26 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
 - 证据位于 `target/test-artifacts/slint-stage6-annotation-tools/` 的 `mosaic-4k-x11.log`、
   `caption-save-focus-final.log`、`caption-save-scale125.log`、`ci-local-final.log`、
   `capture-inline-tools.png` 和 `windows-gnu-qa.log`。
+
+#### 阶段 6 · 冻结截图窗口速选接入结果
+
+- 冻结画面先交给 Slint，随后在后台读窗口顺序和矩形。X11 使用 EWMH 堆叠和可见边框，GNOME Wayland
+  使用已有 Clippy Shell 扩展。Windows 在一次枚举中读取 DWM 物理边界，macOS 在一次 Core Graphics
+  查询中读取逻辑点边界。缺少窗口坐标能力的 Wayland 会话可以自由框选或单击空白选择整屏。
+- 覆盖层悬停显示候选轮廓和窗口名，短距离点击用按下时的候选。窗框按各自冻结输出求交并保留整数源像素边界，
+  马赛克预览和最终输出用同一选区。窗口列表按截图代次接收。自动测试覆盖负原点、两块不同比例的输出、
+  前后层级、边框换算，以及不同源宽度下的精确裁切。
+- 1280×800 的 Xvfb 与 Openbox 会话在 125% Slint 缩放下验证了重叠窗口、空白整屏后重新拖选、取消重开，
+  对复制和保存输出逐像素比较。隔离 GNOME 50.1 加载仓库的实际扩展并读取其窗口位置，两次鼠标命中分别得到
+  403×257 和 261×179 的 PNG，均与合成窗口的预期像素一致。QA 二进制 SHA-256 为
+  `b89ff114ad693f57d22686325c8d28905aebe0c727ec5020419292e4fc313d0c`。
+- 完整 Linux 门禁 11 项通过、0 失败、0 跳过。Windows GNU QA 入口交叉检查和 macOS Intel、Apple Silicon
+  平台层交叉 Clippy 通过，三种目标的 vendored xcap 严格交叉 lint 也通过。Windows/macOS 实机、混合 DPI、
+  跨屏合成和 Shell 扩展安装入口按后续验收继续。
+- 原始证据见 `target/test-artifacts/slint-stage6-window-pick/` 下的 `capture-window-hover.png`、
+  `openbox-scale125.log`、`gnome-shell-window-pick.log`、`gnome-picked-0.png`、`gnome-picked-1.png`、
+  `ci-local-final.log`、`windows-gnu-qa.log`、`macos-platform.log`、
+  `windows-xcap-vendor-lint.log` 和 `macos-xcap-vendor-lint.log`。
 
 ## Acceptance Criteria
 

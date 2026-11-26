@@ -12,7 +12,7 @@ use objc2_core_graphics::{
 };
 use objc2_foundation::{NSNumber, NSString};
 
-use crate::{XCapError, error::XCapResult};
+use crate::{WindowSnapshot, XCapError, error::XCapResult};
 
 use super::{capture::capture, impl_monitor::ImplMonitor};
 
@@ -154,6 +154,40 @@ pub fn get_window_cf_dictionary(window_id: u32) -> XCapResult<CFRetained<CFDicti
 }
 
 impl ImplWindow {
+    pub fn snapshots() -> XCapResult<Vec<WindowSnapshot>> {
+        let mut windows = Vec::new();
+        unsafe {
+            let Some(info) = CGWindowListCopyWindowInfo(
+                CGWindowListOption::OptionOnScreenOnly | CGWindowListOption::ExcludeDesktopElements,
+                0,
+            ) else {
+                return Ok(windows);
+            };
+            for index in 0..info.count() {
+                let dictionary = info.value_at_index(index) as *const CFDictionary;
+                let Some(dictionary) = dictionary.as_ref() else {
+                    continue;
+                };
+                if get_window_id(dictionary).is_err() {
+                    continue;
+                }
+                let Ok(rect) = get_window_cg_rect(dictionary) else {
+                    continue;
+                };
+                windows.push(WindowSnapshot {
+                    pid: get_cf_number_i32_value(dictionary, "kCGWindowOwnerPID").unwrap_or(0)
+                        as u32,
+                    title: get_cf_string_value(dictionary, "kCGWindowName").unwrap_or_default(),
+                    x: rect.origin.x as i32,
+                    y: rect.origin.y as i32,
+                    width: rect.size.width as u32,
+                    height: rect.size.height as u32,
+                });
+            }
+        }
+        Ok(windows)
+    }
+
     pub fn new(window_id: u32) -> ImplWindow {
         ImplWindow { window_id }
     }

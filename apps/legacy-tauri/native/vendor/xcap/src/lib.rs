@@ -30,6 +30,8 @@ pub use monitor::Monitor;
 #[cfg(all(target_os = "windows", feature = "wgc"))]
 pub use platform::wgc_region_reader::{WgcRegionFrame, WgcRegionReader};
 pub use window::Window;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+pub use window::WindowSnapshot;
 
 pub use video_recorder::Frame;
 pub use video_recorder::VideoRecorder;

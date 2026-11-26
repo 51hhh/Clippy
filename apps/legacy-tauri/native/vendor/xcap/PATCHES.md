@@ -2,7 +2,7 @@
 
 基于 crates.io **xcap 0.9.6**，对应上游提交
 `d4ff80928a9758043595f6d9bbda0597efce9e51`，许可证为 Apache-2.0。保留发布包的完整三平台源码、
-示例和 normalized `Cargo.toml`。公开 API 增加下述 Windows 区域读取和 macOS 区域录制入口。
+示例和 normalized `Cargo.toml`。公开 API 增加下述 Windows 区域读取、macOS 区域录制和窗口快照入口。
 
 发布包中 `.editorconfig` 与 `.gitignore` 的 CRLF 统一为仓库 LF，以满足 `git diff --check`；内容不变。
 
@@ -110,12 +110,21 @@ Clippy 仍会核对首帧和后续帧恰好等于冻结选区的物理像素尺�
 该补丁只解决区域输出和整屏内存问题，不提供窗口排除。控制窗若要位于录制区域内，仍须迁移到
 ScreenCaptureKit 并完成原生权限、Retina、旋转屏和混合 DPI 真机验收。
 
+## Windows 和 macOS 窗口快照
+
+`Window::snapshots` 在冻结截图交付后提供前后堆叠顺序、可见边界及窗口名称。Windows 在一次枚举中
+读取 DWM 物理边界并跳过最小化窗口。macOS 在一次 Core Graphics 查询后从同一批窗口字典返回全局
+逻辑点边界。这两条路径避免读取各坐标时重新枚举。Clippy 在后台调用，只向当前截图覆盖层交付窗口元数据。
+此前 `src/window.rs` 的 SHA-256 为 `3b7b485f3ec01a371c072bb00f4d81079af39f9f306e58cab47d95cbc789d6d4`，
+`src/windows/impl_window.rs` 为 `490dab7251fd2406cc53d7b3abfe3a77786a8ffe3db45524ea77d821166ca2b0`。
+需求 `SLINT-MIGRATION-CLOSURE-01`。
+
 ## 维护门禁
 
 仓库 `.gitattributes` 限定本目录的文本保持 LF 检出，使 Windows 的 `core.autocrlf=true` 也保留
 登记的原始字节。验证器仍对实际文件计算完整 SHA-256，不归一化哈希输入或忽略本地修改。
 
-`scripts/verify-xcap-patch.mjs` 固定版本、来源哈希说明、十一个修改/新增文件的完整 SHA-256、Cargo path
+`scripts/verify-xcap-patch.mjs` 固定版本、来源哈希说明、修改文件的完整 SHA-256、Cargo path
 override、独立 vendor 包归属、锁文件 path 解析和许可证。Windows/macOS 原生 CI 会分别用独立
 manifest lint WGC feature 与 macOS 库，避免把上游示例开发依赖并入主锁文件。
 vendor 自带 `Cargo.lock` 仅供独立 lint 重现上游依赖，不参与 Clippy 主工程解析。
