@@ -345,6 +345,13 @@ pub(super) fn connect(window: &AppWindow, config: &AppConfig) {
             }
         })
     });
+    window.on_clear_clipboard_history(|| {
+        use_app(|app| {
+            if let Err(error) = app.clear_clipboard_history() {
+                app.status(error.to_string());
+            }
+        })
+    });
     window.on_choose_path(|kind, path| {
         use_app(|app| {
             if let Err(error) = file_dialog::start(app, kind, path.as_str()) {
@@ -668,6 +675,21 @@ impl App {
                         .map(|()| "Stored credentials removed".into()),
                 };
                 send(Message::Credentials(result.map_err(Into::into)));
+            })?;
+        self.set_busy(true);
+        Ok(())
+    }
+
+    fn clear_clipboard_history(&mut self) -> Result<()> {
+        ensure!(!self.busy, tr("Wait for the current operation"));
+        self.storage
+            .client()
+            .execute(clippy_storage::StorageEngine::clear_history, |result| {
+                send(Message::Data(
+                    result
+                        .map(|()| "Clipboard history cleared".into())
+                        .map_err(Into::into),
+                ));
             })?;
         self.set_busy(true);
         Ok(())

@@ -225,9 +225,11 @@ export component SettingsPane inherits Rectangle {
     callback store-credentials(int, string, string);
     callback delete-credentials(int);
     callback data-action(int, string);
+    callback clear-clipboard-history();
     callback choose-path(FileChoice, string);
     callback refresh-ocr-status();
     private property <int> page;
+    private property <bool> confirm-history-clear;
     private property <bool> desktop-managed-shortcuts: root.wayland-session && !root.gnome-session;
     private property <[string]> pages: [@tr("General"), @tr("Screenshot"), @tr("Translation"), @tr("About")];
     private property <[string]> themes: [@tr("Light"), @tr("Dark"), "Nord", @tr("Solarized Light"), @tr("Rose"), @tr("Midnight")];
@@ -262,6 +264,7 @@ export component SettingsPane inherits Rectangle {
                     border-color: ClippyTheme.border;
                     clicked => {
                         root.page = index;
+                        root.confirm-history-clear = false;
                         root.recording-shortcut = ShortcutField.none;
                         page-scroll.content-y = 0px;
                         if index == 1 && root.wayland-session && root.gnome-session {
@@ -629,7 +632,7 @@ export component SettingsPane inherits Rectangle {
                     }
                     CapabilityLine { label: @tr("Screen capture"); value: @tr("Native capture"); }
                     SettingDivider { }
-                    AboutSlint { height: 38px; }
+                    AboutSlint { height: self.min-height; }
                     SectionRule { }
                     FieldLabel { text: @tr("Data and Backups"); }
                     FieldLabel { text: root.data-status; wrap: word-wrap; }
@@ -657,6 +660,31 @@ export component SettingsPane inherits Rectangle {
                                 } else {
                                     root.data-action(2, archive.text);
                                 }
+                            }
+                        }
+                    }
+                    if !root.confirm-history-clear: Button {
+                        text: @tr("Clear clipboard history");
+                        enabled: !root.busy && !root.file-dialog-pending;
+                        clicked => { root.confirm-history-clear = true; }
+                    }
+                    if root.confirm-history-clear: HorizontalLayout {
+                        spacing: 8px;
+                        SettingHint {
+                            text: @tr("Delete all non-favorite clips?");
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+                        Button {
+                            text: @tr("Cancel");
+                            clicked => { root.confirm-history-clear = false; }
+                        }
+                        Button {
+                            text: @tr("Delete permanently");
+                            enabled: !root.busy && !root.file-dialog-pending;
+                            clicked => {
+                                root.confirm-history-clear = false;
+                                root.clear-clipboard-history();
                             }
                         }
                     }

@@ -151,6 +151,9 @@ msgstr "选择 OCR 清单"
 msgid "Choose screenshot directory"
 msgstr "选择截图目录"
 
+msgid "Clear clipboard history"
+msgstr "清理剪贴板历史"
+
 msgid "Clear marks"
 msgstr "清除标注"
 
@@ -162,6 +165,9 @@ msgstr "点击录制，再按下要使用的组合键。"
 
 msgid "Click a window or drag an area"
 msgstr "单击选择窗口，或拖动框选区域"
+
+msgid "Clipboard history cleared"
+msgstr "已清理剪贴板历史"
 
 msgid "Clipboard image"
 msgstr "剪贴板图片"
@@ -312,6 +318,9 @@ msgstr "默认系统声音"
 
 msgid "Delete"
 msgstr "删除"
+
+msgid "Delete all non-favorite clips?"
+msgstr "删除所有未收藏的剪贴板记录？"
 
 msgid "Delete permanently"
 msgstr "永久删除"

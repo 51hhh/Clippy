@@ -17,7 +17,7 @@ GitHub `dev` 仍指向 #27 的合入提交 `abfdeb5`。之前的安装包、三�
 
 | 功能 | 当前 Slint | 收尾内容 |
 | --- | --- | --- |
-| 托盘、快捷键、设置 | 按需窗口、单实例、三类快捷键、六主题、平台权限入口。设置支持录制、即时改键、失败回滚、原生文件选择和 OCR 诊断，Portal 管理的键位同步到界面。跟随系统、简体中文和英文已接入 | 原生托盘、快捷键、系统配置入口、语言和权限态实机验收。补清理与更新入口。 [设置调用](../../../apps/slint/src/app/settings.rs) · [旧设置](../../../apps/legacy-tauri/frontend/settings.html) |
+| 托盘、快捷键、设置 | 按需窗口、单实例、三类快捷键、六主题、平台权限入口。设置支持录制、即时改键、失败回滚、原生文件选择、OCR 诊断和确认后清理非收藏历史，Portal 管理的键位同步到界面。跟随系统、简体中文和英文已接入 | 原生托盘、快捷键、系统配置入口、语言和权限态实机验收。补更新入口。 [设置调用](../../../apps/slint/src/app/settings.rs) · [旧设置](../../../apps/legacy-tauri/frontend/settings.html) |
 | 剪贴板和自动粘贴 | Unicode、HTML、透明 PNG、检索、收藏、删除、敏感项保护。X11 已验证复制和焦点变化。Windows 使用序列号，macOS 使用 `changeCount`，X11 读取 XFixes 事件，应用循环间隔 250 ms | 核对 Wayland 原生应用间的读写和授权恢复。将能观察的变更改为事件唤醒。短时间多次复制、退出数据所有权及焦点失效要在安装包内验证。 [平台剪贴板](../../../crates/clippy-platform/src/clipboard.rs) · [剪贴板工作线程](../../../apps/slint/src/app/clipboard.rs) |
 | 冻结截图 | X11 root、GNOME Mutter 原始帧、其他 Wayland 的 wayshot、Windows xcap/WGC 单帧、macOS xcap/CoreGraphics。选区使用单输出源像素 | 复测 v5 速度与 GNOME 瞬时菜单。补窗口速选、旋转和混合 DPI 验收。跨屏选区和合成是原生计划中的新增目标，先固定输出坐标尺度。保留系统截图导入和延时截图。 [平台采集](../../../crates/clippy-platform/src/capture.rs) · [GNOME v5 合同](../specs/2026-10-23-gnome-capture-fast-path-rollback.md) |
 | 标注、查看器、贴图 | 截图层有五个内联工具。编辑器可做更多标注。查看器支持缩放拖动。贴图、修订、工作区分组和缩略图已接入 | 恢复高频内联笔、文字、马赛克等实际入口与撤销/重做。窗口速选和扫码结果交互按旧操作验证。贴图跨屏缩放、层级和重启位置恢复做原生验证。独立查看器持久化工程按现有修订合同接入。 [截图窗](../../../apps/slint/ui/capture.slint) · [编辑器控制](../../../apps/slint/src/app/editor.rs) · [贴图状态](../../../apps/slint/src/app/pins.rs) |
@@ -652,6 +652,18 @@ Tesseract 状态、停用及清除自定义路径后恢复内置引擎。真实�
 中文字体及布局。记录 Linux 实际窗口和 Windows/macOS 检查的范围。
 
 **Out of Scope** 翻译后端的源/目标语言设置、系统自身提供的对话框与第三方诊断文本。
+
+#### 阶段 6 · 设置清理剪贴板历史
+
+**Goal** 从 Slint 设置的数据与备份入口清理非收藏历史，便于管理积累的本地数据。
+
+**Requirements** 在执行前明确显示删除范围并等待二次确认。取消、切页和关闭应丢弃确认。复用现有 SQLite
+事务、收藏保护、全文索引重建和关联译文清理。作业由存储线程处理，成功后刷新历史和统计。
+
+**Acceptance Criteria** 在隔离数据目录先取消后确认，核对普通记录、收藏、保存的贴图、关联译文、全文索引、
+运行中设置窗口和系统剪贴板。失败时使用已有事务回滚并显示错误。
+
+**Out of Scope** 清空收藏、删除贴图或录屏、修改历史上限与人工清理的策略。
 
 ## 实施记录
 
@@ -1436,6 +1448,15 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   证据位于 `target/test-artifacts/slint-stage6-language/`，包括 `ci-local-final.log`、`x11-language-final.log`、
   `x11-language-scale125.log`、`gnome-language.log`、`windows-gnu-qa-final.log`、`macos-locale-arm64.log`、
   `macos-locale-intel.log` 与两种缩放的窗口截图。
+
+#### 阶段 6 · 清理剪贴板历史结果
+
+- 设置关于页的数据与备份新增清理按钮，确认前显示删除范围。取消或切走当前页会收起确认。存储线程使用
+  现有清理事务，返回后刷新历史和统计。关于页的 Slint 徽标按组件的最小布局高度显示。
+- 隔离 X11 用实际设置窗口验证了确认、取消和切页。清理后只保留收藏，贴图、收藏的译文、全文索引和系统
+  剪贴板通过对照。关闭设置后第二实例仍可唤醒主窗口。Linux 完整门禁 11 通过、0 失败、0 跳过。
+- 证据位于 `target/test-artifacts/slint-stage4-macos-audio/` 的 `ci-local-clear-history-final.log`、
+  `clear-history-confirm-en.png` 和 `clear-history-confirm-zh-CN.png`。Windows/macOS 原生设置页待验收。
 
 ## Acceptance Criteria
 

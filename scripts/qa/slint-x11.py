@@ -1363,6 +1363,75 @@ def run(binary, root):
         close()
         print("PASS exchanging active clipboard and pin chords routes both keys to the new actions", flush=True)
 
+        favorite, ordinary = "cleanupkeepfixture", "cleanupremovefixture"
+        for value in (favorite, ordinary):
+            set_clipboard("UTF8_STRING", value.encode())
+            wait_for(lambda: ("text", value, None) in rows(), "history cleanup fixture did not reach storage")
+        database = data_dir / "clips.db"
+        with sqlite3.connect(database) as connection:
+            connection.execute("UPDATE clips SET is_favorite = 1 WHERE text_content = ?", (favorite,))
+            for value in (favorite, ordinary):
+                connection.execute(
+                    "INSERT INTO translation_history "
+                    "(clip_id, provider, source_language, target_language, source_hash, source_text, translated_text, created_at) "
+                    "SELECT id, 'libretranslate', 'en', 'zh-CN', ?, text_content, '测试译文', ? "
+                    "FROM clips WHERE text_content = ?",
+                    (value, int(time.time()), value),
+                )
+
+        def cleanup_state():
+            with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
+                clips = connection.execute("SELECT id, is_favorite FROM clips ORDER BY id").fetchall()
+                pins = connection.execute("SELECT id, revision_id FROM pin_workspace_items ORDER BY id").fetchall()
+                indexed = connection.execute(
+                    "SELECT text_content FROM clips_fts WHERE clips_fts MATCH ? ORDER BY text_content",
+                    (f"{favorite} OR {ordinary}",),
+                ).fetchall()
+                translations = connection.execute(
+                    "SELECT source_hash FROM translation_history WHERE source_hash IN (?, ?) ORDER BY source_hash",
+                    (favorite, ordinary),
+                ).fetchall()
+                return clips, pins, indexed, translations
+
+        before = cleanup_state()
+        assert before[1] and before[2] == before[3] == [(favorite,), (ordinary,)]
+        settings_id, (x, y, width, height) = open_shortcut_settings()
+        desktop.click(x + width - 130, y + 109)
+        desktop.scroll_down(x + width - 110, y + height - 82)
+        # 上一项设置保存留下 21 像素的状态栏，滚动到末尾时操作区也会上移。
+        action_y = y + height - 128
+
+        def confirmation_open():
+            # 仅检查左侧确认文字的对比度，避开单个按钮的边框和悬停状态。
+            region = Gdk.pixbuf_get_from_window(Gdk.get_default_root_window(), x + 55, action_y - 7, 152, 14)
+            red = region.get_pixels()[::region.get_n_channels()]
+            return max(red) - min(red) > 45
+
+        assert not confirmation_open()
+        desktop.click(x + width // 2, action_y)
+        wait_for(confirmation_open, "history cleanup did not ask for confirmation")
+        assert cleanup_state() == before, "opening a confirmation removed history"
+        save_qa_window("clear-history-confirm.png", (x, y, width, height))
+        desktop.click(x + width - 255, action_y)
+        wait_for(lambda: not confirmation_open(), "cancel did not dismiss the history confirmation")
+        assert cleanup_state() == before, "cancel mutated history"
+        desktop.click(x + width // 2, action_y)
+        wait_for(confirmation_open, "history confirmation did not reopen")
+        desktop.click(x + 128, y + 109)
+        desktop.click(x + width - 130, y + 109)
+        desktop.scroll_down(x + width - 110, y + height - 82)
+        wait_for(lambda: not confirmation_open(), "changing settings pages retained the confirmation")
+        assert cleanup_state() == before, "changing pages mutated history"
+        desktop.click(x + width // 2, action_y)
+        wait_for(confirmation_open, "history confirmation did not reopen after changing pages")
+        desktop.click(x + width - 94, action_y)
+        expected = ([clip for clip in before[0] if clip[1]], before[1], [(favorite,)], [(favorite,)])
+        wait_for(lambda: cleanup_state() == expected, "history cleanup did not preserve favorites, pins, FTS and translations")
+        assert get_clipboard("UTF8_STRING").decode() == ordinary, "history cleanup replaced the system clipboard"
+        desktop.request_close(settings_id)
+        wait_for(lambda: not titled_window(SETTINGS_TITLE), "cleanup settings did not close")
+        print("PASS settings cleanup requires confirmation and keeps favorites, pins and the current clipboard", flush=True)
+
         second = subprocess.run([binary, "--open"], env=env, timeout=4)
         assert second.returncode == 0
         panel()

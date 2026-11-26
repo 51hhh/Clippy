@@ -114,6 +114,7 @@ export component AppWindow inherits Window {
     callback store-credentials(int, string, string);
     callback delete-credentials(int);
     callback data-action(int, string);
+    callback clear-clipboard-history();
     callback choose-path(FileChoice, string);
     callback refresh-ocr-status();
     callback edit-history-image(string);
@@ -261,6 +262,7 @@ export component AppWindow inherits Window {
             store-credentials(index, key, secret) => { root.store-credentials(index, key, secret); }
             delete-credentials(index) => { root.delete-credentials(index); }
             data-action(action, path) => { root.data-action(action, path); }
+            clear-clipboard-history => { root.clear-clipboard-history(); }
             choose-path(kind, path) => { root.choose-path(kind, path); }
             refresh-ocr-status => { root.refresh-ocr-status(); }
         }
