@@ -1,6 +1,45 @@
 use arboard::Error;
 pub use arboard::ImageData;
 use clippy_core::clipboard::{strip_html_tags, MAX_CLIPBOARD_TEXT_BYTES};
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use std::sync::Arc;
+use std::time::Duration;
+
+#[cfg(target_os = "windows")]
+mod windows;
+#[cfg(target_os = "windows")]
+use windows as notifications;
+#[cfg(target_os = "linux")]
+use x11 as notifications;
+
+#[derive(Clone)]
+pub struct ClipboardWake {
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    signal: Arc<notifications::RequestSignal>,
+}
+
+impl ClipboardWake {
+    pub fn new() -> Option<Self> {
+        #[cfg(target_os = "linux")]
+        if crate::session::is_wayland() {
+            return None;
+        }
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        {
+            let signal = notifications::RequestSignal::new().ok()?;
+            Some(Self {
+                signal: Arc::new(signal),
+            })
+        }
+        #[cfg(target_os = "macos")]
+        None
+    }
+
+    pub fn notify(&self) {
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        self.signal.notify();
+    }
+}
 
 pub enum Content {
     Text(String),
@@ -10,8 +49,8 @@ pub enum Content {
 
 pub struct Clipboard {
     handle: arboard::Clipboard,
-    #[cfg(target_os = "linux")]
-    notifications: Option<x11::SelectionChanges>,
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    notifications: Option<notifications::SelectionChanges>,
 }
 
 impl Clipboard {
@@ -22,7 +61,29 @@ impl Clipboard {
             notifications: (!crate::session::is_wayland())
                 .then(x11::SelectionChanges::connect)
                 .and_then(Result::ok),
+            #[cfg(target_os = "windows")]
+            notifications: windows::SelectionChanges::connect().ok(),
         })
+    }
+
+    /// 返回 false 时由调用方按原间隔轮询。
+    pub fn wait_for_activity(&mut self, wake: &ClipboardWake, timeout: Duration) -> bool {
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        {
+            let Some(changes) = &self.notifications else {
+                return false;
+            };
+            if changes.wait(&wake.signal, timeout).is_ok() {
+                return true;
+            }
+            self.notifications = None;
+            false
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let _ = (wake, timeout);
+            false
+        }
     }
 
     /// None 表示后端没有可靠的剪贴板代次，调用者仍可按内容短路。
@@ -104,6 +165,41 @@ mod tests {
 
     #[test]
     #[ignore = "writes to the desktop clipboard; use an isolated Windows session"]
+    fn windows_wait_wakes_on_clipboard_update_and_request() {
+        use std::{thread, time::Instant};
+
+        let mut reader = Clipboard::open().unwrap();
+        let request = ClipboardWake::new().unwrap();
+        let previous = reader.generation();
+        let text = "Clippy 剪贴板通知 Ω";
+        thread::scope(|scope| {
+            let started = Instant::now();
+            scope.spawn(|| {
+                thread::sleep(Duration::from_millis(40));
+                Clipboard::open()
+                    .unwrap()
+                    .write(Content::Text(text.into()))
+                    .unwrap();
+            });
+            loop {
+                assert!(reader.wait_for_activity(&request, Duration::from_secs(2)));
+                assert!(started.elapsed() < Duration::from_secs(1));
+                if reader.generation() != previous {
+                    break;
+                }
+            }
+        });
+        assert!(matches!(reader.read().unwrap(), Some(Content::Text(value)) if value == text));
+
+        assert!(reader.wait_for_activity(&request, Duration::ZERO));
+        let started = Instant::now();
+        request.notify();
+        assert!(reader.wait_for_activity(&request, Duration::from_secs(2)));
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    #[ignore = "writes to the desktop clipboard; use an isolated Windows session"]
     fn windows_reads_text_and_image_without_html() {
         let mut source = Clipboard::open().unwrap();
         let mut reader = Clipboard::open().unwrap();
@@ -141,6 +237,12 @@ mod tests {
 
 #[cfg(target_os = "linux")]
 mod x11 {
+    use rustix::{
+        event::{eventfd, poll, EventfdFlags, PollFd, PollFlags, Timespec},
+        fd::OwnedFd,
+        io::{self, Errno},
+    };
+    use std::time::Duration;
     use x11rb::connection::Connection;
     use x11rb::protocol::{
         xfixes::{ConnectionExt as _, SelectionEventMask},
@@ -149,6 +251,21 @@ mod x11 {
     };
     use x11rb::rust_connection::RustConnection;
     use x11rb::COPY_DEPTH_FROM_PARENT;
+
+    pub(super) struct RequestSignal(OwnedFd);
+
+    impl RequestSignal {
+        pub(super) fn new() -> io::Result<Self> {
+            eventfd(0, EventfdFlags::NONBLOCK | EventfdFlags::CLOEXEC).map(Self)
+        }
+
+        pub(super) fn notify(&self) {
+            match io::retry_on_intr(|| io::write(&self.0, &1_u64.to_ne_bytes())) {
+                Ok(_) | Err(Errno::AGAIN) => (),
+                Err(error) => panic!("唤醒剪贴板工作线程失败: {error}"),
+            }
+        }
+    }
 
     pub(super) struct SelectionChanges {
         connection: RustConnection,
@@ -190,6 +307,30 @@ mod x11 {
                 connection,
                 generation: 0,
             })
+        }
+
+        pub(super) fn wait(&self, signal: &RequestSignal, timeout: Duration) -> io::Result<()> {
+            let timeout = Timespec::try_from(timeout).map_err(|_| Errno::INVAL)?;
+            let mut ready = [
+                PollFd::new(&signal.0, PollFlags::IN),
+                PollFd::new(self.connection.stream(), PollFlags::IN),
+            ];
+            match poll(&mut ready, Some(&timeout)) {
+                Ok(_) => (),
+                Err(Errno::INTR) => return Ok(()),
+                Err(error) => return Err(error),
+            }
+            if ready[0].revents().contains(PollFlags::IN) {
+                let mut count = [0_u8; 8];
+                io::retry_on_intr(|| io::read(&signal.0, &mut count[..]))?;
+            }
+            if ready[1]
+                .revents()
+                .intersects(PollFlags::ERR | PollFlags::HUP | PollFlags::NVAL)
+            {
+                return Err(Errno::PIPE);
+            }
+            Ok(())
         }
 
         pub(super) fn generation(&mut self) -> anyhow::Result<u64> {

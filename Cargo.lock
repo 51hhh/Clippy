@@ -1417,6 +1417,7 @@ dependencies = [
  "pipewire",
  "raw-window-handle",
  "rfd",
+ "rustix 1.1.6",
  "serde",
  "serde_json",
  "smithay-client-toolkit 0.19.2",

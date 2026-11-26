@@ -4,7 +4,7 @@ use clippy_core::clipboard::{
 };
 use clippy_core::models::{ClipItem, ContentType};
 use clippy_platform::{
-    clipboard::{Clipboard, Content, ImageData},
+    clipboard::{Clipboard, ClipboardWake, Content, ImageData},
     paste::{Paste, Target},
 };
 use clippy_storage::{BoundedImageData, StorageClient, StorageEngine, StorageError};
@@ -14,7 +14,7 @@ use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicU32, Ordering},
-    mpsc::{self, Receiver, RecvTimeoutError, SyncSender},
+    mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TryRecvError},
     Arc,
 };
 use std::thread::{self, JoinHandle};
@@ -51,6 +51,7 @@ pub(super) enum Request {
 
 pub(super) struct Worker {
     sender: Option<SyncSender<Request>>,
+    wake: Option<ClipboardWake>,
     thread: Option<JoinHandle<()>>,
     limit: Arc<AtomicU32>,
 }
@@ -64,11 +65,14 @@ impl Worker {
         let (sender, receiver) = mpsc::sync_channel(3);
         let limit = Arc::new(AtomicU32::new(limit));
         let worker_limit = limit.clone();
+        let wake = ClipboardWake::new();
+        let worker_wake = wake.clone();
         let thread = thread::Builder::new()
             .name("clippy-clipboard".into())
-            .spawn(move || watch(receiver, storage, data, &worker_limit))?;
+            .spawn(move || watch(receiver, worker_wake, storage, data, &worker_limit))?;
         Ok(Self {
             sender: Some(sender),
+            wake,
             thread: Some(thread),
             limit,
         })
@@ -79,7 +83,15 @@ impl Worker {
             .as_ref()
             .expect("Clipboard worker running")
             .try_send(request)
-            .map_err(|_| anyhow!("Clipboard is busy. Try again."))
+            .map_err(|_| anyhow!("Clipboard is busy. Try again."))?;
+        self.notify();
+        Ok(())
+    }
+
+    fn notify(&self) {
+        if let Some(wake) = &self.wake {
+            wake.notify();
+        }
     }
 
     pub(super) fn set_limit(&self, limit: u32) {
@@ -90,13 +102,41 @@ impl Worker {
 impl Drop for Worker {
     fn drop(&mut self) {
         self.sender.take();
+        self.notify();
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
     }
 }
 
-fn watch(receiver: Receiver<Request>, storage: StorageClient, data: PathBuf, limit: &AtomicU32) {
+fn wait_for_request(
+    receiver: &Receiver<Request>,
+    clipboard: Option<&mut Clipboard>,
+    wake: Option<&ClipboardWake>,
+    timeout: Duration,
+) -> Result<Request, RecvTimeoutError> {
+    let mut wait = POLL;
+    if let (Some(clipboard), Some(wake)) = (clipboard, wake) {
+        // 一次系统唤醒可能对应多个请求，队列还有待办时继续处理。
+        match receiver.try_recv() {
+            Ok(request) => return Ok(request),
+            Err(TryRecvError::Disconnected) => return Err(RecvTimeoutError::Disconnected),
+            Err(TryRecvError::Empty) => (),
+        }
+        if clipboard.wait_for_activity(wake, timeout) {
+            wait = Duration::ZERO;
+        }
+    }
+    receiver.recv_timeout(wait)
+}
+
+fn watch(
+    receiver: Receiver<Request>,
+    wake: Option<ClipboardWake>,
+    storage: StorageClient,
+    data: PathBuf,
+    limit: &AtomicU32,
+) {
     let mut paste = Paste::new(&data);
     let mut clipboard = None;
     let mut generation = None;
@@ -105,7 +145,14 @@ fn watch(receiver: Receiver<Request>, storage: StorageClient, data: PathBuf, lim
     let mut expire = Instant::now();
     let mut reported = String::new();
     loop {
-        let request = match receiver.recv_timeout(POLL) {
+        let until_expiry = expire.saturating_duration_since(Instant::now());
+        let timeout = if retry {
+            POLL.min(until_expiry)
+        } else {
+            until_expiry
+        };
+        let request = match wait_for_request(&receiver, clipboard.as_mut(), wake.as_ref(), timeout)
+        {
             Ok(request) => Some(request),
             Err(RecvTimeoutError::Timeout) => None,
             Err(RecvTimeoutError::Disconnected) => break,

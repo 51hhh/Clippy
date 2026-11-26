@@ -18,7 +18,7 @@ GitHub `dev` 仍指向 #27 的合入提交 `abfdeb5`。之前的安装包、三�
 | 功能 | 当前 Slint | 收尾内容 |
 | --- | --- | --- |
 | 托盘、快捷键、设置 | 按需窗口、单实例、三类快捷键、六主题、平台权限入口。设置支持录制、即时改键、失败回滚、原生文件选择、OCR 诊断和确认后清理非收藏历史，Portal 管理的键位同步到界面。跟随系统、简体中文和英文已接入 | 原生托盘、快捷键、系统配置入口、语言和权限态实机验收。补更新入口。 [设置调用](../../../apps/slint/src/app/settings.rs) · [旧设置](../../../apps/legacy-tauri/frontend/settings.html) |
-| 剪贴板和自动粘贴 | Unicode、HTML、透明 PNG、检索、收藏、删除、敏感项保护。X11 已验证复制和焦点变化。Windows 使用序列号，macOS 使用 `changeCount`，X11 读取 XFixes 事件，应用循环间隔 250 ms | 核对 Wayland 原生应用间的读写和授权恢复。将能观察的变更改为事件唤醒。短时间多次复制、退出数据所有权及焦点失效要在安装包内验证。 [平台剪贴板](../../../crates/clippy-platform/src/clipboard.rs) · [剪贴板工作线程](../../../apps/slint/src/app/clipboard.rs) |
+| 剪贴板和自动粘贴 | Unicode、HTML、透明 PNG、检索、收藏、删除、敏感项保护。X11 用 XFixes 唤醒入库，Windows 用系统剪贴板通知并保留序列号校验，macOS 继续轮询 `changeCount` | 核对 Wayland 原生应用间的读写和授权恢复。短时间多次复制、退出数据所有权、焦点失效和 Windows 通知时延要在安装包内验证。 [平台剪贴板](../../../crates/clippy-platform/src/clipboard.rs) · [剪贴板工作线程](../../../apps/slint/src/app/clipboard.rs) |
 | 冻结截图 | X11 root、GNOME Mutter 原始帧、其他 Wayland 的 wayshot、Windows xcap/WGC 单帧、macOS xcap/CoreGraphics。选区使用单输出源像素 | 复测 v5 速度与 GNOME 瞬时菜单。补窗口速选、旋转和混合 DPI 验收。跨屏选区和合成是原生计划中的新增目标，先固定输出坐标尺度。保留系统截图导入和延时截图。 [平台采集](../../../crates/clippy-platform/src/capture.rs) · [GNOME v5 合同](../specs/2026-10-23-gnome-capture-fast-path-rollback.md) |
 | 标注、查看器、贴图 | 截图层有五个内联工具。编辑器可做更多标注。查看器支持缩放拖动。贴图、修订、工作区分组和缩略图已接入 | 恢复高频内联笔、文字、马赛克等实际入口与撤销/重做。窗口速选和扫码结果交互按旧操作验证。贴图跨屏缩放、层级和重启位置恢复做原生验证。独立查看器持久化工程按现有修订合同接入。 [截图窗](../../../apps/slint/ui/capture.slint) · [编辑器控制](../../../apps/slint/src/app/editor.rs) · [贴图状态](../../../apps/slint/src/app/pins.rs) |
 | 长截图 | 手动追加、撤销、拼接、取消已验证，完成后进入编辑器 | 接自动滚动、到边界判停、目标丢失撤销输入，以及完成后快捷复制、保存、贴图。复用旧版自动输入与共享拼接算法。 [现有控制器](../../../apps/slint/src/app/longshot.rs) · [旧版自动滚动](../../../apps/legacy-tauri/native/src/capture/longshot/auto_scroll.rs) |
@@ -785,6 +785,36 @@ Tesseract 状态、停用及清除自定义路径后恢复内置引擎。真实�
 - 在真实 RemoteDesktop Portal 上复测了拒绝后重新打开对话框、勾选记住后连续两次重启、撤回后拒绝
   自动粘贴、撤回后再次授权。用平台层回归报告记录结果，安装包设置入口、目标应用焦点和完整剪贴板往返仍待验收。
   [Portal 工作线程](../../../crates/clippy-platform/src/paste/portal.rs)
+
+### 阶段 1 · 剪贴板系统通知
+
+**Goal** 缩短 Windows 和 X11 从用户复制到历史入库的等待，减少没有剪贴板变化时的线程唤醒。
+
+**Requirements** X11 监听现有 XFixes 连接，Windows 注册 `WM_CLIPBOARDUPDATE`。同一个剪贴板线程等待
+系统通知、应用请求和过期清理期限。应用请求继续使用容量为三的队列，发送成功与关闭队列时都唤醒线程。
+读取前后的代次校验保留，以免把两次复制的不同数据格式入成一条。暂时读取失败时按原 250 毫秒间隔重试，
+没有可用通知的会话沿用轮询。所有通知资源随工作线程释放。
+[Windows 剪贴板通知](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-addclipboardformatlistener) ·
+[Windows 句柄与消息等待](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-msgwaitformultipleobjectsex)
+
+**Acceptance Criteria** 同机隔离 X11 从外部逐次复制至少 20 条不同文本，每条核对 SQLite 内容并记录入库
+P50、P95 及 1.25 秒空闲区间的工作线程唤醒。验证外部复制、应用写入和退出会立即唤醒原线程。完整桌面回归
+覆盖 Unicode、HTML、透明 PNG、复制粘贴与焦点变化。Windows 用真实系统消息和测试文本验证通知、序列号及
+工作线程唤醒，同 SHA 原生检查和真机安装另记。
+
+**Out of Scope** Wayland 授权与新协议、macOS 变更检测方式、历史保留期限和 SQLite 格式。
+
+- 同一隔离 X11 测试各复制 24 条不同 Unicode 文本并查询 SQLite。入库 P50 从 184.6 降至 7.8 毫秒，P95 从
+  230.1 降至 8.8 毫秒。1.25 秒空闲内，剪贴板线程的主动上下文切换由 5 次降为 0 次。托盘退出约 28 毫秒。
+- Windows GNU 平台层通过严格交叉检查。隔离 Wine 用系统剪贴板复验系统通知、应用请求唤醒及读写内容的三个
+  用例，均通过。源码和原始日志见 `target/test-artifacts/slint-stage1-clipboard-notify.EHktz6/`。
+  Windows 真机时延和安装包继续按平台门禁验收。
+- Windows GNU 的 Slint QA 入口通过交叉检查，macOS 平台层两架构通过严格交叉检查。在同一 X11 夹具中用会话
+  标记走轮询路径，24 条均正常入库，P95 为 229.9 毫秒。全局关闭 XFixes 的虚拟服务器无法启动 Winit，
+  这条记录保留在 `fallback.log` 和 `app-fallback.log`。轮询对照见 `fallback-session.json`。
+- 同一源码在 NTFS 构建目录的 X11 QA 链接阶段重现 `Invalid argument`。将链接输出放到本机 POSIX 临时目录，
+  再使用宿主回环服务和隔离桌面复跑 `./scripts/ci-local.sh`，结果为 11 项通过、0 失败、0 跳过。记录见
+  `x11-link-native-retry.log`、`x11-link-posix.log` 和 `ci-local-posix-host.log`。
 
 ### 阶段 1 · 快速截图缓冲
 
