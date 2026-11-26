@@ -13,6 +13,7 @@ recording-vp9-source-build = ["recording-vp9-prototype", "shiguredo_libvpx/sourc
 recording-opus-webm = ["recording-vp9-prototype", "dep:opusic-c", "dep:opusic-sys"]
 recording-linux-audio = ["dep:anyhow", "dep:nix", "dep:pipewire"]
 recording-windows-audio = ["dep:windows"]
+recording-playback-native = ["recording-opus-webm"]
 recording-playback-gstreamer = [
     "recording-vp9-prototype",
     "dep:gstreamer",

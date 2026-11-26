@@ -741,16 +741,8 @@ pub fn resolve_library_artifact(
         if manifest.state != RecordingState::Interrupted {
             return Err("完成会话只允许访问最终输出".to_string());
         }
-        let index = artifact_id
-            .strip_prefix("segment-")
-            .filter(|value| value.len() == 6 && value.bytes().all(|byte| byte.is_ascii_digit()))
-            .and_then(|value| value.parse::<u32>().ok())
-            .ok_or_else(|| "录屏产物身份无效".to_string())?;
-        let segment = manifest
-            .segments
-            .get(index as usize)
-            .filter(|segment| segment.index == index)
-            .ok_or_else(|| "录屏分段不存在".to_string())?;
+        let segment = library_segment(&manifest, artifact_id)?;
+        let index = segment.index;
         (
             segment.file_name.as_str(),
             segment.byte_length,
@@ -768,10 +760,45 @@ pub fn resolve_library_artifact(
     })
 }
 
+fn library_segment<'a>(
+    manifest: &'a RecordingManifest,
+    artifact_id: &str,
+) -> Result<&'a SegmentManifest, String> {
+    let index = artifact_id
+        .strip_prefix("segment-")
+        .filter(|value| value.len() == 6 && value.bytes().all(|byte| byte.is_ascii_digit()))
+        .and_then(|value| value.parse::<u32>().ok())
+        .ok_or_else(|| "录屏产物身份无效".to_string())?;
+    manifest
+        .segments
+        .get(index as usize)
+        .filter(|segment| segment.index == index)
+        .ok_or_else(|| "录屏分段不存在".to_string())
+}
+
 #[cfg(feature = "recording-vp9-prototype")]
 pub fn resolve_library_thumbnail_source(
     app_data_dir: &Path,
     session_id: &str,
+) -> Result<Option<RecordingThumbnailSource>, String> {
+    resolve_library_webm_source(app_data_dir, session_id, None)
+}
+
+#[cfg(feature = "recording-playback-native")]
+pub(super) fn resolve_library_playback_source(
+    app_data_dir: &Path,
+    session_id: &str,
+    artifact_id: &str,
+) -> Result<RecordingThumbnailSource, String> {
+    resolve_library_webm_source(app_data_dir, session_id, Some(artifact_id))?
+        .ok_or_else(|| "轻量播放器只支持 VP9 WebM 录屏产物".to_string())
+}
+
+#[cfg(feature = "recording-vp9-prototype")]
+fn resolve_library_webm_source(
+    app_data_dir: &Path,
+    session_id: &str,
+    artifact_id: Option<&str>,
 ) -> Result<Option<RecordingThumbnailSource>, String> {
     let (session_directory, manifest) = load_library_manifest(app_data_dir, session_id)?;
     if manifest.video.encoder != "vp9-prototype" || manifest.video.container != "webm" {
@@ -783,6 +810,9 @@ pub fn resolve_library_thumbnail_source(
     let (file_name, byte_length, sha256, duration_ns, frame_count, artifact_audio) =
         match manifest.state {
             RecordingState::Complete => {
+                if artifact_id.is_some_and(|id| id != "final") {
+                    return Err("完成会话只允许访问最终输出".to_string());
+                }
                 let output = manifest
                     .final_output
                     .as_ref()
@@ -797,8 +827,13 @@ pub fn resolve_library_thumbnail_source(
                 )
             }
             RecordingState::Interrupted => {
-                let Some(segment) = manifest.segments.first() else {
-                    return Ok(None);
+                let segment = match artifact_id {
+                    Some("final") => return Err("中断会话没有完整录屏产物".to_string()),
+                    Some(id) => library_segment(&manifest, id)?,
+                    None => match manifest.segments.first() {
+                        Some(segment) => segment,
+                        None => return Ok(None),
+                    },
                 };
                 (
                     segment.file_name.as_str(),
@@ -2034,6 +2069,11 @@ pub mod artifact_sharing_fixture;
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "recording-playback-native")]
+    mod native_playback_tests {
+        include!("manifest/native_playback_tests.rs");
+    }
+
     #[cfg(target_os = "windows")]
     mod artifact_sharing_tests {
         include!("manifest/artifact_sharing_tests.rs");

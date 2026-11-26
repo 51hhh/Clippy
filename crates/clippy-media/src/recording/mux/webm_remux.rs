@@ -14,6 +14,9 @@ use std::fs::{self, File};
 use std::io::{BufReader, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 
+#[cfg(feature = "recording-playback-native")]
+pub(in crate::recording) mod playback_index;
+
 const EBML: u32 = 0x1A45_DFA3;
 const SEGMENT: u32 = 0x1853_8067;
 const SEEK_HEAD: u32 = 0x114D_9B74;
@@ -219,7 +222,9 @@ where
 }
 
 #[cfg(feature = "recording-opus-webm")]
-fn expected_opus_padding_ns(audio: WebmThumbnailAudioSpec) -> Result<u64, String> {
+pub(in crate::recording) fn expected_opus_padding_ns(
+    audio: WebmThumbnailAudioSpec,
+) -> Result<u64, String> {
     let encoded_frames = audio
         .packet_count
         .checked_mul(OPUS_PACKET_FRAMES as u64)
@@ -278,6 +283,13 @@ fn remux_mux_error(error: Vp9WebmError) -> String {
 
 impl StrictWebmReader {
     fn open_verified(source: &WebmRemuxSource) -> Result<Self, String> {
+        Self::open_with_checkpoint(source, || Ok(()))
+    }
+
+    fn open_with_checkpoint(
+        source: &WebmRemuxSource,
+        mut checkpoint: impl FnMut() -> Result<(), String>,
+    ) -> Result<Self, String> {
         let path_metadata = fs::symlink_metadata(&source.path)
             .map_err(|error| format!("读取录屏恢复分段失败: {error}"))?;
         if path_metadata.file_type().is_symlink() || !path_metadata.is_file() {
@@ -298,6 +310,7 @@ impl StrictWebmReader {
         let mut observed = 0_u64;
         let mut buffer = [0_u8; HASH_BUFFER_BYTES];
         loop {
+            checkpoint()?;
             let read = file
                 .read(&mut buffer)
                 .map_err(|error| format!("校验录屏恢复分段失败: {error}"))?;
@@ -600,7 +613,8 @@ impl StrictWebmReader {
                     }
                     let cluster_timecode = cluster_timecode
                         .ok_or_else(|| "录屏双轨恢复 BlockGroup 缺少 cluster 时间戳".to_string())?;
-                    let (body, discard_padding_ns) = self.read_opus_block_group(header.data_end)?;
+                    let (body, discard_padding_ns) =
+                        self.read_opus_block_group(header.data_end, MAX_PACKET_BYTES + 16)?;
                     let parsed = parse_simple_block(&body, cluster_timecode, timecode_scale)?;
                     if parsed.track_number != audio_track || parsed.keyframe {
                         return Err("录屏双轨恢复 BlockGroup 不是生产 Opus 尾包".to_string());
@@ -639,7 +653,11 @@ impl StrictWebmReader {
     }
 
     #[cfg(feature = "recording-opus-webm")]
-    fn read_opus_block_group(&mut self, end: u64) -> Result<(Vec<u8>, u64), String> {
+    fn read_opus_block_group(
+        &mut self,
+        end: u64,
+        block_limit: u64,
+    ) -> Result<(Vec<u8>, u64), String> {
         let mut block = None;
         let mut discard_padding = None;
         while self.position()? < end {
@@ -649,7 +667,7 @@ impl StrictWebmReader {
                     if block.is_some() {
                         return Err("录屏双轨恢复 BlockGroup 包含重复 Block".to_string());
                     }
-                    block = Some(self.read_bounded_body(header, MAX_PACKET_BYTES + 16)?);
+                    block = Some(self.read_bounded_body(header, block_limit)?);
                 }
                 DISCARD_PADDING => {
                     if discard_padding.is_some() {
@@ -1367,7 +1385,7 @@ fn validate_frame_timestamp(
 }
 
 #[cfg(feature = "recording-opus-webm")]
-fn validate_audio_timestamp(
+pub(in crate::recording) fn validate_audio_timestamp(
     timestamp_ns: u64,
     packet_index: u64,
     audio: WebmThumbnailAudioSpec,

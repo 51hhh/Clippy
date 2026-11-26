@@ -18,6 +18,8 @@ pub mod encoder_worker;
 pub mod frame;
 pub mod manifest;
 pub mod mux;
+#[cfg(feature = "recording-playback-native")]
+pub mod native_playback;
 pub mod pipeline;
 pub mod platform;
 #[cfg(feature = "recording-playback-gstreamer")]

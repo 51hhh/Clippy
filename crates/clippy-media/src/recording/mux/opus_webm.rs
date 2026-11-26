@@ -14,7 +14,7 @@ use webm::mux::{
 
 const OPUS_FRAME_FRAMES: usize = 960;
 const OPUS_FRAME_DURATION_NS: u64 = 20_000_000;
-const MAX_OPUS_PACKET_BYTES: usize = 1_276;
+pub(super) const MAX_OPUS_PACKET_BYTES: usize = 1_276;
 const OPUS_HEAD_BYTES: usize = 19;
 const OPUS_SEEK_PRE_ROLL_NS: u64 = 80_000_000;
 const NANOS_PER_SECOND: u128 = 1_000_000_000;

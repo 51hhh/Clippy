@@ -22,7 +22,7 @@ GitHub `dev` 仍指向 #27 的合入提交 `abfdeb5`。之前的安装包、三�
 | 冻结截图 | X11 root、GNOME Mutter 原始帧、其他 Wayland 的 wayshot、Windows xcap/WGC 单帧、macOS xcap/CoreGraphics。选区使用单输出源像素 | 复测 v5 速度与 GNOME 瞬时菜单。补窗口速选、旋转和混合 DPI 验收。跨屏选区和合成是原生计划中的新增目标，先固定输出坐标尺度。保留系统截图导入和延时截图。 [平台采集](../../../crates/clippy-platform/src/capture.rs) · [GNOME v5 合同](../specs/2026-10-23-gnome-capture-fast-path-rollback.md) |
 | 标注、查看器、贴图 | 截图层有五个内联工具。编辑器可做更多标注。查看器支持缩放拖动。贴图、修订、工作区分组和缩略图已接入 | 恢复高频内联笔、文字、马赛克等实际入口与撤销/重做。窗口速选和扫码结果交互按旧操作验证。贴图跨屏缩放、层级和重启位置恢复做原生验证。独立查看器持久化工程按现有修订合同接入。 [截图窗](../../../apps/slint/ui/capture.slint) · [编辑器控制](../../../apps/slint/src/app/editor.rs) · [贴图状态](../../../apps/slint/src/app/pins.rs) |
 | 长截图 | 手动追加、撤销、拼接、取消已验证，完成后进入编辑器 | 接自动滚动、到边界判停、目标丢失撤销输入，以及完成后快捷复制、保存、贴图。复用旧版自动输入与共享拼接算法。 [现有控制器](../../../apps/slint/src/app/longshot.rs) · [旧版自动滚动](../../../apps/legacy-tauri/native/src/capture/longshot/auto_scroll.rs) |
-| 区域录屏与回放 | VP9/WebM、暂停/继续、恢复与导出已接入。X11 有安全摆位浮窗。Wayland、WGC、ScreenCaptureKit 已接入原生帧时间。Slint Linux/Windows 支持选择系统音源或麦克风。QA 构建已验证 GStreamer 库内回放 | 对照轻量播放器，确定正式库内回放与朗读后端。补跨平台浮窗排除、双源混音和 macOS 音轨。设备移除、长时同步和干净安装继续按平台验收。 [录屏入口](../../../apps/slint/src/app/recording.rs) · [媒体模块](../../../crates/clippy-media/src/recording/mod.rs) |
+| 区域录屏与回放 | VP9/WebM、暂停/继续、恢复与导出已接入。X11 有安全摆位浮窗。Wayland、WGC、ScreenCaptureKit 已接入原生帧时间。Slint Linux/Windows 支持选择系统音源或麦克风。已验证 GStreamer 库内 QA 回放和轻量候选的索引解码 | 接轻量候选的系统时钟和录屏库，确定正式回放与朗读后端。补跨平台浮窗排除、双源混音和 macOS 音轨。设备移除、长时同步和干净安装继续按平台验收。 [录屏入口](../../../apps/slint/src/app/recording.rs) · [媒体模块](../../../crates/clippy-media/src/recording/mod.rs) |
 | OCR、扫码、图片翻译 | Tesseract TSV 有行框、置信度及段落。配置可用时调用旧增强引擎。打开图像文字窗后可选行、选段及翻译，合适的译文已有覆盖层，长译文留在侧栏 | 打包可分发的离线引擎、补可靠多栏/暗色/旋转排版。统一结果缓存和坐标，补快捷入口和多段按需翻译。扫码从结果文本扩展到共享模型已经提供的位置与逐项操作时，复用真实字段。 [OCR 接口](../../../crates/clippy-vision/src/lib.rs) · [译文回填](../../../apps/slint/src/app/vision.rs#L342) |
 | 预览、工具与归档 | 图片、有限 HTML/Markdown、编解码工具、翻译历史、手动 tmux 捕获、统计、归档导入导出 | 复验旧版实际使用的代码高亮、复杂表格、链接和译文管理。按对照结果补齐入口。归档沿用现有校验合同和 SQLite schema。 [预览解析](../../../apps/slint/src/app/preview_document.rs) · [工具窗口](../../../apps/slint/src/app/tools.rs) · [归档入口](../../../apps/slint/src/app/settings.rs#L509) |
 | 安装、更新与数据 | semver 分流已实现。Slint 有 QA 身份、安装器及草稿发版。首次正式启动会备份配置和数据库，Linux 早期已验证解包运行和备份恢复 | 真实安装器原位升级、旧 updater 取包验签、正式签名/公证策略、失败回滚以及新版自主更新。核对 QA 与生产身份、实际最低系统版本和无 WebView。 [升级备份](../../../apps/slint/src/app/upgrade.rs) · [发行草稿](../../../.github/workflows/release.yml#L813) |
@@ -376,6 +376,16 @@ ScreenCaptureKit 取 `SCStreamFrameInfoDisplayTime`。原生时间缺失或超�
 
 **Out of Scope** 正式播放器选型、改写既有录屏格式和原生音频采集时钟。
 
+#### 阶段 4 · 轻量 WebM 播放候选
+
+**Goal** 复用现有 VP9 和 Opus 解码器，按录屏文件自己的索引定位，并为录屏库提供逐帧视频和系统音频输出。
+
+**Requirements** 沿用录屏清单校验，选中一个产物后在同一文件句柄完成哈希和后续读取。通过 `SeekHead` 读取 `Cues`，定位时只解码选中关键帧和随后需要的帧；音频从预读边界之前开始解码，按采样序号裁掉 pre-skip、定位前的 PCM 和尾填充。复用现有纳秒时间基、BT.709 映射、大小上限和录屏库控件。保持视频待取帧和音频输出有界。
+
+**Acceptance Criteria** 用同一批原件、独立分段和恢复文件核对向前及向后定位、首帧像素、PCM 数量和结束边界。索引指向受限文件内的真实 cluster，尾部定位与回退可复测。接入系统音频后，在同一桌面对比两种候选的首帧、定位、长时同步、关闭释放和运行依赖。
+
+**Out of Scope** 通用 Matroska 导入、录屏格式改写、正式播放器切换和采集时间戳合同变更。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -698,6 +708,27 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   `ci-local-embedded-tmpfs.log`、`gst-slint-clippy-final.log` 和 `windows-default-embedded.log`。
   系统音频使用虚拟设备，三平台干净安装与轻量候选对照待验收。
   [GStreamer 部署](https://gstreamer.freedesktop.org/documentation/deploying/index.html)
+
+### 阶段 4 · 轻量索引解码结果
+
+- `clippy-media` 的可选 `recording-playback-native` 特性按产物 ID 选择录屏、在同一文件句柄校验 SHA-256，
+  流式读取 `SeekHead/Cues` 来定位关键帧。音视频各自保留读取位置。视频待取队列最多放一个编码包，需要推进
+  多帧时只把最后一张到时间的画面转换成 RGBA。Opus 预读后按采样序号裁除首尾填充。
+- 有声原件、独立分段、恢复文件分别定位到 1.000、1.000、2.600 秒。解析出的目标画面与对照色阶误差不超过
+  2 级，尾段 PCM 分别为 48,000、48,000、67,200 帧，倒退都能重回首帧。独立解码器的短样本索引到出帧
+  为 1.1–1.7 毫秒，带视窗和音频设备的路径继续测量。
+- 1 fps、30 分钟的无声文件定位到 29 分 50.5 秒后，显示 29 分 50 秒的正确画面，解码检查点少于 64 次。
+  另测恢复件末尾、选中第二个分段、音频尾填充、首包预跳过、文件篡改和校验取消。实际 2×2 VP9 复现了
+  libvpx 96/48/48 的行距，现可正常生成缩略图。
+- 同一套三份 PCM 通过独立 CPAL 探针送往虚拟系统输出。0.16 ALSA 路径三次都输出了正确音调，首回调后
+  时间从主机单调时钟转到流内时间。0.18.2 的原生 PulseAudio 路径选定同一个虚拟输出，请求 480 帧缓冲后，
+  三次分别收到 93、93、131 个携带样本的回调，预测播放时间均递增，结束后音频流断开。探针提前解码短片，
+  有界流式队列、长时音画同步和 Slint 控制器仍需接入。CPAL 0.18.2 的 CoreAudio 要求 macOS 14.2，
+  与当前 11.0 部署要求有差距。 [CPAL 平台要求](https://github.com/RustAudio/cpal/blob/v0.18.2/README.md#minimum-supported-versions)
+- 完整 Linux 门禁 11 项通过，启用轻量解码的媒体测试 386 项通过，严格 Clippy 和 Windows GNU 媒体层
+  交叉检查通过。日志见 `target/test-artifacts/slint-stage4-native-playback/` 的 `ci-local-indexed.log`、
+  `indexed-media-tests.log`、`indexed-media-clippy.log`、`indexed-windows-cross-permitted.log`、
+  `indexed-real-fixtures-final.log`、`native-cpal-alsa-final.log` 和 `native-cpal-pulse-fixed480.log`。
 
 #### Linux 音频时间戳提案 · 待实测和审批
 
