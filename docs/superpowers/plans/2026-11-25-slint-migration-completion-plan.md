@@ -406,6 +406,20 @@ ScreenCaptureKit 取 `SCStreamFrameInfoDisplayTime`。原生时间缺失或超�
 
 **Out of Scope** 此步保留逐行选择能力。段落归组、多栏与旋转质量、正式安装包的资源分发与默认引擎选择继续按阶段 5 验收。
 
+#### 阶段 5 · 文字方向、空格和阅读顺序
+
+**Goal** 提高离线识别的旋转、英文空格和多栏阅读质量，维持源图选框以及资源按需释放。
+
+**Requirements** 固定 PP-OCRv6 small 的检测模型、通用识别模型、字典和线程参数。用同一个图像管线比较候选，保留
+原图四点框与已批准的方向分数、像素、行数和并发边界。英文空格候选只能补匹配位置的空白，保留通用模型的非空白字符
+和已有空白。按画面布局分清阅读顺序与段落，行仍可单独选择、复制和翻译。
+
+**Acceptance Criteria** 仓库四向语料的四行文字全部正确，源框均在原图内并命中真值。同机使用其余固定语料核对空白
+F1、非空白 CER、多栏顺序、耗时及进程峰值。单图空白补全不能更改标点或符号。段落通过跨列、跨行与独立块夹具，
+并验证点击、翻译及源图映射。
+
+**Out of Scope** 本步保持平台安装包和模型分发合同的既有要求。公式结构、其他模型档位和复杂背景去除不加入本步。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -842,6 +856,26 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   覆盖 Slint 主程序。Windows/macOS 原生 worker 和安装测试待跑。当前本机构建的 worker 需要 `GLIBC_2.43`，Ubuntu
   22.04 包需用目标环境重建。证据位于 `target/test-artifacts/slint-stage5-ocr/`，包括 `ci-local-native-ocr.log`、
   `worker-tests-final.log`、`worker-clippy-final.log`、`worker-corpus/*-report.json` 和 `slint-native-ocr-x11-selection-*.log`。
+
+### 阶段 5 · 行方向识别和质量对照
+
+- 原生 QA bundle 增加固定的 `models/line-orientation.onnx`（约 1 MiB），来源和摘要与旧版公开模型一致。
+  使用 OAR 的检测、透视裁切、PP-LCNet 行分类和识别适配器。分类以 0.8 分为倒置翻转门限，识别批次最多四行，
+  只校正送入识别器的裁片。OAR 的整页识别投票需要至少三个方向一致的框，行分类可处理单行截图和局部旋转。
+  [方向模型源与摘要](../../../apps/legacy-tauri/native/ocr-sidecar/setup_models.py#L16)
+- 同一 worker 跑完 23 张固定语料。四向集的原始 CER 从 34.38% 降为 0%，四张图的文字全部正确且四点坐标与修复前
+  逐点相同。其余 19 张的输出文字、行序和坐标逐项一致。完整 Linux 门禁 11/0/0，独立 worker 通过测试和严格 Clippy。
+  隔离 X11 在 100% 和 125% 下复测了 OCR 子进程复用与释放、行框复制和单行翻译。另在 125% 点选 270° 竖框，
+  复制得到完整文字 `方向 OCR 90° SN-A1`。
+- 同机各 12 次交错测量，压缩状态图冷启动到响应 P95 为 297→299 ms，热态 P50 为 104→103 ms，热态 P95 为
+  127→157 ms。长文档热态 P95 为 1,093→1,196 ms。长文档回包时的 worker PSS 中位数为 412→430 MiB，
+  此对照在两个模型进程同时驻留时采样。实体屏幕和正式包的启动、峰值及回落继续单独验证。
+- 英文复识别在六张专项图中多补回一个空格，空白 F1 从 0.717 到 0.741，非空白相同。浏览器 UI 四张样本一次遍历的
+  P95 由约 1.13 s 增到 1.85 s。全量使用背景展平时，UI 压力集的非空白错误从 2 增到 4。通用识别仍使用原预处理。
+  几何切列对照能消除双栏样本的倒置，但浏览器 UI 集从 15 增到 24 处倒置，段落继续按列证据和逐场景指标评估。
+- 原始证据在 `target/test-artifacts/slint-stage5-quality/`，包括 `final-orientation/*-report.json`、
+  `orientation-benchmark.json`、`stages-english.log`、`flatten.log`、`layout-probe.log`、
+  `slint-native-ocr-x11-*.log`、`rotated-x11-125-final.log` 和 `ci-local-orientation.log`。
 
 ## Acceptance Criteria
 
