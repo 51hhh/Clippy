@@ -50,7 +50,10 @@
   Linux X11 验证录制、取消、冲突及配置回读，Wayland、Windows 和 macOS 的实体键盘仍待验收。
   （需求 `SLINT-SHORTCUT-RECORDER-01`）
 - X11、Windows 和 macOS 的剪贴板、贴图和截图快捷键在设置保存后立即应用。注册冲突或配置写入失败时保留
-  原按键。隔离 X11 已验收改键、交换、回滚和重试。Windows/macOS 原生桌面及 Wayland 即时改键继续验收。
+  原按键。隔离 X11 已验收改键、交换、回滚和重试。Windows/macOS 原生桌面继续验收。
+  （需求 `SLINT-MIGRATION-CLOSURE-01`）
+- GNOME Wayland 的剪贴板、贴图和截图快捷键保存后立即应用。设置会提示可检测的系统和自定义快捷键冲突，
+  写入失败会恢复原来的按键。隔离 GNOME 50.1 已验证互换、回滚和新截图键，其他 GNOME 版本与安装包继续验收。
   （需求 `SLINT-MIGRATION-CLOSURE-01`）
 
 ### Slint 识字、扫码和翻译

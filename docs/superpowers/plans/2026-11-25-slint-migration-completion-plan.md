@@ -525,6 +525,12 @@ Wayland 在原 v5 路径上更新自己的 GSettings 条目并保留其他条目
 会话管理实体键位，按会话版本接入桌面的配置入口和状态。
 [Global Shortcuts Portal](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.GlobalShortcuts.html)
 
+GNOME 在原有快捷键线程中处理本次保存，先核对可枚举的系统和自定义快捷键。互换时保留原物理键并更新动作命令，
+普通改键由媒体键服务监听 GSettings 变更。写入失败时恢复本次改动的条目，配置及其他写入在当前保存结束后继续。
+Shell 内直接注册的键没有公开枚举或逐键确认接口，物理按键触发仍以真实桌面回归为准。
+[GNOME 变更处理](https://github.com/GNOME/gnome-settings-daemon/blob/50.0/plugins/media-keys/gsd-media-keys-manager.c#L773-L805) ·
+[Shell 注册接口](https://github.com/GNOME/gnome-shell/blob/50.1/js/ui/shellDBus.js#L186-L214)
+
 **Acceptance Criteria** 录制和手填都使用同一保存流程。验证不重启即可触发新按键，旧按键停止触发，并支持两个
 动作交换按键。同一应用的重复按键、其他应用占用、写入失败均保留旧配置及可用按键。修复输入后可直接重试。
 用隔离 X11 和 GNOME 实测，Windows/macOS 与非 GNOME Portal 在对应原生桌面验收。
@@ -1132,6 +1138,20 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   证据位于 `target/test-artifacts/slint-stage6-live-shortcuts/`，包括 `ci-local-final.log`、
   `native-shortcut-conflict.png`、`native-shortcut-write-error.png`、`windows-gnu-qa.log`、
   `macos-platform.log` 和 `gnome-key-update-probe.log`。
+
+#### 阶段 6 · GNOME Wayland 快捷键保存与回滚结果
+
+- 保存由已有的 GNOME 快捷键线程处理。核对自定义条目和系统键位后，更新属于当前应用身份的 GSettings
+  条目。互换时保留原物理键，在媒体键服务中换动作命令。配置原子提交失败则反向恢复本次更改的值。
+- 隔离 GNOME 50.1 使用真实设置按钮和媒体键服务验证新键、旧键关闭、自定义条目占键与系统换窗键冲突。
+  两个冲突均保留原配置字节及其他应用的快捷键。阻止临时文件写入后验证回滚和原键触发，移除故障后重试成功，
+  互换后分别用按键打开剪贴板和贴图。独立用例在相同构建上保存截图键，新键启动 v5 覆盖层，旧键停用。
+- 完整 Linux 门禁 11 项通过、0 失败、0 跳过。Windows GNU 的 Slint QA 入口交叉检查通过，macOS 双架构
+  平台层严格交叉 Clippy 通过。安装包与其他 GNOME 版本继续验收。Shell 直接注册的键仍受公开 API 的可观察范围限制。
+- QA 二进制 SHA-256 为 `944be4661f113d9617a22ec87742074a0ef218f3c079a0cbd3efc21d94a5dd7e`。
+  证据位于 `target/test-artifacts/slint-stage6-gnome-hotkeys/`，包括 `gnome-settings-final.log` 的前三组通过记录、
+  `gnome-screenshot-hotkey.log`、`ci-local.log`、`windows-gnu-qa.log` 和 `macos-platform.log`。
+  综合夹具的截图页后续改为独立会话验证，避免前置滚动位置和虚拟输入状态影响该用例。
 
 ## Acceptance Criteria
 

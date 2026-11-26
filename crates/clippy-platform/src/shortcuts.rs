@@ -3,6 +3,9 @@ use anyhow::{bail, Result};
 use global_hotkey::{hotkey::HotKey, GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use std::sync::{Arc, Mutex};
 
+#[cfg(target_os = "linux")]
+mod gnome;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     Open,
@@ -16,7 +19,7 @@ type Report = Arc<dyn Fn(String) + Send + Sync>;
 pub struct Shortcuts {
     native: Option<NativeShortcuts>,
     #[cfg(target_os = "linux")]
-    _wayland: Option<wayland::Worker>,
+    wayland: Option<wayland::Worker>,
 }
 
 pub struct Bindings([(Action, HotKey); 3]);
@@ -88,11 +91,14 @@ impl Shortcuts {
         #[cfg(target_os = "linux")]
         if crate::session::is_wayland() {
             if bindings.is_empty() {
-                bail!("No global shortcut is configured");
+                if !crate::session::is_gnome() {
+                    bail!("No global shortcut is configured");
+                }
+                report("No global shortcut is configured".into());
             }
             return Ok(Self {
                 native: None,
-                _wayland: Some(wayland::Worker::start(
+                wayland: Some(wayland::Worker::start(
                     *identity, bindings, dispatch, report,
                 )?),
             });
@@ -131,7 +137,7 @@ impl Shortcuts {
                 active,
             }),
             #[cfg(target_os = "linux")]
-            _wayland: None,
+            wayland: None,
         })
     }
 
@@ -144,6 +150,23 @@ impl Shortcuts {
             .as_mut()
             .expect("调用方使用原生快捷键后端")
             .rebind(next, persist)
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn rebind_gnome(
+        &self,
+        bindings: Bindings,
+        persist: impl FnOnce() -> Result<()> + Send + 'static,
+        completed: impl FnOnce(Result<()>) + Send + 'static,
+    ) -> Result<()> {
+        self.wayland
+            .as_ref()
+            .expect("调用方使用 GNOME Wayland 快捷键后端")
+            .update_gnome(gnome::Update {
+                bindings,
+                persist: Box::new(persist),
+                completed: Box::new(completed),
+            })
     }
 }
 
@@ -201,19 +224,15 @@ impl NativeShortcuts {
 #[cfg(target_os = "linux")]
 mod wayland {
     use super::*;
-    use crate::gnome_settings::run as gsettings;
     use ashpd::desktop::global_shortcuts::{GlobalShortcuts, NewShortcut};
     use futures_util::StreamExt;
     use global_hotkey::hotkey::Modifiers;
-    use std::thread;
     use std::time::Duration;
+    use std::{sync::mpsc, thread};
     use tokio::sync::oneshot;
 
-    const SCHEMA: &str = "org.gnome.settings-daemon.plugins.media-keys";
-    const LIST: &str = "custom-keybindings";
-    const PREFIX: &str = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/";
-
     pub(super) struct Worker {
+        gnome_updates: Option<mpsc::SyncSender<gnome::Update>>,
         stop: Option<oneshot::Sender<()>>,
         thread: Option<thread::JoinHandle<()>>,
     }
@@ -226,12 +245,13 @@ mod wayland {
             report: Report,
         ) -> std::io::Result<Self> {
             let gnome = crate::session::is_gnome();
+            let (send_update, updates) = mpsc::sync_channel(1);
             let (stop, stopped) = oneshot::channel();
             let thread = thread::Builder::new()
                 .name("clippy-shortcuts".into())
                 .spawn(move || {
                     let result = if gnome {
-                        gnome_loop(identity, &bindings, dispatch, &report, stopped)
+                        gnome::run(identity, &bindings, dispatch, &report, updates)
                     } else {
                         tokio::runtime::Builder::new_current_thread()
                             .enable_all()
@@ -248,14 +268,24 @@ mod wayland {
                     }
                 })?;
             Ok(Self {
+                gnome_updates: gnome.then_some(send_update),
                 stop: Some(stop),
                 thread: Some(thread),
             })
+        }
+
+        pub(super) fn update_gnome(&self, update: gnome::Update) -> Result<()> {
+            self.gnome_updates
+                .as_ref()
+                .expect("调用方使用 GNOME 快捷键后端")
+                .try_send(update)
+                .map_err(|_| anyhow::anyhow!("GNOME global shortcuts are unavailable"))
         }
     }
 
     impl Drop for Worker {
         fn drop(&mut self) {
+            drop(self.gnome_updates.take());
             if let Some(stop) = self.stop.take() {
                 let _ = stop.send(());
             }
@@ -265,136 +295,7 @@ mod wayland {
         }
     }
 
-    struct ShortcutEndpoint(Dispatch);
-
-    #[zbus::interface(name = "com.clippy.app")]
-    impl ShortcutEndpoint {
-        fn toggle(&self) {
-            (self.0)(Action::Open);
-        }
-
-        fn pin(&self) {
-            (self.0)(Action::Pin);
-        }
-
-        fn capture(&self) -> bool {
-            (self.0)(Action::Capture);
-            true
-        }
-    }
-
-    fn gnome_loop(
-        identity: PlatformIdentity,
-        bindings: &[(Action, HotKey)],
-        dispatch: Dispatch,
-        report: &Report,
-        stopped: oneshot::Receiver<()>,
-    ) -> Result<()> {
-        let name = format!("{}.Shortcuts", identity.application_id);
-        let _bus = zbus::blocking::connection::Builder::session()?
-            .name(name.as_str())?
-            .serve_at("/com/clippy/app", ShortcutEndpoint(dispatch))?
-            .build()?;
-        for &(action, key) in bindings {
-            let (method, label) = match action {
-                Action::Open => ("Toggle", "Open Clipboard"),
-                Action::Pin => ("Pin", "Pin selected clipboard item"),
-                Action::Capture => ("Capture", "Screenshot"),
-            };
-            let command =
-                format!("dbus-send --session --type=method_call --dest={name} /com/clippy/app com.clippy.app.{method}");
-            if let Err(error) = bind_gnome(identity, label, method, key, &command) {
-                report(format!("{label} shortcut: {error}"));
-            }
-        }
-        let _ = stopped.blocking_recv();
-        Ok(())
-    }
-
-    fn bind_gnome(
-        identity: PlatformIdentity,
-        label: &str,
-        method: &str,
-        key: HotKey,
-        command: &str,
-    ) -> Result<()> {
-        let accelerator = trigger(key, true)?;
-        let raw = gsettings(&["get", SCHEMA, LIST])?;
-        let mut entries = parse_entries(&raw)?;
-        let expected_command = format!("'{command}'");
-        let mut owned = None;
-        for entry in &entries {
-            let schema = format!("{SCHEMA}.custom-keybinding:{entry}");
-            let current_command = gsettings(&["get", &schema, "command"])?;
-            if current_command == expected_command {
-                owned = Some(entry.clone());
-            } else if gsettings(&["get", &schema, "binding"])? == format!("'{accelerator}'") {
-                bail!("the shortcut is already assigned in GNOME Settings");
-            }
-        }
-        let slot = format!(
-            "{PREFIX}{}-{}/",
-            identity.shortcut_namespace.replace('.', "-"),
-            method.to_ascii_lowercase()
-        );
-        let new_slot = owned.is_none();
-        let entry = owned.unwrap_or(slot);
-        if new_slot && entries.contains(&entry) {
-            bail!("the Clippy shortcut slot is already in use");
-        }
-        let schema = format!("{SCHEMA}.custom-keybinding:{entry}");
-        if new_slot {
-            gsettings(&["set", &schema, "name", &format!("'Clippy {label}'")])?;
-            gsettings(&["set", &schema, "command", &expected_command])?;
-        }
-        let quoted = format!("'{accelerator}'");
-        if gsettings(&["get", &schema, "binding"])? != quoted {
-            gsettings(&["set", &schema, "binding", &quoted])?;
-        }
-        if new_slot {
-            // 保留设置页刚写入的其它快捷键，已有条目也不会随应用重启增长。
-            let current = gsettings(&["get", SCHEMA, LIST])?;
-            if current != raw {
-                entries = parse_entries(&current)?;
-            }
-            if !entries.contains(&entry) {
-                entries.push(entry);
-            }
-            let value = format!("['{}']", entries.join("', '"));
-            gsettings(&["set", SCHEMA, LIST, &value])?;
-        }
-        Ok(())
-    }
-
-    fn parse_entries(value: &str) -> Result<Vec<String>> {
-        let list = value.strip_prefix("@as ").unwrap_or(value);
-        let raw = list
-            .strip_prefix('[')
-            .and_then(|list| list.strip_suffix(']'))
-            .ok_or_else(|| anyhow::anyhow!("invalid GNOME shortcut list"))?;
-        if raw.is_empty() {
-            return Ok(Vec::new());
-        }
-        raw.split(',')
-            .map(|part| {
-                let entry = part
-                    .trim()
-                    .strip_prefix('\'')
-                    .and_then(|part| part.strip_suffix('\''))
-                    .filter(|entry| {
-                        entry.starts_with('/')
-                            && entry.ends_with('/')
-                            && entry
-                                .bytes()
-                                .all(|byte| byte.is_ascii_alphanumeric() || b"/_-.".contains(&byte))
-                    })
-                    .ok_or_else(|| anyhow::anyhow!("invalid GNOME shortcut path"))?;
-                Ok(entry.to_owned())
-            })
-            .collect()
-    }
-
-    fn trigger(hotkey: HotKey, gnome: bool) -> Result<String> {
+    pub(super) fn trigger(hotkey: HotKey, gnome: bool) -> Result<String> {
         let code = hotkey.key.to_string();
         let key = code
             .strip_prefix("Key")
@@ -502,15 +403,8 @@ mod wayland {
         use super::*;
 
         #[test]
-        fn custom_list_and_shortcut_syntax_preserve_existing_gnome_entries() {
-            assert!(parse_entries("@as []").unwrap().is_empty());
-            assert_eq!(
-                parse_entries("['/org/user/custom0/']").unwrap(),
-                ["/org/user/custom0/"]
-            );
-            assert!(parse_entries("['invalid']").is_err());
+        fn portal_shortcut_syntax_matches_desktop_specification() {
             let key = "Ctrl+Shift+S".parse().unwrap();
-            assert_eq!(trigger(key, true).unwrap(), "<Control><Shift>s");
             assert_eq!(trigger(key, false).unwrap(), "CTRL+SHIFT+s");
         }
     }

@@ -138,6 +138,8 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
             busy: false,
             #[cfg(target_os = "linux")]
             gnome_helper_busy: false,
+            #[cfg(target_os = "linux")]
+            gnome_settings_pending: None,
             shortcuts: shortcuts.ok(),
             shortcut_status,
             action_status: SharedString::default(),
@@ -282,6 +284,8 @@ struct App {
     busy: bool,
     #[cfg(target_os = "linux")]
     gnome_helper_busy: bool,
+    #[cfg(target_os = "linux")]
+    gnome_settings_pending: Option<Box<AppConfig>>,
     shortcuts: Option<Shortcuts>,
     shortcut_status: String,
     action_status: SharedString,
@@ -576,6 +580,8 @@ impl App {
         window.set_auto_paste(self.config.auto_paste);
         window.set_show_settings(settings);
         window.set_busy(self.busy);
+        #[cfg(target_os = "linux")]
+        window.set_settings_save_pending(self.gnome_settings_pending.is_some());
         window.set_action_status(self.action_status.clone());
         window.set_shortcut_status(self.shortcut_status.clone().into());
         settings::connect(&window, &self.config);
@@ -728,6 +734,11 @@ impl App {
     }
 
     fn save_config(&self, config: &AppConfig) -> Result<()> {
+        #[cfg(target_os = "linux")]
+        anyhow::ensure!(
+            self.gnome_settings_pending.is_none(),
+            "Wait for the shortcut save to finish"
+        );
         Self::write_config(&self.paths.config_file, config)
     }
 

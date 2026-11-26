@@ -163,6 +163,7 @@ export component SettingsPane inherits Rectangle {
     in property <[string]> shortcut-defaults;
     in property <bool> wayland-session;
     in property <bool> gnome-session;
+    in property <bool> save-pending;
     in property <bool> gnome-helper-busy;
     in property <GnomeHelperView> gnome-helper;
     in property <string> build-label;
@@ -275,7 +276,7 @@ export component SettingsPane inherits Rectangle {
                     CheckBox {
                         text: "Enable automatic paste";
                         checked: root.auto-paste;
-                        enabled: !root.busy;
+                        enabled: !root.busy && !root.save-pending;
                         toggled => { root.paste-setting(self.checked); }
                     }
                     HorizontalLayout {
@@ -291,6 +292,7 @@ export component SettingsPane inherits Rectangle {
                     }
                     Button {
                         text: "Save general settings";
+                        enabled: !root.save-pending;
                         clicked => {
                             root.recording-shortcut = ShortcutField.none;
                             root.apply-general({
@@ -382,6 +384,7 @@ export component SettingsPane inherits Rectangle {
                     manifest := SettingInput { text: root.general.ocr-manifest; placeholder-text: "Optional path to model manifest"; }
                     Button {
                         text: "Save screenshot settings";
+                        enabled: !root.save-pending;
                         clicked => {
                             root.recording-shortcut = ShortcutField.none;
                             root.apply-general({
@@ -463,6 +466,7 @@ export component SettingsPane inherits Rectangle {
                     }
                     Button {
                         text: "Save provider settings";
+                        enabled: !root.save-pending;
                         clicked => {
                             root.apply-translation(root.provider-index, {
                                 enabled: preferred.checked, endpoint: endpoint.text, model: model.text, region: region.text,

@@ -41,6 +41,8 @@ pub(super) enum Message {
     Credentials(Result<String>),
     #[cfg(target_os = "linux")]
     GnomeHelper(Result<clippy_platform::gnome_extension::Status>),
+    #[cfg(target_os = "linux")]
+    GnomeSettingsSaved(Result<()>),
 }
 
 pub(super) fn namespace(identity: &DeploymentIdentity) -> String {
@@ -440,6 +442,10 @@ impl App {
             ..self.config.clone()
         };
         let wayland = clippy_platform::session::is_wayland();
+        #[cfg(target_os = "linux")]
+        if shortcuts_changed && wayland && clippy_platform::session::is_gnome() {
+            return self.apply_gnome_shortcuts(shortcuts, next);
+        }
         if shortcuts_changed && !wayland {
             let path = &self.paths.config_file;
             self.shortcuts
@@ -450,16 +456,50 @@ impl App {
         } else {
             self.save_config(&next)?;
         }
-        self.clipboard.set_limit(max_history);
-        clippy_vision::set_manifest_setting(&next.enhanced_ocr_manifest_path);
-        self.config = next;
-        populate(self.window.as_ref().expect("设置窗口已打开"), &self.config);
+        self.apply_saved_general(next);
         Ok(if shortcuts_changed && wayland {
             "Settings saved. Restart Clippy to apply shortcuts."
         } else {
             "Settings saved"
         }
         .into())
+    }
+
+    #[cfg(target_os = "linux")]
+    fn apply_gnome_shortcuts(
+        &mut self,
+        shortcuts: shortcuts::Bindings,
+        next: AppConfig,
+    ) -> Result<String> {
+        ensure!(
+            self.gnome_settings_pending.is_none(),
+            "Wait for the shortcut save to finish"
+        );
+        let path = self.paths.config_file.clone();
+        let config = next.clone();
+        self.shortcuts
+            .as_ref()
+            .context("GNOME global shortcuts are unavailable")?
+            .rebind_gnome(
+                shortcuts,
+                move || Self::write_config(&path, &config),
+                |result| send(Message::GnomeSettingsSaved(result)),
+            )?;
+        self.gnome_settings_pending = Some(Box::new(next));
+        self.window
+            .as_ref()
+            .expect("设置窗口已打开")
+            .set_settings_save_pending(true);
+        Ok("Applying shortcuts…".into())
+    }
+
+    fn apply_saved_general(&mut self, next: AppConfig) {
+        self.clipboard.set_limit(next.max_history);
+        clippy_vision::set_manifest_setting(&next.enhanced_ocr_manifest_path);
+        self.config = next;
+        if let Some(window) = &self.window {
+            populate(window, &self.config);
+        }
     }
 
     fn apply_translation(&mut self, index: i32, value: TranslationSettings) -> Result<String> {
@@ -663,6 +703,22 @@ impl App {
             }
             #[cfg(target_os = "linux")]
             Message::GnomeHelper(result) => gnome_helper::completed(self, result),
+            #[cfg(target_os = "linux")]
+            Message::GnomeSettingsSaved(result) => {
+                let next = self
+                    .gnome_settings_pending
+                    .take()
+                    .expect("设置保存请求有待应用的配置");
+                if let Some(window) = &self.window {
+                    window.set_settings_save_pending(false);
+                }
+                let result = result.map(|()| {
+                    self.apply_saved_general(*next);
+                    self.handle(Event::ShortcutStatus(String::new()));
+                    "Settings saved".into()
+                });
+                self.settings_result(result);
+            }
         }
     }
 }

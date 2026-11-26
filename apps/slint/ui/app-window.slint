@@ -64,6 +64,7 @@ export component AppWindow inherits Window {
     in property <[string]> shortcut-defaults;
     in property <bool> wayland-session;
     in property <bool> gnome-session;
+    in property <bool> settings-save-pending;
     in property <bool> gnome-helper-busy;
     in property <GnomeHelperView> gnome-helper: { title: "Checking helper…" };
     in property <TranslationSettings> translation-settings;
@@ -220,6 +221,7 @@ export component AppWindow inherits Window {
             shortcut-defaults: root.shortcut-defaults;
             wayland-session: root.wayland-session;
             gnome-session: root.gnome-session;
+            save-pending: root.settings-save-pending;
             gnome-helper-busy: root.gnome-helper-busy;
             gnome-helper: root.gnome-helper;
             translation: root.translation-settings;
