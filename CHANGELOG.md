@@ -82,6 +82,8 @@
 - Slint 安装包随附 PP-OCRv6 small、方向模型和 CPU 运行库，打开图片后可直接离线识字，无需配置模型目录或安装
   Python。本机 QA deb 和 AppImage 已验证按需启动、选行选段和关窗回收。Ubuntu 22.04 及 Windows/macOS
   原生安装继续验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
+- 修复 Windows 准备离线 OCR 许可时读取 Cargo 元数据失败的问题。已用 Windows 目标依赖图验证含非 ASCII
+  字符的元数据可生成许可清单，Windows 安装包待重新出包验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 
 ### Slint 区域录屏
 

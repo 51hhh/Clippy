@@ -177,7 +177,7 @@ def assets_in(path):
 def stage_rust_ocr_licenses(bundle, system):
     output = run("cargo", "metadata", "--locked", "--format-version", "1",
                  "--manifest-path", str(ROOT / "apps/ocr-worker/Cargo.toml"),
-                 "--filter-platform", RUST_TARGETS[system], capture_output=True, text=True).stdout
+                 "--filter-platform", RUST_TARGETS[system], capture_output=True).stdout
     for package in json.loads(output)["packages"]:
         name = package["name"]
         for license_file in RUST_OCR_LICENSES.get(name, ()):

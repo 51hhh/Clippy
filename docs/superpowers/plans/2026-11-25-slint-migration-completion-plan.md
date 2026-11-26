@@ -1279,6 +1279,14 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   `host-qa-pack-verified.log`、`deb-ui-verified.log`、`appimage-ui-verified.log`、
   `ci-local-bundled-ocr.log` 和 `windows-gnu-qa.log`。
 
+#### 阶段 5 · Windows OCR 许可打包修复
+
+- Windows x64 QA 在准备 OCR 时用系统代码页解码 Cargo 元数据，其中包含无法解码的 UTF-8 字节。
+  将 Cargo 的字节输出直接交给 JSON 解码器。用 ASCII locale 和实际 Windows 目标依赖图复现旧错误，
+  修复后生成五份锁定的 Rust 依赖许可证。原生 MSI、NSIS 与安装后离线识字继续验收。
+  [Windows QA 失败日志](https://github.com/51hhh/Clippy/actions/runs/45874590410/job/140098342533)
+- 本地复验日志为 `target/test-artifacts/slint-stage4-macos-audio/windows-ocr-cargo-metadata-encoding.log`。
+
 ### 阶段 6 · 截图标注撤销与重做结果
 
 - 截图窗口提供撤销和重做按钮，按同一选区的历史恢复最近一次标注。新标注截断重做记录，清空标注或改选区
