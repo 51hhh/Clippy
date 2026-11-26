@@ -292,6 +292,22 @@ X11 控制窗隐藏后由窗口服务器确认已撤下，再开始发输入。�
 **Out of Scope** Wayland 的输入授权和显示器绑定继续按现有 RemoteDesktop/ScreenCast 规格接入。
  [Windows 和 macOS 原生输入合同](../specs/2026-09-22-longshot-native-auto-scroll.md)
 
+### 阶段 3 · Wayland 同源授权与自动滚动
+
+**Goal** 在原生 Wayland 的长截图控制窗中授权单屏画面和指针滚动，继续使用公用拼接与输出。
+
+**Requirements** 先探测两种 Portal 的实际能力，由用户显式打开授权界面。传入当前控制窗的
+xdg-foreign parent，不保存恢复令牌。释放旧读取器后才启动组合会话，绑定正确显示器和冻结像素。控制窗
+撤下后以新帧重新核对已提交的画面，每次滚动前都核对同一选区，指针坐标和单个离散步进由后端计算。
+拒绝、选错屏、目标变化或授权关闭时保留画布，可继续手动追加，必要时由再次点击追加发起单独的画面授权。
+
+**Acceptance Criteria** 隔离 GNOME 对实际 Portal 验证单一组合授权、页尾停止、逐像素输出、拒绝、
+取消与目标变化。Sway 无 RemoteDesktop 时保留手动追加。端到端核对授权生命周期、无迟到输入和可复制或
+保存的画布，并记录 KDE、多屏、混合 DPI 与实体 Wayland 环境的待验边界。
+
+**Out of Scope** 键盘授权、持久授予远程控制、普通截图入口的授权行为，以及变更现有拼接阈值。
+沿用 [Wayland 长截图规格 `PX-LS-WAYLAND-AUTO-01`](../specs/2026-09-23-longshot-wayland-auto-scroll.md)。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -493,6 +509,26 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   Windows 10/11 的 WGC、混合 DPI 与更高完整性窗口继续在原生安装包上核对。
 - 完整 Linux 本地门禁 11 项通过、0 失败、0 跳过，再次覆盖 X11 的十项自动滚动和精确输出。
   当前结果未覆盖同一 SHA 的原生 CI。日志见 `target/test-artifacts/slint-stage3-native/`。
+
+### 阶段 3 · Wayland 组合能力基线
+
+- 隔离 GNOME 的 RemoteDesktop v2 与 ScreenCast v5 接受同一未启动 session 上的 Pointer 和单 Monitor
+  选择，随后成功关闭 session。隔离 Sway 的 wlr Portal 提供 Monitor，RemoteDesktop 接口缺失。
+  原始日志见 `target/test-artifacts/slint-stage3-wayland/`。
+
+### 阶段 3 · Wayland 自动滚动接入结果
+
+- 控制窗显式请求当前任务的单显示器取帧和指针权限。关闭旧读取器后启动组合会话，对照冻结的显示器名称、
+  逻辑位置及尺寸和协商像素。GNOME 与其他 Wayland 共享 Winit 控制窗销毁确认。使用关闭后带时间戳的
+  区域帧核对最后一次提交的画面，指针定位后再次比较，再发一格滚轮。PipeWire 只转换并保留最新选区。
+- 1280×800 隔离 GNOME 用系统对话框授权。上下左右每次收到四个预期滚轮事件，到页尾自动停止。
+  纵向 PNG 320×312、横向 PNG 392×240，和确定性测试页逐像素一致。拒绝第一次授权后可导出原像素，
+  再次授权后只打开一个 PipeWire 连接。目标变化时无新滚轮并回到手动追加，托盘停止后无迟到滚轮。
+  夹具用 Wayland 滚动增量判方向。 [Mutter 离散滚轮](https://github.com/GNOME/mutter/blob/50.1/src/backends/meta-remote-desktop-session.c#L835-L846) · [GTK3 事件映射](https://github.com/GNOME/gtk/blob/gtk-3-24/gdk/wayland/gdkdevice-wayland.c#L1454-L1494)
+- 隔离 Sway 通过手动长截图与 8 轮静止、换色和快速确认的录屏首帧像素回归。Linux 完整门禁
+  11 项通过、0 失败、0 跳过，Windows GNU QA 入口交叉检查使用关闭默认录屏编解码的配置。
+  记录见 `target/test-artifacts/slint-stage3-wayland/gnome-serial-matrix.log`、`sway-manual-and-first-frame-xvfb.log`
+  和 `ci-local-wayland-final.log`。实体多屏和混合 DPI、系统撤权、KDE 及同一 SHA 原生 CI 仍待验收。
 
 ## Acceptance Criteria
 

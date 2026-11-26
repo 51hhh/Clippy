@@ -13,11 +13,11 @@ clippy-core = { path = "../clippy-core" }
 dirs = "7"
 global-hotkey = "0.7"
 image = { version = "0.25", default-features = false }
-raw-window-handle = "0.6"
+raw-window-handle = { version = "0.6", features = ["std"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 arboard = { version = "3", features = ["wayland-data-control"] }
-ashpd = { version = "0.13", features = ["global_shortcuts", "remote_desktop", "screencast", "screenshot"] }
+ashpd = { version = "0.13", features = ["global_shortcuts", "raw_handle", "remote_desktop", "screencast", "screenshot", "wayland"] }
 enigo = { version = "0.6", default-features = false, features = ["x11rb"] }
 futures-util = { version = "0.3", default-features = false }
 libwayshot-xcap = "0.3"

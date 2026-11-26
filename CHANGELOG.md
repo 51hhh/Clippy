@@ -78,7 +78,10 @@
   （需求 `SLINT-MIGRATION-CLOSURE-01`）
 - Windows 和 macOS 接入原生自动滚动，窗口切换或用户接管指针时保留已拼接画面。macOS 使用系统辅助
   功能授权后可自动滚动，权限不足时可以手动追加。Windows 已在隔离 Wine 验证滚轮和中止，macOS
-  完成平台层双架构交叉检查。两平台真实桌面和 Wayland 自动滚动仍待验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
+  完成平台层双架构交叉检查。两平台真实桌面仍待验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
+- 支持画面和指针 Portal 的 Wayland 桌面可在长截图控制窗授权自动滚动。取帧和滚轮复用同一授权，
+  目标画面变化会停止滚动并保留画布，可继续手动追加。隔离 GNOME 已验证四向、拒绝授权和托盘停止，
+  Sway 缺少指针授权时仍可手动追加。实体 Wayland 与 KDE 待验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 - 长截图控制窗可直接复制图像、保存 PNG 和添加贴图，继续支持撤销及在编辑器中打开。
   （需求 `SLINT-MIGRATION-CLOSURE-01`）
 - 修复 GNOME 静止画面导致的长截图追加和区域录屏取帧超时。虚拟 GNOME 已验证同一会话连续取帧、

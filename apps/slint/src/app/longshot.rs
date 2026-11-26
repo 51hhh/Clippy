@@ -1,10 +1,10 @@
 use super::{capture, clipboard, editor, pins, post, settings, App, Event};
 use crate::{LongshotDirection, LongshotWindow};
 use anyhow::{anyhow, Context, Result};
-use clippy_capture::{editor::Editor, longshot::LongshotSession, CaptureError};
+use clippy_capture::{editor::Editor, longshot::LongshotSession};
 use clippy_core::image_output::SaveTarget;
 use clippy_platform::{
-    capture::{with_region_reader, Region, RegionCancellation},
+    capture::{Region, RegionCancellation},
     scroll,
 };
 use image::RgbaImage;
@@ -12,16 +12,19 @@ use slint::{
     winit_030::{winit::raw_window_handle::HasWindowHandle, WinitWindowAccessor},
     CloseRequestResponse, ComponentHandle, Timer,
 };
-use std::{
-    sync::{
-        mpsc::{self, SyncSender},
-        Arc,
-    },
-    thread,
-    time::Duration,
-};
+use std::{sync::Arc, thread, time::Duration};
+use tokio::sync::mpsc::{self, Sender};
+
+#[cfg(target_os = "linux")]
+use slint::winit_030::winit::window::{Window, WindowId};
+#[cfg(target_os = "linux")]
+use std::{sync::mpsc as close_signal, time::Instant};
 
 mod automatic;
+mod worker;
+
+#[cfg(target_os = "linux")]
+type ControlClose = close_signal::Receiver<Instant>;
 
 pub(super) enum Action {
     Append,
@@ -31,15 +34,23 @@ pub(super) enum Action {
     Save,
     Pin,
     Cancel,
+    #[cfg(target_os = "linux")]
+    Authorize,
     Auto(LongshotDirection),
     Stop,
 }
 
 enum Command {
     Append,
+    #[cfg(target_os = "linux")]
+    AppendPortal(ControlClose),
     Undo,
     Finish,
-    Auto(automatic::Request),
+    Auto(automatic::Request, scroll::ControlWindow),
+    #[cfg(target_os = "linux")]
+    Authorize(Arc<Window>),
+    #[cfg(target_os = "linux")]
+    AutoPortal(automatic::Request, ControlClose),
     Export(ExportImage),
     Save(SaveTarget),
 }
@@ -65,16 +76,29 @@ pub(super) struct Feedback {
     width: u32,
     height: u32,
     status: String,
-    auto_scroll: bool,
+    auto_scroll: AutoMode,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum AutoMode {
+    Unavailable,
+    Native,
+    #[cfg(target_os = "linux")]
+    PermissionRequired,
+    #[cfg(target_os = "linux")]
+    Portal,
 }
 
 pub(super) struct View {
     id: u64,
-    commands: SyncSender<Command>,
+    commands: Sender<Command>,
     window: LongshotWindow,
     busy: bool,
     cancellation: RegionCancellation,
     auto_scroll: Option<automatic::Permit>,
+    auto_mode: AutoMode,
+    #[cfg(target_os = "linux")]
+    control_close: Option<(WindowId, close_signal::SyncSender<Instant>)>,
 }
 
 impl Drop for View {
@@ -106,6 +130,8 @@ impl View {
         window.on_save(|| action(Action::Save));
         window.on_pin(|| action(Action::Pin));
         window.on_cancel(|| action(Action::Cancel));
+        #[cfg(target_os = "linux")]
+        window.on_authorize_scroll(|| action(Action::Authorize));
         window.on_auto_scroll(|direction| action(Action::Auto(direction)));
         window.window().on_close_requested(|| {
             action(Action::Cancel);
@@ -115,95 +141,20 @@ impl View {
         if !defer_window {
             window.show()?;
         }
-        let (commands, receiver) = mpsc::sync_channel(1);
+        let (commands, receiver) = mpsc::channel(1);
         let cancellation = RegionCancellation::default();
         let worker_cancellation = cancellation.clone();
         thread::Builder::new()
             .name("clippy-scrolling-capture".into())
             .spawn(move || {
-                let (mut target, ready) = match scroll::for_region(&region) {
-                    Ok(Some(target)) => (
-                        Some(target),
-                        "Move the pointer or use the tray to stop automatic scrolling".to_owned(),
-                    ),
-                    Ok(None) => (None, "Ready for the next frame".to_owned()),
-                    Err(error) => (None, format!("{error:#}")),
-                };
-                if defer_window {
-                    send(Message::Preparing(id));
-                }
-                let auto_scroll = target.is_some();
-                let result = with_region_reader(region, &worker_cancellation, |read| {
-                    let mut session = LongshotSession::start(first)?;
-                    send(Message::Feedback(
-                        id,
-                        feedback(&session, ready, auto_scroll)?,
-                    ));
-                    while let Ok(command) = receiver.recv() {
-                        let status = match command {
-                            Command::Append => match read()
-                                .and_then(|image| session.append(image).map_err(Into::into))
-                            {
-                                Ok(result) if result.committed => "Frame added".into(),
-                                Ok(_) => "This part is already captured".into(),
-                                Err(error)
-                                    if error.downcast_ref::<CaptureError>().is_some_and(
-                                        |cause| {
-                                            matches!(
-                                                cause,
-                                                CaptureError::LongshotEstimateNoExtension
-                                            )
-                                        },
-                                    ) =>
-                                {
-                                    "No movement detected. Scroll farther and try again.".into()
-                                }
-                                Err(error) => format!("Frame not added: {error}"),
-                            },
-                            Command::Undo => {
-                                session.undo()?;
-                                "Last frame removed".into()
-                            }
-                            Command::Finish => {
-                                let result = session.finish_pixels().map_err(anyhow::Error::from);
-                                send(Message::Finish(id, result));
-                                break;
-                            }
-                            Command::Auto(request) => {
-                                let target = target
-                                    .as_deref_mut()
-                                    .expect("自动滚动入口要求已锁定目标窗口");
-                                match request.run(target, &mut session, read) {
-                                    Ok(status) => status.to_owned(),
-                                    Err(error) => format!("{error:#}"),
-                                }
-                            }
-                            Command::Export(destination) => {
-                                send(Message::Export(
-                                    id,
-                                    destination,
-                                    session.finish_pixels().map_err(Into::into),
-                                ));
-                                continue;
-                            }
-                            Command::Save(target) => {
-                                let result = session
-                                    .finish_pixels()
-                                    .map_err(anyhow::Error::from)
-                                    .and_then(|image| capture::save_png(&image, &target))
-                                    .map(|path| format!("Saved to {}", path.display()));
-                                send(Message::Exported(id, result));
-                                continue;
-                            }
-                        };
-                        send(Message::Feedback(
-                            id,
-                            feedback(&session, status, auto_scroll)?,
-                        ));
-                    }
-                    Ok(())
-                });
-                if let Err(error) = result {
+                if let Err(error) = worker::run(
+                    id,
+                    region,
+                    first,
+                    worker_cancellation,
+                    receiver,
+                    defer_window,
+                ) {
                     send(Message::Failed(id, error));
                 }
             })?;
@@ -214,32 +165,83 @@ impl View {
             busy: true,
             cancellation,
             auto_scroll: None,
+            auto_mode: AutoMode::Unavailable,
+            #[cfg(target_os = "linux")]
+            control_close: None,
         })
     }
 
     fn start_automatic(&mut self, direction: LongshotDirection) -> Result<()> {
-        let control_window = self
-            .window
-            .window()
-            .with_winit_window(|native| scroll::ControlWindow::from_handle(native.window_handle()?))
-            .context("Could not identify the native scrolling controls")??;
-        self.window.hide()?;
         let permit = automatic::Permit::new();
+        let request = automatic::Request {
+            direction,
+            permit: permit.clone(),
+        };
+        let command = match self.auto_mode {
+            AutoMode::Native => {
+                let control = self
+                    .window
+                    .window()
+                    .with_winit_window(|native| {
+                        scroll::ControlWindow::from_handle(native.window_handle()?)
+                    })
+                    .context("Could not identify the native scrolling controls")??;
+                self.window.hide()?;
+                Command::Auto(request, control)
+            }
+            #[cfg(target_os = "linux")]
+            AutoMode::Portal => Command::AutoPortal(request, self.hide_portal_controls()?),
+            _ => return Err(anyhow!("Automatic scrolling is unavailable")),
+        };
         self.commands
-            .try_send(Command::Auto(automatic::Request {
-                direction,
-                control_window,
-                permit: permit.clone(),
-            }))
+            .try_send(command)
             .map_err(|_| anyhow!("Capture session closed"))?;
         self.auto_scroll = Some(permit);
         self.busy = true;
         self.window.set_busy(true);
         Ok(())
     }
+
+    #[cfg(target_os = "linux")]
+    fn hide_portal_controls(&mut self) -> Result<ControlClose> {
+        let window_id = self
+            .window
+            .window()
+            .with_winit_window(|window| window.id())
+            .context("Could not identify the Wayland scrolling controls")?;
+        let (sender, closed) = close_signal::sync_channel(1);
+        self.control_close = Some((window_id, sender));
+        self.window.hide()?;
+        Ok(closed)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn request_permission(&mut self) -> Result<()> {
+        let id = self.id;
+        let controls = self.window.as_weak();
+        let commands = self.commands.clone();
+        slint::spawn_local(async move {
+            let result = async {
+                let controls = controls.upgrade().context("Scrolling capture closed")?;
+                let native = controls.window().winit_window().await?;
+                commands
+                    .try_send(Command::Authorize(native))
+                    .map_err(|_| anyhow!("Scrolling capture closed"))
+            }
+            .await;
+            if let Err(error) = result {
+                send(Message::Exported(id, Err(error)));
+            }
+        })?;
+        self.busy = true;
+        self.window.set_busy(true);
+        self.window
+            .set_status("Waiting for screen and pointer permission…".into());
+        Ok(())
+    }
 }
 
-fn feedback(session: &LongshotSession, note: String, auto_scroll: bool) -> Result<Feedback> {
+fn feedback(session: &LongshotSession, note: String, auto_scroll: AutoMode) -> Result<Feedback> {
     let state = session.snapshot();
     let preview = session.preview_pixels()?;
     Ok(Feedback {
@@ -281,6 +283,14 @@ impl App {
                     permit.revoke();
                 }
             }
+            #[cfg(target_os = "linux")]
+            Message::Action(Action::Authorize) => {
+                if !view.busy && view.auto_mode == AutoMode::PermissionRequired {
+                    if let Err(error) = view.request_permission() {
+                        send(Message::Exported(view.id, Err(error)));
+                    }
+                }
+            }
             Message::Action(Action::Auto(direction)) if !view.busy => {
                 match view.start_automatic(direction) {
                     Ok(()) => self.tray.set_scrolling(true),
@@ -292,6 +302,18 @@ impl App {
                 view.window.set_busy(true);
                 let id = view.id;
                 let sender = view.commands.clone();
+                #[cfg(target_os = "linux")]
+                if matches!(action, Action::Append) && view.auto_mode == AutoMode::Portal {
+                    let result = view.hide_portal_controls().and_then(|closed| {
+                        sender
+                            .try_send(Command::AppendPortal(closed))
+                            .map_err(|_| anyhow!("Capture session closed"))
+                    });
+                    if let Err(error) = result {
+                        send(Message::Failed(id, error));
+                    }
+                    return;
+                }
                 let command = match action {
                     Action::Append => Command::Append,
                     Action::Undo => Command::Undo,
@@ -322,7 +344,15 @@ impl App {
             }
             Message::Feedback(id, feedback) if id == view.id => {
                 view.auto_scroll.take();
+                #[cfg(target_os = "linux")]
+                {
+                    view.control_close.take();
+                    view.window.set_scroll_permission_required(
+                        feedback.auto_scroll == AutoMode::PermissionRequired,
+                    );
+                }
                 self.tray.set_scrolling(false);
+                view.auto_mode = feedback.auto_scroll;
                 view.window.set_preview(editor::to_slint(&feedback.preview));
                 view.busy = false;
                 view.window.set_busy(false);
@@ -331,7 +361,13 @@ impl App {
                 view.window.set_capture_width(feedback.width as i32);
                 view.window.set_capture_height(feedback.height as i32);
                 view.window.set_status(feedback.status.into());
-                view.window.set_auto_scroll_available(feedback.auto_scroll);
+                view.window
+                    .set_auto_scroll_available(match feedback.auto_scroll {
+                        AutoMode::Native => true,
+                        #[cfg(target_os = "linux")]
+                        AutoMode::Portal => true,
+                        _ => false,
+                    });
                 if let Err(error) = view.window.show() {
                     send(Message::Failed(id, error.into()));
                 }
@@ -382,6 +418,20 @@ impl App {
                 self.capture_error(error);
             }
             _ => {}
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(super) fn longshot_window_destroyed(&mut self, id: WindowId, closed: Instant) {
+        if let Some(view) = self.longshot.as_mut() {
+            if view
+                .control_close
+                .as_ref()
+                .is_some_and(|(pending, _)| *pending == id)
+            {
+                let (_, notify) = view.control_close.take().expect("控制窗正在关闭");
+                let _ = notify.try_send(closed);
+            }
         }
     }
 }

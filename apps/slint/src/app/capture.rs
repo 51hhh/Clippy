@@ -82,9 +82,9 @@ struct OutputJob {
     destination: Destination,
 }
 
-pub(super) struct OverlayEvents;
+pub(super) struct CaptureWindowEvents;
 
-impl slint::winit_030::CustomApplicationHandler for OverlayEvents {
+impl slint::winit_030::CustomApplicationHandler for CaptureWindowEvents {
     fn window_event(
         &mut self,
         _: &ActiveEventLoop,

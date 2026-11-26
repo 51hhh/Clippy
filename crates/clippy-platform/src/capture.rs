@@ -30,6 +30,8 @@ mod wayland;
 #[cfg(target_os = "linux")]
 mod wayland_outputs;
 #[cfg(target_os = "linux")]
+pub mod wayland_scroll;
+#[cfg(target_os = "linux")]
 mod x11;
 
 #[cfg(target_os = "linux")]

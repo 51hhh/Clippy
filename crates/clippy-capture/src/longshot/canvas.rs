@@ -99,6 +99,10 @@ impl LongshotCanvas {
         })
     }
 
+    pub(super) fn is_last_commit(&self, image: &Arc<RgbaImage>) -> bool {
+        Arc::ptr_eq(&self.frames.last().expect("画布保留首帧").image, image)
+    }
+
     pub(super) fn append(
         &mut self,
         image: Arc<RgbaImage>,

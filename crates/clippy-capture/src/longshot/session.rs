@@ -82,6 +82,12 @@ impl LongshotSession {
         &self.last_frame
     }
 
+    pub fn committed_view(&self) -> Option<&RgbaImage> {
+        self.canvas
+            .is_last_commit(&self.last_frame)
+            .then_some(self.current_frame())
+    }
+
     fn append_frame(
         &mut self,
         incoming: RgbaImage,
@@ -364,10 +370,12 @@ mod tests {
         assert_eq!(down.estimate.direction, overlap::ScrollDirection::Down);
         let revisit = session.append(viewport(&source, 40, 40, 64, 72)).unwrap();
         assert!(!revisit.committed);
+        assert!(session.committed_view().is_none());
         assert_eq!(revisit.snapshot.frame_count, 2);
         assert_eq!(revisit.snapshot.total_height, 96);
         let continued = session.append(viewport(&source, 40, 88, 64, 72)).unwrap();
         assert!(continued.committed);
+        assert_eq!(session.committed_view(), Some(session.current_frame()));
         assert_eq!(continued.snapshot.frame_count, 3);
         assert_eq!(continued.snapshot.total_height, 120);
         assert_eq!(session.output_geometry().unwrap(), (64, 120, 0, 0));

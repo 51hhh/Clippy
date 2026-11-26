@@ -163,9 +163,7 @@ pub(super) struct PortalHandoff {
 
 impl PortalHandoff {
     pub fn overlay_closed(&mut self, closed: std::time::Instant) -> Result<()> {
-        let now = super::screencast_stream::monotonic_ns()?;
-        // Linux 的 Instant 和屏幕帧时钟都使用 CLOCK_MONOTONIC。
-        self.fresh_from = Some(now - i64::try_from(closed.elapsed().as_nanos())?);
+        self.fresh_from = Some(super::screencast_stream::monotonic_ns_at(closed)?);
         Ok(())
     }
 
@@ -246,25 +244,31 @@ pub(super) fn with_region<T>(
     consume: impl FnOnce(&mut Reader<'_>) -> Result<T>,
 ) -> Result<T> {
     let pixels = pixel_rect(source_size.0, source_size.1, bounds)?;
-    let connection = WayshotConnection::new().context("Cannot read Wayland outputs")?;
-    let output = selected_output(&connection, name, geometry)?;
+    let registry = Registry::connect()?;
+    let direct = supports_direct_capture(&registry);
+    let outputs = registry.displays()?;
+    let output = outputs
+        .iter()
+        .find(|output| output.name == name && output.geometry == geometry)
+        .context("Capture output changed geometry")?;
     // wlr 流可能把旋转写进视频元数据；Wayshot 已对冻结图应用同一变换。
     if output.transform == Transform::Normal {
         if let Some(mut portal) = screencast::ScreenCast::connect(cancellation)? {
             let stream = portal.authorize(cancellation)?;
-            let current = WayshotConnection::new().context("Cannot recheck Wayland outputs")?;
-            let live = selected_output(&current, name, geometry)?;
+            let current = Registry::connect()?.displays()?;
+            let index =
+                screencast::monitor_index(&stream, current.iter().map(|output| output.geometry))?;
+            let live = &current[index];
             ensure!(
-                live.transform == output.transform && live.physical_size == output.physical_size,
-                "Capture output changed display mode"
-            );
-            let outputs = current.get_all_outputs();
-            let index = screencast::monitor_index(&stream, outputs.iter().map(logical_geometry))?;
-            ensure!(
-                outputs[index].name == name,
+                live.name == name,
                 "Share the same display that was used for the screenshot"
             );
-            drop(current);
+            ensure!(
+                live.geometry == geometry
+                    && live.transform == output.transform
+                    && live.size == output.size,
+                "Capture output changed display mode"
+            );
             let (mut stream, _) = portal.open_stream(
                 stream.pipe_wire_node_id(),
                 source_size,
@@ -275,6 +279,9 @@ pub(super) fn with_region<T>(
         }
     }
     cancellation.check_active()?;
+    ensure!(direct, "This desktop requires a screen sharing session");
+    let connection = WayshotConnection::new().context("Cannot read Wayland outputs")?;
+    let output = selected_output(&connection, name, geometry)?;
     consume(&mut || {
         let frame = native_frame(&connection, output)?;
         ensure!(

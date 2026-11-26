@@ -32,6 +32,7 @@ export component LongshotWindow inherits Window {
     in property <bool> busy: true;
     in property <bool> can-undo;
     in property <bool> auto-scroll-available;
+    in property <bool> scroll-permission-required;
     in property <int> frames;
     in property <int> capture-width;
     in property <int> capture-height;
@@ -43,6 +44,7 @@ export component LongshotWindow inherits Window {
     callback save();
     callback pin();
     callback cancel();
+    callback authorize-scroll();
     callback auto-scroll(LongshotDirection);
 
     title: "Clippy Scrolling Capture";
@@ -95,6 +97,11 @@ export component LongshotWindow inherits Window {
                 LongshotButton { label: "Copy"; enabled: !root.busy; clicked => { root.copy(); } }
                 LongshotButton { label: "Save PNG"; enabled: !root.busy; clicked => { root.save(); } }
                 LongshotButton { label: "Pin"; enabled: !root.busy; clicked => { root.pin(); } }
+            }
+            if root.scroll-permission-required : LongshotButton {
+                label: "Authorize scrolling";
+                enabled: !root.busy;
+                clicked => { root.authorize-scroll(); }
             }
             if root.auto-scroll-available : HorizontalLayout {
                 spacing: 8px;

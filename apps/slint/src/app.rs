@@ -56,9 +56,9 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
     if matches!(instance, Instance::Forwarded) {
         return Ok(());
     }
-    if clippy_platform::session::is_wayland() && !clippy_platform::session::is_gnome() {
+    if clippy_platform::session::is_wayland() {
         slint::BackendSelector::new()
-            .with_winit_custom_application_handler(capture::OverlayEvents)
+            .with_winit_custom_application_handler(capture::CaptureWindowEvents)
             .select()
             .context("Cannot initialize the Wayland event loop")?;
     }
@@ -450,6 +450,8 @@ impl App {
                 }
             }
             Event::CaptureWindowDestroyed(id, closed) => {
+                #[cfg(target_os = "linux")]
+                self.longshot_window_destroyed(id, closed);
                 if self
                     .capture_after_close
                     .as_ref()

@@ -10,10 +10,10 @@ use ashpd::desktop::{
 use std::{future::Future, time::Duration};
 use tokio::{runtime::Runtime, sync::oneshot};
 
-const CALL_TIMEOUT: Duration = Duration::from_secs(5);
-const CHOOSER_TIMEOUT: Duration = Duration::from_secs(120);
+pub(super) const CALL_TIMEOUT: Duration = Duration::from_secs(5);
+pub(super) const CHOOSER_TIMEOUT: Duration = Duration::from_secs(120);
+pub(super) const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(5);
-const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub(super) struct ScreenCast {
     runtime: Runtime,
@@ -89,19 +89,7 @@ impl ScreenCast {
                     .await?
                     .response()?)
             }));
-        let granted = match granted {
-            Err(error)
-                if error.downcast_ref::<ashpd::Error>().is_some_and(|error| {
-                    matches!(
-                        error,
-                        ashpd::Error::Response(ashpd::desktop::ResponseError::Cancelled)
-                    )
-                }) =>
-            {
-                return Err(ScreenSharingCancelled.into());
-            }
-            result => result?,
-        };
+        let granted = granted.map_err(share_error)?;
         let [stream] = granted.streams() else {
             bail!("ScreenCast must return one monitor stream");
         };
@@ -126,21 +114,7 @@ impl ScreenCast {
             }))
             .context("Opening the authorized ScreenCast PipeWire connection")?;
         let (stream, first) = ScreenCastStream::start(remote, node, source_size, mode)?;
-        Ok((stream, self.wait_for_frame(first, cancellation)?))
-    }
-
-    fn wait_for_frame(
-        &self,
-        first: oneshot::Receiver<Result<FrozenPixels>>,
-        cancellation: &RegionCancellation,
-    ) -> Result<FrozenPixels> {
-        self.runtime
-            .block_on(cancellable(cancellation, FIRST_FRAME_TIMEOUT, async {
-                first
-                    .await
-                    .context("ScreenCast exited before the first frame")?
-            }))
-            .context("Waiting for the first ScreenCast frame")
+        Ok((stream, wait_for_frame(&self.runtime, first, cancellation)?))
     }
 
     pub fn resume_region(
@@ -151,7 +125,11 @@ impl ScreenCast {
         cancellation: &RegionCancellation,
     ) -> Result<()> {
         cancellation.check_active()?;
-        self.wait_for_frame(stream.resume(bounds, fresh_from)?, cancellation)?;
+        wait_for_frame(
+            &self.runtime,
+            stream.resume(bounds, fresh_from)?,
+            cancellation,
+        )?;
         Ok(())
     }
 }
@@ -168,7 +146,21 @@ impl Drop for ScreenCast {
     }
 }
 
-async fn cancellable<T>(
+pub(super) fn wait_for_frame(
+    runtime: &Runtime,
+    first: oneshot::Receiver<Result<FrozenPixels>>,
+    cancellation: &RegionCancellation,
+) -> Result<FrozenPixels> {
+    runtime
+        .block_on(cancellable(cancellation, FIRST_FRAME_TIMEOUT, async {
+            first
+                .await
+                .context("ScreenCast exited before the first frame")?
+        }))
+        .context("Waiting for the first ScreenCast frame")
+}
+
+pub(super) async fn cancellable<T>(
     cancellation: &RegionCancellation,
     timeout: Duration,
     operation: impl Future<Output = Result<T>>,
@@ -177,11 +169,24 @@ async fn cancellable<T>(
         biased;
         _ = cancellation.cancelled() => Err(ScreenSharingCancelled.into()),
         result = tokio::time::timeout(timeout, operation) =>
-            result.context("ScreenCast Portal request timed out")?,
+            result.context("Desktop Portal request timed out")?,
     }
 }
 
-fn unavailable(error: &ashpd::Error) -> bool {
+pub(super) fn share_error(error: anyhow::Error) -> anyhow::Error {
+    if error.downcast_ref::<ashpd::Error>().is_some_and(|error| {
+        matches!(
+            error,
+            ashpd::Error::Response(ashpd::desktop::ResponseError::Cancelled)
+        )
+    }) {
+        ScreenSharingCancelled.into()
+    } else {
+        error
+    }
+}
+
+pub(super) fn unavailable(error: &ashpd::Error) -> bool {
     let missing = |name: &str| {
         matches!(
             name,
@@ -194,7 +199,13 @@ fn unavailable(error: &ashpd::Error) -> bool {
     };
     match error {
         ashpd::Error::PortalNotFound(_) => true,
-        ashpd::Error::Zbus(zbus::Error::MethodError(name, _, _)) => missing(name.as_str()),
+        ashpd::Error::Zbus(zbus::Error::MethodError(name, detail, _)) => {
+            missing(name.as_str())
+                || (name.as_str() == "org.freedesktop.DBus.Error.InvalidArgs"
+                    && detail
+                        .as_deref()
+                        .is_some_and(|message| message.starts_with("No such interface")))
+        }
         ashpd::Error::Zbus(zbus::Error::FDO(error)) => {
             missing(zbus::DBusError::name(error.as_ref()).as_str())
         }

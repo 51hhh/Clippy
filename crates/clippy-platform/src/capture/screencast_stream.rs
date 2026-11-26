@@ -23,7 +23,7 @@ use std::{
     rc::Rc,
     sync::Arc,
     thread::{self, JoinHandle},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::sync::oneshot;
 
@@ -36,6 +36,7 @@ pub(super) enum StreamMode {
     Freeze(i64),
     AwaitingSelection,
     Region([u32; 4]),
+    RegionAfter([u32; 4], i64),
 }
 
 enum Command {
@@ -113,6 +114,19 @@ impl ScreenCastStream {
         Ok(RgbaImage::from_raw(frame.width, frame.height, rgba)
             .expect("PipeWire 已转换为紧排 RGBA"))
     }
+
+    pub fn check_active(&self) -> Result<()> {
+        self.frames.check_active()
+    }
+
+    pub fn matches_view(&mut self, expected: &RgbaImage) -> Result<bool> {
+        let (sequence, frame) = self.frames.wait(self.seen, UPDATE_WAIT)?;
+        let matches = (frame.width, frame.height) == expected.dimensions()
+            && frame.rgba.as_ref() == expected.as_raw();
+        self.frames.check_active()?;
+        self.seen = sequence;
+        Ok(matches)
+    }
 }
 
 impl Drop for ScreenCastStream {
@@ -146,9 +160,12 @@ fn run(
         source_size,
         mode: Cell::new(mode),
         fresh_from: Cell::new(match mode {
-            StreamMode::Freeze(authorized_at) => Some(authorized_at),
+            StreamMode::Freeze(authorized_at) | StreamMode::RegionAfter(_, authorized_at) => {
+                Some(authorized_at)
+            }
             _ => None,
         }),
+        last_frame_time: Cell::new(None),
     });
     let core_publisher = publish.clone();
     let _core_listener = core
@@ -174,7 +191,7 @@ fn run(
         .add_local_listener_with_user_data(StreamInput {
             publish: publish.clone(),
             format: None,
-            request_header: matches!(mode, StreamMode::Freeze(_)),
+            request_header: matches!(mode, StreamMode::Freeze(_) | StreamMode::RegionAfter(..)),
         })
         .state_changed(|_, input, previous, state| match state {
             StreamState::Error(error) => input
@@ -220,12 +237,7 @@ fn run(
     let controlled_stream = stream.clone();
     let _control = commands.attach(mainloop.loop_(), move |command| match command {
         Command::Resume(bounds, fresh_from, ready) => {
-            if fresh_from.is_none() {
-                while controlled_stream.dequeue_buffer().is_some() {}
-            }
-            publish.mode.set(StreamMode::Region(bounds));
-            publish.fresh_from.set(fresh_from);
-            publish.ready.replace(Some(ready));
+            publish.resume(&controlled_stream, bounds, fresh_from, ready)
         }
         Command::Quit => publish.mainloop.quit(),
     });
@@ -254,9 +266,38 @@ struct Publisher {
     source_size: (u32, u32),
     mode: Cell<StreamMode>,
     fresh_from: Cell<Option<i64>>,
+    last_frame_time: Cell<Option<i64>>,
 }
 
 impl Publisher {
+    fn resume(
+        &self,
+        stream: &pw::stream::Stream,
+        bounds: [u32; 4],
+        fresh_from: Option<i64>,
+        ready: oneshot::Sender<FrameResult>,
+    ) {
+        let reusable = matches!(
+            self.mode.get(),
+            StreamMode::Region(current) | StreamMode::RegionAfter(current, _) if current == bounds
+        ) && fresh_from
+            .zip(self.last_frame_time.get())
+            .is_some_and(|(after, pts)| pts >= after);
+        if fresh_from.is_none() {
+            while stream.dequeue_buffer().is_some() {}
+        }
+        self.mode.set(StreamMode::Region(bounds));
+        self.fresh_from.set(fresh_from);
+        // 静态画面可能只在控制窗消失时提交一帧，复用已验证时间的同选区新帧。
+        if reusable {
+            if let Ok((_, frame)) = self.frames.wait(0, Duration::ZERO) {
+                let _ = ready.send(Ok(frame));
+                return;
+            }
+        }
+        self.ready.replace(Some(ready));
+    }
+
     fn fail(&self, error: anyhow::Error) {
         self.frames.publish(Err(format!("{error:#}")));
         if let Some(sender) = self.ready.borrow_mut().take() {
@@ -269,7 +310,7 @@ impl Publisher {
         let mode = self.mode.get();
         let bounds = match mode {
             StreamMode::Freeze(_) => [0, 0, self.source_size.0, self.source_size.1],
-            StreamMode::Region(bounds) => bounds,
+            StreamMode::Region(bounds) | StreamMode::RegionAfter(bounds, _) => bounds,
             StreamMode::AwaitingSelection => {
                 while stream.dequeue_buffer().is_some() {}
                 return Ok(());
@@ -278,7 +319,7 @@ impl Publisher {
         let mut latest = None;
         while let Some(mut buffer) = ScreenBuffer::dequeue(stream) {
             if buffer.has_frame()? {
-                if let Some(fresh_from) = self.fresh_from.get() {
+                let frame_time = if let Some(fresh_from) = self.fresh_from.get() {
                     let header = buffer.header().context(
                         "The screen sharing service did not provide a video frame timestamp",
                     )?;
@@ -292,11 +333,14 @@ impl Publisher {
                     {
                         continue;
                     }
-                }
-                latest = Some(buffer);
+                    Some(header.pts)
+                } else {
+                    None
+                };
+                latest = Some((buffer, frame_time));
             }
         }
-        if let Some(mut buffer) = latest {
+        if let Some((mut buffer, frame_time)) = latest {
             let frame = buffer.region(format, bounds)?;
             drop(buffer);
             let frame = FrozenPixels {
@@ -308,6 +352,7 @@ impl Publisher {
                 // 快速重启可能打断 wlr 仍在进行的帧请求，框选期间只停止转换。
                 self.mode.set(StreamMode::AwaitingSelection);
             } else {
+                self.last_frame_time.set(frame_time);
                 self.frames.publish(Ok(Some(frame.clone())));
             }
             if let Some(sender) = self.ready.borrow_mut().take() {
@@ -320,6 +365,11 @@ impl Publisher {
 
 pub(super) fn monotonic_ns() -> Result<i64> {
     Ok(clock_gettime(ClockId::CLOCK_MONOTONIC)?.num_nanoseconds())
+}
+
+pub(super) fn monotonic_ns_at(instant: Instant) -> Result<i64> {
+    // Linux 的 Instant 和帧 PTS 都使用 CLOCK_MONOTONIC。
+    Ok(monotonic_ns()? - i64::try_from(instant.elapsed().as_nanos())?)
 }
 
 fn video_format(param: &Pod, source_size: (u32, u32)) -> Result<VideoInfoRaw> {
