@@ -67,10 +67,12 @@ export component CaptureWindow inherits Window {
     in property <int> source-width;
     in property <int> source-height;
     in property <[CaptureMark]> marks;
+    in property <[CaptureMark]> undone-marks;
     callback cancel();
     callback confirm(CaptureAction, float, float, float, float);
     callback add-mark(CaptureMark);
     callback undo-mark();
+    callback redo-mark();
     callback clear-marks();
 
     private property <length> left;
@@ -349,7 +351,7 @@ export component CaptureWindow inherits Window {
             text: "Size"; font-size: 11px; color: #e5e7eb; vertical-alignment: center;
         }
         if root.toolbar-width >= 380px: Rectangle {
-            x: 157px; y: 45px; width: min(100px, root.toolbar-width - 330px); height: 24px;
+            x: 157px; y: 45px; width: min(100px, history-actions.x - self.x - 8px); height: 24px;
             accessible-role: slider;
             accessible-label: "Stroke width";
             accessible-value: "" + round(root.stroke);
@@ -362,16 +364,21 @@ export component CaptureWindow inherits Window {
                 moved => { if self.pressed { root.stroke = clamp(round(1 + 11 * self.mouse-x / self.width), 1, 12); } }
             }
         }
-        HorizontalLayout {
-            x: parent.width - 6px - 5 * root.tool-width; y: 42px; width: 5 * root.tool-width; height: 30px;
+        history-actions := HorizontalLayout {
+            x: parent.width - 6px - 6 * root.tool-width; y: 42px; width: 6 * root.tool-width; height: 30px;
             OverlayButton {
                 label: "Undo"; drawing: "M9 5l-6 6 6 6 M3 11h12a5 5 0 0 1 5 5v3";
                 width: root.tool-width; enabled: root.marks.length > 0;
                 clicked => { root.undo-mark(); keys.focus(); }
             }
             OverlayButton {
+                label: "Redo"; drawing: "M15 5l6 6-6 6 M21 11H9a5 5 0 0 0-5 5v3";
+                width: root.tool-width; enabled: root.undone-marks.length > 0;
+                clicked => { root.redo-mark(); keys.focus(); }
+            }
+            OverlayButton {
                 label: "Clear marks"; drawing: "M4 6h16m-6 0V3h-4v3M6 6l1 15h10l1-15M10 10v7m4-7v7";
-                width: root.tool-width; enabled: root.marks.length > 0;
+                width: root.tool-width; enabled: root.marks.length > 0 || root.undone-marks.length > 0;
                 clicked => { root.clear-marks(); keys.focus(); }
             }
             OverlayButton {
@@ -397,9 +404,17 @@ export component CaptureWindow inherits Window {
                 root.commit(CaptureAction.copy);
                 return accept;
             }
-            if root.ready && root.marks.length > 0 && (event.modifiers.control || event.modifiers.meta) && event.text == "z" {
-                root.undo-mark();
-                return accept;
+            if root.ready && (event.modifiers.control || event.modifiers.meta) && !event.modifiers.alt {
+                let z = event.text == "z" || event.text == "Z";
+                if z && !event.modifiers.shift && root.marks.length > 0 {
+                    root.undo-mark();
+                    return accept;
+                }
+                let redo = (z && event.modifiers.shift) || event.text == "y";
+                if redo && root.undone-marks.length > 0 {
+                    root.redo-mark();
+                    return accept;
+                }
             }
             reject
         }

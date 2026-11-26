@@ -151,19 +151,31 @@ pub(super) fn present(
                 .set_size(PhysicalSize::new(dimensions.0, dimensions.1));
             view.window.on_cancel(|| post(Event::CaptureCancel));
             let marks = Rc::new(VecModel::default());
+            let undone = Rc::new(VecModel::default());
             view.window.set_marks(ModelRc::from(marks.clone()));
+            view.window.set_undone_marks(ModelRc::from(undone.clone()));
             view.window.on_add_mark({
                 let marks = marks.clone();
-                move |mark| marks.push(mark)
+                let undone = undone.clone();
+                move |mark| {
+                    undone.set_vec(Vec::new());
+                    marks.push(mark);
+                }
             });
             view.window.on_undo_mark({
                 let marks = marks.clone();
-                move || {
-                    marks.remove(marks.row_count() - 1);
-                }
+                let undone = undone.clone();
+                move || undone.push(take_last_mark(&marks))
             });
-            view.window
-                .on_clear_marks(move || marks.set_vec(Vec::new()));
+            view.window.on_redo_mark({
+                let marks = marks.clone();
+                let undone = undone.clone();
+                move || marks.push(take_last_mark(&undone))
+            });
+            view.window.on_clear_marks(move || {
+                marks.set_vec(Vec::new());
+                undone.set_vec(Vec::new());
+            });
             view.window.window().on_close_requested(|| {
                 post(Event::CaptureCancel);
                 CloseRequestResponse::HideWindow
@@ -332,6 +344,13 @@ impl OutputJob {
             })?;
         Ok(())
     }
+}
+
+fn take_last_mark(marks: &VecModel<CaptureMark>) -> CaptureMark {
+    let index = marks.row_count() - 1;
+    let mark = marks.row_data(index).expect("仅在对应历史非空时提交");
+    marks.remove(index);
+    mark
 }
 
 fn make_project(source: Arc<RgbaImage>, marks: &[CaptureMark]) -> Result<ImageProject> {

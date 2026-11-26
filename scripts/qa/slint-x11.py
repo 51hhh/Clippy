@@ -434,7 +434,7 @@ def run(binary, root):
             left = 6 + button if index == 5 else 15 + (index + 4) * button
             desktop.click(round(x + left + button / 2), y + 19)
         else:
-            right = {0: 1, 1: 2, 6: 4, 7: 0}[index]
+            right = {0: 1, 1: 2, 6: 5, 7: 0, 8: 4, 9: 3}[index]
             desktop.click(round(x + width - 6 - (right + 0.5) * button), y + 57)
 
     try:
@@ -770,6 +770,14 @@ def run(binary, root):
             if undo:
                 click_capture_action(toolbar, 6)
                 wait_for(lambda: border_pixel() == expected[1], "undo did not remove the selection rectangle")
+                desktop.keys("Control_L", "Shift_L", "z")
+                wait_for(lambda: border_pixel() == bytes.fromhex("ff3b30"), "Ctrl+Shift+Z did not redo the rectangle")
+                desktop.keys("Control_L", "z")
+                wait_for(lambda: border_pixel() == expected[1], "Ctrl+Z did not undo the redone rectangle")
+                desktop.keys("Control_L", "y")
+                wait_for(lambda: border_pixel() == bytes.fromhex("ff3b30"), "Ctrl+Y did not redo the rectangle")
+                desktop.keys("Control_L", "z")
+                wait_for(lambda: border_pixel() == expected[1], "rectangle stayed visible after undo")
                 tx, ty, _ = toolbar
                 desktop.click(tx + 150, ty + 19)
                 desktop.click(tx + 35, ty + 57)
@@ -781,10 +789,26 @@ def run(binary, root):
 
                 wait_for(yellow_arrow, "selection did not display the horizontal arrow with the chosen color")
                 click_capture_action(toolbar, 6)
+                wait_for(lambda: not yellow_arrow(), "undo did not remove the arrow")
+                click_capture_action(toolbar, 8)
+                wait_for(yellow_arrow, "toolbar redo did not restore the arrow")
+                desktop.keys("Control_L", "y")
+                time.sleep(0.1)
+                assert border_pixel() == expected[1], "new arrow did not replace the old redo history"
+                click_capture_action(toolbar, 6)
+                wait_for(lambda: not yellow_arrow(), "redone arrow stayed visible after undo")
+                click_capture_action(toolbar, 9)
+                desktop.keys("Control_L", "y")
+                time.sleep(0.1)
+                assert not yellow_arrow(), "clearing the selection marks left a redo entry"
                 desktop.click(tx + 16, ty + 57)
                 click_capture_action(toolbar, 5)
                 draw_rectangle()
                 wait_for(lambda: border_pixel() == bytes.fromhex("ff3b30"), "selection did not accept another rectangle")
+                click_capture_action(toolbar, 6)
+                wait_for(lambda: border_pixel() == expected[1], "undo did not remove the replacement rectangle")
+                click_capture_action(toolbar, 8)
+                wait_for(lambda: border_pixel() == bytes.fromhex("ff3b30"), "toolbar redo did not restore the replacement rectangle")
             save_qa_window("capture-rectangle.png", (left, top, width, height))
             return toolbar
 
@@ -811,7 +835,7 @@ def run(binary, root):
             return png and pixbuf_png(png).get_pixels() == plain_pixels
 
         wait_for(plain_clipboard, "editor could not undo the inherited rectangle")
-        print("PASS selection rectangle, undo, matching clipboard/PNG pixels and editable transfer", flush=True)
+        print("PASS selection undo/redo shortcuts and toolbar, matching clipboard/PNG pixels and editable transfer", flush=True)
 
         desktop.drag(x + width // 3, y + height // 3, x + width * 2 // 3, y + height * 2 // 3)
         # 一次标注会在工作线程合成，更改入画后才能提交。

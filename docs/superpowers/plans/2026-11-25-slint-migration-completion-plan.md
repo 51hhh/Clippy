@@ -433,6 +433,19 @@ Linux 增加 deb 与 AppImage 资源加载对照，macOS 核对 worker 和运行
 
 **Out of Scope** 正式 updater 签名切换和旧版更新桥仍在阶段 7 验收。
 
+### 阶段 6 · 截图标注撤销与重做
+
+**Goal** 在冻结截图覆盖层恢复标注撤销与重做。用户可留在选区内反复修改，再复制、保存或进入编辑器。
+
+**Requirements** 每个选区保留完成的标注和可重做的标注。添加新标注会截断重做记录，清空或更换选区时同时
+释放两份记录。保留现有标注数与像素预算，复制、保存和进入编辑器继续使用同一套源坐标与共享编辑模型。
+
+**Acceptance Criteria** 在隔离桌面点工具栏撤销和重做，用 Ctrl+Z、Ctrl+Shift+Z 和 Ctrl+Y 验证快捷键。
+macOS 核对 Cmd 组合键。检查撤销后新增标注无法恢复旧记录，重做后的标注在选区可见，剪贴板、PNG 和编辑器
+输出像素一致，进入编辑器后仍可编辑。
+
+**Out of Scope** 此步处理当前内联标注的历史。画笔、文字、马赛克及窗口速选继续按阶段 6 补齐。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -932,6 +945,15 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
 - 原始证据见 `target/test-artifacts/slint-stage5-distribution/` 中的 `verified-packages/SHA256SUMS.txt`、
   `host-qa-pack-verified.log`、`deb-ui-verified.log`、`appimage-ui-verified.log`、
   `ci-local-bundled-ocr.log` 和 `windows-gnu-qa.log`。
+
+### 阶段 6 · 截图标注撤销与重做结果
+
+- 截图窗口提供撤销和重做按钮，按同一选区的历史恢复最近一次标注。新标注截断重做记录，清空标注或改选区
+  会清空两份历史。复制、保存和继续编辑从当前可见标注生成项目。
+- 隔离 X11 验证工具栏、Ctrl+Z、Ctrl+Shift+Z 和 Ctrl+Y。新增箭头和清空操作都使旧记录无法恢复。重做后的
+  矩形在剪贴板、PNG 和编辑器中的像素一致，进入编辑器仍可撤销。原生 Windows/macOS 键盘及混合 DPI 待验收。
+- 本轮完整 Linux 门禁 11 项通过、0 失败、0 跳过。
+  证据见 `target/test-artifacts/slint-stage6-capture-history/ci-local-final.log` 和 `capture-rectangle.png`。
 
 ## Acceptance Criteria
 
