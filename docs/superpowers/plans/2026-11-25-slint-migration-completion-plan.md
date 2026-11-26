@@ -1392,6 +1392,12 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   [PipeWire 1.6.2 头文件](https://github.com/PipeWire/pipewire/blob/1.6.2/src/pipewire/stream.h#L273)
 - 日志位于 `target/test-artifacts/slint-stage4-audio-clock/clock-final.Xu5hxk/`，包含
   `matched-clock.log`、`production-sink.log`、`production-source.log` 和各端点的采集明细。
+- 在本机 PipeWire 1.6.2 默认 ALSA 扬声器 monitor 和数字麦克风上，格式协商后请求帧头及提前请求各取 24 个
+  缓冲，四组均未收到 `SPA_META_Header`。两个端点保持静音，探针只读取缓冲元数据。相同端点用产品采集入口
+  连接后均因缺帧头停止。本机硬件的复现日志见 `target/test-artifacts/slint-stage4-physical-audio.V4cdyoVT/`。
+- 同机在 `SPA_PARAM_Buffers` 中显式要求帧头类型，协商成功，四组各收到 24 个缓冲，帧头仍为空。原始记录见
+  同目录的 `required-*-*.log`。继续评估能绑定源样本的时钟路径，沿用现有同步验收门槛。
+  [PipeWire 缓冲参数](https://docs.pipewire.org/group__spa__param.html)
 
 ### 阶段 5 · PP-OCRv6 small 离线探针
 
