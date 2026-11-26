@@ -1215,6 +1215,11 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   `openbox-scale125.log`、`gnome-shell-window-pick.log`、`gnome-picked-0.png`、`gnome-picked-1.png`、
   `ci-local-final.log`、`windows-gnu-qa.log`、`macos-platform.log`、
   `windows-xcap-vendor-lint.log` 和 `macos-xcap-vendor-lint.log`。
+- GitHub Ubuntu 门禁曾在关闭上层窗口、重新框选时读到尚未重绘的参考图。隔离 Xvfb 探针连续 30 次在
+  上层窗口取消映射时测到交叠区域的 10,625 个旧像素，等待下层窗口重绘后全图恢复。夹具现在先用下层
+  原图确认整块屏幕像素已恢复，再触发新截图。125% 下重跑十次均通过四个速选场景，保留逐像素比对。
+  本地证据见 `target/test-artifacts/slint-stage4-macos-audio/x11-exposure-probe.log` 和 `window-pick-repaint-10.log`。
+  [Ubuntu 失败记录](https://github.com/51hhh/Clippy/actions/runs/45865306493/job/140066511471)
 
 #### 阶段 6 · 跨屏框选与图像合成接入结果
 

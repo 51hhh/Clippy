@@ -37,12 +37,16 @@ def screen(bounds):
     return Gdk.pixbuf_get_from_window(Gdk.get_default_root_window(), *bounds)
 
 
+def rgba_pixels(pixbuf):
+    return pixbuf.add_alpha(False, 0, 0, 0).get_pixels()
+
+
 def assert_png(data, expected):
     actual = qa["pixbuf_png"](data)
     got = (actual.get_width(), actual.get_height())
     want = (expected.get_width(), expected.get_height())
     assert got == want, f"captured {got}, expected {want}"
-    assert actual.add_alpha(False, 0, 0, 0).get_pixels() == expected.add_alpha(False, 0, 0, 0).get_pixels()
+    assert rgba_pixels(actual) == rgba_pixels(expected)
 
 
 def run(binary, root):
@@ -154,7 +158,10 @@ def run(binary, root):
         assert not qa["clipboard_png"]()
         upper.destroy()
         wait_for(lambda: not window("Clippy QA upper window"), "closed fixture is still mapped")
-        expected = screen(lower_box)
+        expected = lower.get_child().get_pixbuf()
+        expected_pixels = rgba_pixels(expected)
+        wait_for(lambda: rgba_pixels(screen(lower_box)) == expected_pixels,
+                 "uncovered lower fixture did not repaint")
         open_capture(1)
         desktop.click(300, 240)
         copy(expected)
