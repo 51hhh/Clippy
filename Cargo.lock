@@ -1422,6 +1422,7 @@ dependencies = [
  "url",
  "wayland-client",
  "windows-sys 0.61.2",
+ "windows-version",
  "x11rb",
  "xcap 0.9.6",
  "zbus",

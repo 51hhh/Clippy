@@ -24,6 +24,43 @@ pub enum WindowExclusionCapability {
     GeometryOnly,
 }
 
+#[cfg(any(target_os = "windows", test))]
+fn windows_exclusion_capability(major: u32, build: u32) -> WindowExclusionCapability {
+    if major > 10 || (major == 10 && build >= 19_041) {
+        WindowExclusionCapability::Native
+    } else {
+        WindowExclusionCapability::GeometryOnly
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn windows_exclusion() -> WindowExclusionCapability {
+    let version = windows_version::OsVersion::current();
+    windows_exclusion_capability(version.major, version.build)
+}
+
+#[cfg(target_os = "windows")]
+pub fn exclude_windows_control_from_capture(
+    handle: raw_window_handle::WindowHandle<'_>,
+) -> std::io::Result<()> {
+    use raw_window_handle::RawWindowHandle;
+    use std::io;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
+    };
+
+    let RawWindowHandle::Win32(handle) = handle.as_raw() else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Recording control requires a Win32 window",
+        ));
+    };
+    if unsafe { SetWindowDisplayAffinity(handle.hwnd.get() as _, WDA_EXCLUDEFROMCAPTURE) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlWindowPlan {
     Visible(PhysicalRect),
@@ -252,6 +289,26 @@ fn clamp(value: i64, minimum: i64, maximum: i64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_uses_native_exclusion_starting_with_build_19041() {
+        assert_eq!(
+            windows_exclusion_capability(6, 9_600),
+            WindowExclusionCapability::GeometryOnly
+        );
+        assert_eq!(
+            windows_exclusion_capability(10, 19_040),
+            WindowExclusionCapability::GeometryOnly
+        );
+        assert_eq!(
+            windows_exclusion_capability(10, 19_041),
+            WindowExclusionCapability::Native
+        );
+        assert_eq!(
+            windows_exclusion_capability(10, 26_100),
+            WindowExclusionCapability::Native
+        );
+    }
 
     fn rect(x: i32, y: i32, width: u32, height: u32) -> PhysicalRect {
         PhysicalRect {
