@@ -1,4 +1,4 @@
-use super::{wayland::trigger, Action, Bindings, Dispatch, PlatformIdentity, Report};
+use super::{wayland::trigger, Action, Bindings, Dispatch, PlatformIdentity, Report, Status};
 use crate::gnome_settings::run as gsettings;
 use anyhow::{bail, ensure, Result};
 use global_hotkey::hotkey::HotKey;
@@ -57,7 +57,10 @@ pub(super) fn run(
     for &binding in bindings {
         let result = requested(binding).and_then(|target| replace(&[target], false, || Ok(())));
         if let Err(error) = result {
-            report(format!("{} shortcut: {error}", method(binding.0).1));
+            report(Status::Message(format!(
+                "{} shortcut: {error}",
+                method(binding.0).1
+            )));
         }
     }
     for update in updates {

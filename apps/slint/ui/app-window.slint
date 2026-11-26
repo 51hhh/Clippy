@@ -1,8 +1,8 @@
 import { ClipRow, HistoryPane } from "history.slint";
 import { ClipPreview, HistoryPreviewPane } from "history-preview.slint";
-import { GeneralSettings, GnomeHelperAction, GnomeHelperView, SettingsPane, ShortcutField, TranslationSettings } from "settings.slint";
+import { GeneralSettings, GnomeHelperAction, GnomeHelperView, PortalShortcutView, SettingsPane, ShortcutField, TranslationSettings } from "settings.slint";
 import { ClippyTheme, WindowHeader } from "theme.slint";
-export { GeneralSettings, GnomeHelperAction, GnomeHelperView, TranslationSettings, ShortcutField, ClippyTheme, ClipRow, ClipPreview }
+export { GeneralSettings, GnomeHelperAction, GnomeHelperView, PortalShortcutView, TranslationSettings, ShortcutField, ClippyTheme, ClipRow, ClipPreview }
 export { EditorWindow } from "editor.slint";
 export { PinnedWindow } from "pins.slint";
 export { WorkspaceWindow, WorkspaceRow, WorkspaceGroupRow } from "workspace.slint";
@@ -67,6 +67,7 @@ export component AppWindow inherits Window {
     in property <bool> settings-save-pending;
     in property <bool> gnome-helper-busy;
     in property <GnomeHelperView> gnome-helper: { title: "Checking helper…" };
+    in property <PortalShortcutView> portal-shortcuts;
     in property <TranslationSettings> translation-settings;
     in property <string> translation-destination;
     in property <int> provider-index;
@@ -101,6 +102,7 @@ export component AppWindow inherits Window {
     callback authorize-paste();
     callback forget-paste();
     callback gnome-helper-action(GnomeHelperAction);
+    callback configure-portal-shortcuts();
     callback set-autostart(bool);
     callback apply-general(GeneralSettings);
     callback select-provider(int);
@@ -224,6 +226,7 @@ export component AppWindow inherits Window {
             save-pending: root.settings-save-pending;
             gnome-helper-busy: root.gnome-helper-busy;
             gnome-helper: root.gnome-helper;
+            portal-shortcuts: root.portal-shortcuts;
             translation: root.translation-settings;
             provider-index: root.provider-index;
             auto-paste: root.auto-paste;
@@ -237,6 +240,7 @@ export component AppWindow inherits Window {
             authorize-paste => { root.authorize-paste(); }
             forget-paste => { root.forget-paste(); }
             gnome-helper-action(action) => { root.gnome-helper-action(action); }
+            configure-portal-shortcuts => { root.configure-portal-shortcuts(); }
             set-autostart(value) => { root.set-autostart(value); }
             apply-general(value) => { root.apply-general(value); }
             select-provider(index) => { root.select-provider(index); }

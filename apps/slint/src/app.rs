@@ -12,7 +12,7 @@ use clippy_platform::{
     paste::{capture_target, Target},
     paths::AppPaths,
     private_files::{commit_private_replacement, restrict_directory, write_private},
-    shortcuts::{Action, Shortcuts},
+    shortcuts::{Action, Shortcuts, Status as ShortcutStatus},
 };
 use clippy_storage::{ClipListRequest, StorageError, StorageRuntime};
 use slint::{
@@ -142,6 +142,11 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
             gnome_settings_pending: None,
             shortcuts: shortcuts.ok(),
             shortcut_status,
+            #[cfg(target_os = "linux")]
+            portal_shortcuts: crate::PortalShortcutView {
+                detail: "Waiting for the desktop shortcut service…".into(),
+                ..Default::default()
+            },
             action_status: SharedString::default(),
             capture_selection: None,
             capture_after_close: None,
@@ -212,7 +217,7 @@ enum Event {
     HistoryChanged,
     History(u64, Result<Vec<ClipItem>, StorageError>),
     ClipboardStatus(String),
-    ShortcutStatus(String),
+    ShortcutStatus(ShortcutStatus),
     Copied(Result<(Option<Target>, Option<u64>)>),
     Pasted(Result<()>),
     Permission(Result<()>),
@@ -288,6 +293,8 @@ struct App {
     gnome_settings_pending: Option<Box<AppConfig>>,
     shortcuts: Option<Shortcuts>,
     shortcut_status: String,
+    #[cfg(target_os = "linux")]
+    portal_shortcuts: crate::PortalShortcutView,
     action_status: SharedString,
     capture_selection: Option<capture::Selection>,
     capture_after_close: Option<capture::PendingOutput>,
@@ -380,10 +387,17 @@ impl App {
             }
             Event::History(_, _) => {}
             Event::ClipboardStatus(message) => self.status(message),
-            Event::ShortcutStatus(message) => {
+            Event::ShortcutStatus(ShortcutStatus::Message(message)) => {
                 self.shortcut_status = message;
                 if let Some(window) = &self.window {
                     window.set_shortcut_status(self.shortcut_status.clone().into());
+                }
+            }
+            #[cfg(target_os = "linux")]
+            Event::ShortcutStatus(ShortcutStatus::Portal(bindings)) => {
+                self.portal_shortcuts = settings::portal_shortcut_view(bindings);
+                if let Some(window) = &self.window {
+                    window.set_portal_shortcuts(self.portal_shortcuts.clone());
                 }
             }
             Event::Copied(Ok((Some(target), generation))) if self.config.auto_paste => {
@@ -581,7 +595,10 @@ impl App {
         window.set_show_settings(settings);
         window.set_busy(self.busy);
         #[cfg(target_os = "linux")]
-        window.set_settings_save_pending(self.gnome_settings_pending.is_some());
+        {
+            window.set_settings_save_pending(self.gnome_settings_pending.is_some());
+            window.set_portal_shortcuts(self.portal_shortcuts.clone());
+        }
         window.set_action_status(self.action_status.clone());
         window.set_shortcut_status(self.shortcut_status.clone().into());
         settings::connect(&window, &self.config);

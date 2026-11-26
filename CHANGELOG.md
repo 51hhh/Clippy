@@ -55,6 +55,9 @@
 - GNOME Wayland 的剪贴板、贴图和截图快捷键保存后立即应用。设置会提示可检测的系统和自定义快捷键冲突，
   写入失败会恢复原来的按键。隔离 GNOME 50.1 已验证互换、回滚和新截图键，其他 GNOME 版本与安装包继续验收。
   （需求 `SLINT-MIGRATION-CLOSURE-01`）
+- 其他 Wayland 桌面在设置里显示系统当前分配的快捷键。Portal 2 可打开系统快捷键设置，Portal 1 显示修改位置。
+  已在隔离 Sway 使用模拟 Portal 验证取消授权、分配变更和退出回收。KDE 原生系统配置界面继续验收。
+  （需求 `SLINT-MIGRATION-CLOSURE-01`）
 
 ### Slint 识字、扫码和翻译
 

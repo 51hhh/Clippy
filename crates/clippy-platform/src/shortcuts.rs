@@ -14,7 +14,21 @@ pub enum Action {
 }
 
 type Dispatch = Arc<dyn Fn(Action) + Send + Sync>;
-type Report = Arc<dyn Fn(String) + Send + Sync>;
+type Report = Arc<dyn Fn(Status) + Send + Sync>;
+
+pub enum Status {
+    Message(String),
+    #[cfg(target_os = "linux")]
+    Portal(Option<PortalBindings>),
+}
+
+#[cfg(target_os = "linux")]
+pub struct PortalBindings {
+    pub version: u32,
+    pub open: String,
+    pub pin: String,
+    pub capture: String,
+}
 
 pub struct Shortcuts {
     native: Option<NativeShortcuts>,
@@ -61,7 +75,7 @@ impl Shortcuts {
         pin: &str,
         capture: &str,
         dispatch: impl Fn(Action) + Send + Sync + 'static,
-        report: impl Fn(String) + Send + Sync + 'static,
+        report: impl Fn(Status) + Send + Sync + 'static,
     ) -> Result<Self> {
         let report: Report = Arc::new(report);
         let mut bindings = Vec::new();
@@ -81,10 +95,10 @@ impl Shortcuts {
                 {
                     bindings.push((action, key));
                 }
-                Ok(_) => report(format!(
+                Ok(_) => report(Status::Message(format!(
                     "{action:?} shortcut conflicts with another Clippy action"
-                )),
-                Err(error) => report(format!("{action:?} shortcut: {error}")),
+                ))),
+                Err(error) => report(Status::Message(format!("{action:?} shortcut: {error}"))),
             }
         }
         let dispatch: Dispatch = Arc::new(dispatch);
@@ -92,9 +106,10 @@ impl Shortcuts {
         if crate::session::is_wayland() {
             if bindings.is_empty() {
                 if !crate::session::is_gnome() {
+                    report(Status::Portal(None));
                     bail!("No global shortcut is configured");
                 }
-                report("No global shortcut is configured".into());
+                report(Status::Message("No global shortcut is configured".into()));
             }
             return Ok(Self {
                 native: None,
@@ -105,13 +120,13 @@ impl Shortcuts {
         }
         let _ = identity;
         if bindings.is_empty() {
-            report("No global shortcut is configured".into());
+            report(Status::Message("No global shortcut is configured".into()));
         }
         let manager = GlobalHotKeyManager::new()?;
         bindings.retain(|(action, key)| match manager.register(*key) {
             Ok(()) => true,
             Err(error) => {
-                report(format!("{action:?} shortcut: {error}"));
+                report(Status::Message(format!("{action:?} shortcut: {error}")));
                 false
             }
         });
@@ -167,6 +182,17 @@ impl Shortcuts {
                 persist: Box::new(persist),
                 completed: Box::new(completed),
             })
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn configure_portal(
+        &self,
+        completed: impl FnOnce(Result<()>) + Send + 'static,
+    ) -> Result<()> {
+        self.wayland
+            .as_ref()
+            .expect("调用方使用 Wayland 快捷键 Portal")
+            .configure_portal(Box::new(completed))
     }
 }
 
@@ -224,15 +250,21 @@ impl NativeShortcuts {
 #[cfg(target_os = "linux")]
 mod wayland {
     use super::*;
-    use ashpd::desktop::global_shortcuts::{GlobalShortcuts, NewShortcut};
+    use ashpd::desktop::{
+        global_shortcuts::{GlobalShortcuts, NewShortcut, Shortcut},
+        ResponseError,
+    };
     use futures_util::StreamExt;
     use global_hotkey::hotkey::Modifiers;
     use std::time::Duration;
     use std::{sync::mpsc, thread};
     use tokio::sync::oneshot;
 
+    type Configure = Box<dyn FnOnce(Result<()>) + Send>;
+
     pub(super) struct Worker {
         gnome_updates: Option<mpsc::SyncSender<gnome::Update>>,
+        portal_configuration: Option<tokio::sync::mpsc::Sender<Configure>>,
         stop: Option<oneshot::Sender<()>>,
         thread: Option<thread::JoinHandle<()>>,
     }
@@ -246,6 +278,7 @@ mod wayland {
         ) -> std::io::Result<Self> {
             let gnome = crate::session::is_gnome();
             let (send_update, updates) = mpsc::sync_channel(1);
+            let (configure, configuration) = tokio::sync::mpsc::channel(1);
             let (stop, stopped) = oneshot::channel();
             let thread = thread::Builder::new()
                 .name("clippy-shortcuts".into())
@@ -259,16 +292,27 @@ mod wayland {
                             .map_err(anyhow::Error::from)
                             .and_then(|runtime| {
                                 runtime.block_on(portal_loop(
-                                    identity, &bindings, &dispatch, &report, stopped,
+                                    identity,
+                                    &bindings,
+                                    &dispatch,
+                                    &report,
+                                    configuration,
+                                    stopped,
                                 ))
                             })
                     };
                     if let Err(error) = result {
-                        report(format!("Global shortcuts unavailable: {error}"));
+                        if !gnome {
+                            report(Status::Portal(None));
+                        }
+                        report(Status::Message(format!(
+                            "Global shortcuts unavailable: {error}"
+                        )));
                     }
                 })?;
             Ok(Self {
                 gnome_updates: gnome.then_some(send_update),
+                portal_configuration: (!gnome).then_some(configure),
                 stop: Some(stop),
                 thread: Some(thread),
             })
@@ -280,6 +324,14 @@ mod wayland {
                 .expect("调用方使用 GNOME 快捷键后端")
                 .try_send(update)
                 .map_err(|_| anyhow::anyhow!("GNOME global shortcuts are unavailable"))
+        }
+
+        pub(super) fn configure_portal(&self, configure: Configure) -> Result<()> {
+            self.portal_configuration
+                .as_ref()
+                .expect("调用方使用快捷键 Portal")
+                .try_send(configure)
+                .map_err(|_| anyhow::anyhow!("The desktop shortcut service is unavailable"))
         }
     }
 
@@ -346,13 +398,18 @@ mod wayland {
         bindings: &[(Action, HotKey)],
         dispatch: &Dispatch,
         report: &Report,
+        mut configuration: tokio::sync::mpsc::Receiver<Configure>,
         mut stop: oneshot::Receiver<()>,
     ) -> Result<()> {
         let portal = GlobalShortcuts::new().await?;
-        let session = portal.create_session(Default::default()).await?;
+        let session = tokio::select! {
+            _ = &mut stop => return Ok(()),
+            session = portal.create_session(Default::default()) => session?,
+        };
         let result = async {
             let session_id = serde_json::to_value(&session)?;
             let mut active = Box::pin(portal.receive_activated().await?);
+            let mut changed = Box::pin(portal.receive_shortcuts_changed().await?);
             let mut closed = Box::pin(session.receive_closed().await?);
             let mut requested = Vec::new();
             for &(action, key) in bindings {
@@ -371,15 +428,36 @@ mod wayland {
                 _ = &mut stop => return Ok(()),
                 result = portal.bind_shortcuts(&session, &shortcuts, None, Default::default()) => result?,
             };
-            let response = request.response()?;
-            let accepted = response.shortcuts();
-            if accepted.len() != requested.len() {
-                report("Some global shortcuts were not granted by the desktop".to_owned());
-            }
+            let mut accepted = match request.response() {
+                Ok(response) => response.shortcuts().to_vec(),
+                Err(ashpd::Error::Response(ResponseError::Cancelled)) => Vec::new(),
+                Err(error) => return Err(error.into()),
+            };
+            report_portal(portal.version(), &requested, &accepted, report);
             loop {
                 tokio::select! {
                     _ = &mut stop => return Ok(()),
                     _ = closed.next() => bail!("the desktop closed the shortcut session"),
+                    request = configuration.recv() => {
+                        let Some(completed) = request else { return Ok(()) };
+                        let result = tokio::select! {
+                            _ = &mut stop => return Ok(()),
+                            result = tokio::time::timeout(Duration::from_secs(4), portal.configure_shortcuts(
+                                &session, None, Default::default(),
+                            )) => match result {
+                                Ok(response) => response.map_err(anyhow::Error::from),
+                                Err(_) => Err(anyhow::anyhow!("The desktop shortcut settings timed out")),
+                            },
+                        };
+                        completed(result);
+                    }
+                    event = changed.next() => {
+                        let Some(event) = event else { bail!("portal disconnected") };
+                        if session_id.as_str() == Some(event.session_handle().as_str()) {
+                            accepted = event.shortcuts().to_vec();
+                            report_portal(portal.version(), &requested, &accepted, report);
+                        }
+                    }
                     event = active.next() => {
                         let Some(event) = event else { bail!("portal disconnected") };
                         if session_id.as_str() == Some(event.session_handle().as_str()) {
@@ -396,6 +474,31 @@ mod wayland {
         }.await;
         let _ = tokio::time::timeout(Duration::from_secs(1), session.close()).await;
         result
+    }
+
+    fn report_portal(
+        version: u32,
+        requested: &[(Action, String, NewShortcut)],
+        accepted: &[Shortcut],
+        report: &Report,
+    ) {
+        let mut state = PortalBindings {
+            version,
+            open: String::new(),
+            pin: String::new(),
+            capture: String::new(),
+        };
+        for (action, id, _) in requested {
+            if let Some(binding) = accepted.iter().find(|shortcut| shortcut.id() == id) {
+                let description = match action {
+                    Action::Open => &mut state.open,
+                    Action::Pin => &mut state.pin,
+                    Action::Capture => &mut state.capture,
+                };
+                description.push_str(binding.trigger_description());
+            }
+        }
+        report(Status::Portal(Some(state)));
     }
 
     #[cfg(test)]

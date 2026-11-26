@@ -17,7 +17,7 @@ GitHub `dev` 仍指向 #27 的合入提交 `abfdeb5`。之前的安装包、三�
 
 | 功能 | 当前 Slint | 收尾内容 |
 | --- | --- | --- |
-| 托盘、快捷键、设置 | 按需窗口、单实例、三类快捷键、六主题、平台权限入口。设置里录制和保存快捷键 | 原生托盘和权限态实机验收。补中英文/自动语言、快捷键保存后重绑及失败回滚。完善 OCR 引擎状态、路径选择、清理与更新入口。 [设置调用](../../../apps/slint/src/app/settings.rs) · [旧设置](../../../apps/legacy-tauri/frontend/settings.html) |
+| 托盘、快捷键、设置 | 按需窗口、单实例、三类快捷键、六主题、平台权限入口。设置支持录制、即时改键和失败回滚，Portal 管理的键位同步到界面 | 原生托盘、快捷键、系统配置入口和权限态实机验收。补中英文及自动语言，完善 OCR 引擎状态、路径选择、清理与更新入口。 [设置调用](../../../apps/slint/src/app/settings.rs) · [旧设置](../../../apps/legacy-tauri/frontend/settings.html) |
 | 剪贴板和自动粘贴 | Unicode、HTML、透明 PNG、检索、收藏、删除、敏感项保护。X11 已验证复制和焦点变化。Windows 使用序列号，macOS 使用 `changeCount`，X11 读取 XFixes 事件，应用循环间隔 250 ms | 核对 Wayland 原生应用间的读写和授权恢复。将能观察的变更改为事件唤醒。短时间多次复制、退出数据所有权及焦点失效要在安装包内验证。 [平台剪贴板](../../../crates/clippy-platform/src/clipboard.rs) · [剪贴板工作线程](../../../apps/slint/src/app/clipboard.rs) |
 | 冻结截图 | X11 root、GNOME Mutter 原始帧、其他 Wayland 的 wayshot、Windows xcap/WGC 单帧、macOS xcap/CoreGraphics。选区使用单输出源像素 | 复测 v5 速度与 GNOME 瞬时菜单。补窗口速选、旋转和混合 DPI 验收。跨屏选区和合成是原生计划中的新增目标，先固定输出坐标尺度。保留系统截图导入和延时截图。 [平台采集](../../../crates/clippy-platform/src/capture.rs) · [GNOME v5 合同](../specs/2026-10-23-gnome-capture-fast-path-rollback.md) |
 | 标注、查看器、贴图 | 截图层有五个内联工具。编辑器可做更多标注。查看器支持缩放拖动。贴图、修订、工作区分组和缩略图已接入 | 恢复高频内联笔、文字、马赛克等实际入口与撤销/重做。窗口速选和扫码结果交互按旧操作验证。贴图跨屏缩放、层级和重启位置恢复做原生验证。独立查看器持久化工程按现有修订合同接入。 [截图窗](../../../apps/slint/ui/capture.slint) · [编辑器控制](../../../apps/slint/src/app/editor.rs) · [贴图状态](../../../apps/slint/src/app/pins.rs) |
@@ -530,6 +530,11 @@ GNOME 在原有快捷键线程中处理本次保存，先核对可枚举的系�
 Shell 内直接注册的键没有公开枚举或逐键确认接口，物理按键触发仍以真实桌面回归为准。
 [GNOME 变更处理](https://github.com/GNOME/gnome-settings-daemon/blob/50.0/plugins/media-keys/gsd-media-keys-manager.c#L773-L805) ·
 [Shell 注册接口](https://github.com/GNOME/gnome-shell/blob/50.1/js/ui/shellDBus.js#L186-L214)
+
+非 GNOME Wayland 的设置显示 Portal 回报的实际键位和未分配状态。Portal 2 使用当前会话打开系统快捷键设置，
+Portal 1 提示从桌面设置修改。配置页响应同一会话的键位变更，保存主题、截图路径等设置时保留已有的首选键位。
+验收覆盖取消授权、识别版本、配置当前会话、更新分配和关闭会话。
+[Portal 版本与变更通知](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.GlobalShortcuts.html)
 
 **Acceptance Criteria** 录制和手填都使用同一保存流程。验证不重启即可触发新按键，旧按键停止触发，并支持两个
 动作交换按键。同一应用的重复按键、其他应用占用、写入失败均保留旧配置及可用按键。修复输入后可直接重试。
@@ -1152,6 +1157,24 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   证据位于 `target/test-artifacts/slint-stage6-gnome-hotkeys/`，包括 `gnome-settings-final.log` 的前三组通过记录、
   `gnome-screenshot-hotkey.log`、`ci-local.log`、`windows-gnu-qa.log` 和 `macos-platform.log`。
   综合夹具的截图页后续改为独立会话验证，避免前置滚动位置和虚拟输入状态影响该用例。
+
+#### 阶段 6 · Wayland Portal 快捷键设置结果
+
+- 非 GNOME Wayland 的通用与截图设置都显示 Portal 回报的键位。Portal 2 使用原会话发送 `ConfigureShortcuts`，
+  即使首次授权取消也保留修改入口。Portal 1 保留系统设置指引。会话不支持或关闭时显示不可用状态。
+- 订阅本会话的 `ShortcutsChanged` 并更新显示与动作分派。保存历史限制、主题或截图选项保留本地首选键位，
+  这些值仍用作下次绑定的首选触发键。
+  [Portal 合同](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.GlobalShortcuts.html)
+- 在隔离 Sway 的实际窗口与独立 D-Bus 上，用模拟服务分别验证缺少接口、Portal 1 与 Portal 2。状态匹配，
+  两页显示与服务一致，其他会话的信号不改变本会话。有效激活信号打开剪贴板，退出回收会话。服务关闭会话后，
+  打开的设置立即切到不可用。模拟 Portal 2 的初次取消、配置请求与后续重新分配均已覆盖。
+- 完整 Linux 门禁 11 项通过、0 失败、0 跳过。Windows GNU 的 Slint QA 入口交叉检查通过，macOS 双架构
+  平台层严格交叉 Clippy 通过。隔离 KDE 的实验后端未导出快捷键接口，另一组嵌套 KWin 在启动时退出，
+  系统配置窗口和真实桌面的实体键盘继续在 KDE 安装包上验收。同一构建的隔离 GNOME 复验了 v5 截图热键。
+- QA 二进制 SHA-256 为 `773319a4efe561cec9362516860f682403f6b2ceef1d6cb6494c19269e90053b`。
+  证据位于 `target/test-artifacts/slint-stage6-portal-shortcuts/`，包括 `portal-v0-final.log`、
+  `portal-v1-closed-verified.log`、`portal-v2-full.log`、`kde-provider-probe.log`、`kde-accelerator-probe.log`、
+  `gnome-v5-regression.log`、`ci-local.log`、`windows-gnu-qa.log` 和 `macos-platform.log`。
 
 ## Acceptance Criteria
 

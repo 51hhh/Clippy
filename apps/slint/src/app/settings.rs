@@ -43,6 +43,8 @@ pub(super) enum Message {
     GnomeHelper(Result<clippy_platform::gnome_extension::Status>),
     #[cfg(target_os = "linux")]
     GnomeSettingsSaved(Result<()>),
+    #[cfg(target_os = "linux")]
+    PortalConfigured(Result<()>),
 }
 
 pub(super) fn namespace(identity: &DeploymentIdentity) -> String {
@@ -244,6 +246,16 @@ pub(super) fn connect(window: &AppWindow, config: &AppConfig) {
         if window.get_wayland_session() && window.get_gnome_session() {
             gnome_helper::connect(window);
         }
+        #[cfg(target_os = "linux")]
+        if window.get_wayland_session() && !window.get_gnome_session() {
+            window.on_configure_portal_shortcuts(|| {
+                use_app(|app| {
+                    if let Err(error) = app.configure_portal_shortcuts() {
+                        app.status(error.to_string());
+                    }
+                })
+            });
+        }
         connect_shortcut_recorder(window);
     }
     window.on_apply_general(|settings| {
@@ -349,6 +361,39 @@ fn populate(window: &AppWindow, config: &AppConfig) {
     apply_theme(window, theme);
 }
 
+#[cfg(target_os = "linux")]
+pub(super) fn portal_shortcut_view(
+    bindings: Option<shortcuts::PortalBindings>,
+) -> crate::PortalShortcutView {
+    let Some(bindings) = bindings else {
+        return crate::PortalShortcutView {
+            detail: "Global shortcuts are unavailable on this desktop.".into(),
+            ..Default::default()
+        };
+    };
+    let key = |value: String| -> SharedString {
+        if value.is_empty() {
+            "Not assigned".into()
+        } else {
+            value.into()
+        }
+    };
+    let configurable = bindings.version >= 2;
+    crate::PortalShortcutView {
+        available: true,
+        configurable,
+        detail: if configurable {
+            "Managed by your desktop."
+        } else {
+            "Change these shortcuts in your desktop settings."
+        }
+        .into(),
+        open: key(bindings.open),
+        pin: key(bindings.pin),
+        capture: key(bindings.capture),
+    }
+}
+
 fn provider(index: i32) -> Result<TranslationProvider> {
     TranslationProvider::all()
         .get(index as usize)
@@ -421,10 +466,25 @@ impl App {
             .trim()
             .parse::<u32>()
             .context("Enter a history limit")?;
-        let panel = value.panel_shortcut.trim();
-        let pin = value.pin_shortcut.trim();
-        let capture = value.capture_shortcut.trim();
-        let shortcuts = shortcuts::validate(panel, pin, capture)?;
+        let wayland = clippy_platform::session::is_wayland();
+        let gnome = clippy_platform::session::is_gnome();
+        let portal = wayland && !gnome;
+        let (panel, pin, capture) = if portal {
+            (
+                &*self.config.global_shortcut,
+                &*self.config.pin_shortcut,
+                &*self.config.capture_shortcut,
+            )
+        } else {
+            (
+                value.panel_shortcut.trim(),
+                value.pin_shortcut.trim(),
+                value.capture_shortcut.trim(),
+            )
+        };
+        let shortcuts = (!portal)
+            .then(|| shortcuts::validate(panel, pin, capture))
+            .transpose()?;
         let theme = THEMES.get(value.theme as usize).context("Select a theme")?;
         let shortcuts_changed = self.config.global_shortcut != panel
             || self.config.pin_shortcut != pin
@@ -441,28 +501,37 @@ impl App {
             enhanced_ocr_manifest_path: value.ocr_manifest.trim().into(),
             ..self.config.clone()
         };
-        let wayland = clippy_platform::session::is_wayland();
-        #[cfg(target_os = "linux")]
-        if shortcuts_changed && wayland && clippy_platform::session::is_gnome() {
-            return self.apply_gnome_shortcuts(shortcuts, next);
-        }
-        if shortcuts_changed && !wayland {
+        if shortcuts_changed {
+            let shortcuts = shortcuts.expect("只有本地管理的快捷键可以编辑");
+            #[cfg(target_os = "linux")]
+            if wayland && gnome {
+                return self.apply_gnome_shortcuts(shortcuts, next);
+            }
             let path = &self.paths.config_file;
             self.shortcuts
                 .as_mut()
                 .context("Global shortcuts are unavailable on this desktop")?
                 .rebind_native(shortcuts, || Self::write_config(path, &next))?;
-            self.handle(Event::ShortcutStatus(String::new()));
+            self.handle(Event::ShortcutStatus(shortcuts::Status::Message(
+                String::new(),
+            )));
         } else {
             self.save_config(&next)?;
         }
         self.apply_saved_general(next);
-        Ok(if shortcuts_changed && wayland {
-            "Settings saved. Restart Clippy to apply shortcuts."
-        } else {
-            "Settings saved"
-        }
-        .into())
+        Ok("Settings saved".into())
+    }
+
+    #[cfg(target_os = "linux")]
+    fn configure_portal_shortcuts(&self) -> Result<()> {
+        ensure!(
+            self.portal_shortcuts.configurable,
+            "Open your desktop settings to manage shortcuts"
+        );
+        self.shortcuts
+            .as_ref()
+            .context("The desktop shortcut service is unavailable")?
+            .configure_portal(|result| send(Message::PortalConfigured(result)))
     }
 
     #[cfg(target_os = "linux")]
@@ -714,10 +783,16 @@ impl App {
                 }
                 let result = result.map(|()| {
                     self.apply_saved_general(*next);
-                    self.handle(Event::ShortcutStatus(String::new()));
+                    self.handle(Event::ShortcutStatus(shortcuts::Status::Message(
+                        String::new(),
+                    )));
                     "Settings saved".into()
                 });
                 self.settings_result(result);
+            }
+            #[cfg(target_os = "linux")]
+            Message::PortalConfigured(result) => {
+                self.settings_result(result.map(|()| "Desktop shortcut settings requested".into()));
             }
         }
     }

@@ -28,6 +28,9 @@ export enum GnomeHelperAction { refresh, install, enable, disable, remove }
 export struct GnomeHelperView {
     title: string, detail: string, action: GnomeHelperAction, action-label: string, removable: bool,
 }
+export struct PortalShortcutView {
+    available: bool, configurable: bool, detail: string, open: string, pin: string, capture: string,
+}
 
 component FieldLabel inherits Text {
     color: ClippyTheme.foreground;
@@ -76,6 +79,28 @@ component CapabilityLine inherits Rectangle {
 component SectionRule inherits Rectangle {
     height: 1px;
     background: ClippyTheme.border;
+}
+
+component DesktopShortcuts inherits VerticalLayout {
+    in property <PortalShortcutView> view;
+    in property <bool> screenshot-only;
+    callback configure();
+    spacing: 8px;
+    FieldLabel { text: root.screenshot-only ? "Screenshot Shortcut" : "Global Shortcuts"; }
+    SettingHint { text: root.view.detail; }
+    if root.view.available && !root.screenshot-only: CapabilityLine {
+        label: "Open Clipboard"; value: root.view.open; desktop-permission: true;
+    }
+    if root.view.available && !root.screenshot-only: CapabilityLine {
+        label: "Pin Item"; value: root.view.pin; desktop-permission: true;
+    }
+    if root.view.available: CapabilityLine {
+        label: "Screenshot"; value: root.view.capture; desktop-permission: true;
+    }
+    if root.view.configurable: Button {
+        text: "Configure Desktop Shortcuts";
+        clicked => { root.configure(); }
+    }
 }
 
 component ShortcutInput inherits VerticalLayout {
@@ -166,6 +191,7 @@ export component SettingsPane inherits Rectangle {
     in property <bool> save-pending;
     in property <bool> gnome-helper-busy;
     in property <GnomeHelperView> gnome-helper;
+    in property <PortalShortcutView> portal-shortcuts;
     in property <string> build-label;
     in property <string> data-status;
     in-out property <ShortcutField> recording-shortcut;
@@ -176,6 +202,7 @@ export component SettingsPane inherits Rectangle {
     callback authorize-paste();
     callback forget-paste();
     callback gnome-helper-action(GnomeHelperAction);
+    callback configure-portal-shortcuts();
     callback set-autostart(bool);
     callback apply-general(GeneralSettings);
     callback select-provider(int);
@@ -184,6 +211,7 @@ export component SettingsPane inherits Rectangle {
     callback delete-credentials(int);
     callback data-action(int, string);
     private property <int> page;
+    private property <bool> desktop-managed-shortcuts: root.wayland-session && !root.gnome-session;
     private property <[string]> pages: ["General", "Screenshot", "Translation", "About"];
     private property <[string]> themes: ["Light", "Dark", "Nord", "Solarized Light", "Rose", "Midnight"];
     private property <int> selected-theme: root.general.theme;
@@ -230,7 +258,11 @@ export component SettingsPane inherits Rectangle {
                 spacing: 8px;
                 if root.page == 0: VerticalLayout {
                     spacing: 7px;
-                    ShortcutInput {
+                    if root.desktop-managed-shortcuts: DesktopShortcuts {
+                        view: root.portal-shortcuts;
+                        configure => { root.configure-portal-shortcuts(); }
+                    }
+                    if !root.desktop-managed-shortcuts: ShortcutInput {
                         label: "Global Shortcut";
                         hint: "Click Record, then press your desired key combination.";
                         reset-value: root.shortcut-defaults[0];
@@ -238,8 +270,8 @@ export component SettingsPane inherits Rectangle {
                         recording: root.recording-shortcut == ShortcutField.clipboard;
                         record => { root.recording-shortcut = self.recording ? ShortcutField.none : ShortcutField.clipboard; }
                     }
-                    SettingDivider { }
-                    ShortcutInput {
+                    if !root.desktop-managed-shortcuts: SettingDivider { }
+                    if !root.desktop-managed-shortcuts: ShortcutInput {
                         label: "Pin Shortcut";
                         hint: "Pin the focused clipboard item to the desktop.";
                         reset-value: root.shortcut-defaults[1];
@@ -365,7 +397,12 @@ export component SettingsPane inherits Rectangle {
                         }
                     }
                     SettingDivider { }
-                    ShortcutInput {
+                    if root.desktop-managed-shortcuts: DesktopShortcuts {
+                        view: root.portal-shortcuts;
+                        screenshot-only: true;
+                        configure => { root.configure-portal-shortcuts(); }
+                    }
+                    if !root.desktop-managed-shortcuts: ShortcutInput {
                         label: "Screenshot Shortcut";
                         hint: "Shortcut to start a screenshot.";
                         reset-value: root.shortcut-defaults[2];
