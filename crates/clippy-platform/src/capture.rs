@@ -19,6 +19,8 @@ pub mod gnome;
 mod latest;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "macos")]
+pub(crate) use macos::appkit_window_number;
 #[cfg(all(target_os = "macos", feature = "macos-recording-audio"))]
 pub use macos::audio as macos_audio;
 #[cfg(any(target_os = "macos", test))]
@@ -92,22 +94,50 @@ impl FrozenCapture {
 }
 
 #[derive(Default)]
-pub struct CaptureSource(#[cfg(target_os = "linux")] Option<wayland::PortalHandoff>);
+pub struct CaptureSource {
+    #[cfg(target_os = "linux")]
+    portal: Option<wayland::PortalHandoff>,
+    #[cfg(target_os = "macos")]
+    excluded_control: Option<MacControlWindow>,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct MacControlWindow(std::num::NonZeroU32);
+
+#[cfg(target_os = "macos")]
+impl MacControlWindow {
+    pub fn supported() -> bool {
+        macos::stream_supported()
+    }
+
+    pub fn from_handle(handle: raw_window_handle::WindowHandle<'_>) -> Result<Self> {
+        let raw_window_handle::RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+            anyhow::bail!("Recording control requires an AppKit window");
+        };
+        appkit_window_number(handle.ns_view).map(Self)
+    }
+}
 
 impl CaptureSource {
     pub fn uses_portal(&self) -> bool {
         #[cfg(target_os = "linux")]
-        return self.0.is_some();
+        return self.portal.is_some();
         #[cfg(not(target_os = "linux"))]
         false
     }
 
     pub fn overlay_closed(&mut self, _closed: std::time::Instant) -> Result<()> {
         #[cfg(target_os = "linux")]
-        if let Some(handoff) = &mut self.0 {
+        if let Some(handoff) = &mut self.portal {
             handoff.overlay_closed(_closed)?;
         }
         Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn exclude_recording_control(&mut self, control: MacControlWindow) {
+        self.excluded_control = Some(control);
     }
 }
 
@@ -134,7 +164,7 @@ impl std::error::Error for ScreenSharingCancelled {}
 pub struct RegionCancellation {
     #[cfg(target_os = "linux")]
     signal: tokio::sync::watch::Sender<bool>,
-    #[cfg(all(target_os = "macos", feature = "macos-recording-audio"))]
+    #[cfg(target_os = "macos")]
     signal: Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -142,12 +172,12 @@ impl RegionCancellation {
     pub fn cancel(&self) {
         #[cfg(target_os = "linux")]
         self.signal.send_replace(true);
-        #[cfg(all(target_os = "macos", feature = "macos-recording-audio"))]
+        #[cfg(target_os = "macos")]
         self.signal
             .store(true, std::sync::atomic::Ordering::Release);
     }
 
-    #[cfg(all(target_os = "macos", feature = "macos-recording-audio"))]
+    #[cfg(target_os = "macos")]
     fn check_recording_start(&self) -> Result<()> {
         ensure!(
             !self.signal.load(std::sync::atomic::Ordering::Acquire),
@@ -289,7 +319,7 @@ fn with_region_reader<T>(
         source: _source,
     } = region;
     #[cfg(target_os = "linux")]
-    if let Some(handoff) = _source.0 {
+    if let Some(handoff) = _source.portal {
         return handoff.with_region(
             &output,
             geometry,
@@ -361,12 +391,23 @@ fn with_region_reader<T>(
     }
     #[cfg(target_os = "macos")]
     {
+        _cancellation.check_recording_start()?;
         let monitor = resolve_native_monitor(&output, geometry)?;
         let bounds = [left, top, right, bottom];
         if macos::stream_supported() {
-            let mut source = macos::ScreenStream::open(monitor.id()?, source_size, bounds)?;
+            let mut source = macos::ScreenStream::open(
+                monitor.id()?,
+                source_size,
+                bounds,
+                _source.excluded_control,
+                _cancellation,
+            )?;
             return consume(&mut |demand| source.read(demand));
         }
+        ensure!(
+            _source.excluded_control.is_none(),
+            "Recording control exclusion requires ScreenCaptureKit"
+        );
         consume(&mut |_| {
             let image = monitor.capture_image()?;
             let time = Instant::now();

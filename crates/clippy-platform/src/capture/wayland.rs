@@ -77,10 +77,12 @@ pub(super) fn freeze_selection(
     };
     if let Some(portal) = portal {
         let (claim, requested) = mpsc::sync_channel(1);
-        frozen.source = CaptureSource(Some(PortalHandoff {
-            claim,
-            fresh_from: None,
-        }));
+        frozen.source = CaptureSource {
+            portal: Some(PortalHandoff {
+                claim,
+                fresh_from: None,
+            }),
+        };
         publish(Ok(frozen));
         // 回调只交付图片和一次性句柄，D-Bus 与 PipeWire 的关闭不会阻塞界面。
         if let Ok(receiver) = requested.recv() {

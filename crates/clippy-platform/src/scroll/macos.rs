@@ -1,11 +1,8 @@
 use super::{coordinates, ControlWindow, Direction};
 use crate::capture::{resolve_native_monitor, Region};
 use anyhow::{ensure, Context, Result};
-use objc2::{
-    rc::{autoreleasepool, Retained},
-    MainThreadMarker,
-};
-use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication, NSView};
+use objc2::rc::{autoreleasepool, Retained};
+use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
 use objc2_core_foundation::{
     CFArray, CFDictionary, CFNumber, CFNumberType, CFRetained, CFString, CFType, CGPoint, CGRect,
 };
@@ -16,8 +13,6 @@ use objc2_core_graphics::{
     CGRectMakeWithDictionaryRepresentation, CGScrollEventUnit, CGWarpMouseCursorPosition,
     CGWindowListCopyWindowInfo, CGWindowListOption,
 };
-use std::{ffi::c_void, ptr::NonNull};
-
 type WindowInfo = CFDictionary<CFString, CFType>;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -32,21 +27,6 @@ pub(super) struct Target {
     locked: WindowIdentity,
     application: Retained<NSRunningApplication>,
     pointers: Option<(CGPoint, CGPoint)>,
-}
-
-pub(super) fn control_window(view: NonNull<c_void>) -> Result<u32> {
-    MainThreadMarker::new().context("The macOS scrolling controls require the main thread")?;
-    // 借用的 AppKit 窗口句柄保证 NSView 在这个主线程调用期间存活。
-    let view = unsafe { view.cast::<NSView>().as_ref() };
-    let window = view
-        .window()
-        .context("The macOS scrolling controls have no window")?;
-    let number = u32::try_from(window.windowNumber())?;
-    ensure!(
-        number != 0,
-        "The macOS scrolling controls have no window number"
-    );
-    Ok(number)
 }
 
 impl Target {

@@ -1,20 +1,28 @@
 use super::{send, Control, Message};
 use crate::RecordingControlWindow;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use anyhow::Context;
 use anyhow::Result;
+#[cfg(target_os = "macos")]
+use clippy_platform::capture::MacControlWindow;
 use clippy_platform::{
-    capture::Region,
+    capture::{CaptureSource, Region},
     recording_control::{
         plan_control_window, ControlSize, ControlWindowPlan, PhysicalRect,
         WindowExclusionCapability,
     },
 };
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use slint::winit_030::winit::raw_window_handle::HasWindowHandle;
 use slint::winit_030::{
     winit::{event::WindowEvent, window::WindowLevel},
     EventResult, WinitWindowAccessor,
 };
-use slint::{
-    CloseRequestResponse, ComponentHandle, PhysicalPosition, PhysicalSize, Timer, TimerMode,
-};
+use slint::{CloseRequestResponse, ComponentHandle, Timer, TimerMode};
+#[cfg(target_os = "macos")]
+use slint::{LogicalPosition, LogicalSize};
+#[cfg(not(target_os = "macos"))]
+use slint::{PhysicalPosition, PhysicalSize};
 use std::{
     cell::Cell,
     rc::Rc,
@@ -27,6 +35,11 @@ const CONTROL_SIZE: ControlSize = ControlSize {
 };
 const CONTROL_MARGIN: u32 = 12;
 
+#[cfg(target_os = "macos")]
+type ControlWindowId = MacControlWindow;
+#[cfg(not(target_os = "macos"))]
+type ControlWindowId = slint::winit_030::winit::window::WindowId;
+
 fn exclusion_capability() -> Option<WindowExclusionCapability> {
     #[cfg(target_os = "windows")]
     {
@@ -36,7 +49,11 @@ fn exclusion_capability() -> Option<WindowExclusionCapability> {
     {
         (!clippy_platform::session::is_wayland()).then_some(WindowExclusionCapability::GeometryOnly)
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        MacControlWindow::supported().then_some(WindowExclusionCapability::Native)
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         None
     }
@@ -54,17 +71,13 @@ pub(super) fn recorded_rectangle(region: &Region, size: (u32, u32)) -> PhysicalR
 
 pub(super) struct View {
     window: RecordingControlWindow,
-    safety: CaptureSafety,
+    selection: PhysicalRect,
+    capability: WindowExclusionCapability,
+    prepared_window: Cell<Option<ControlWindowId>>,
     armed: Rc<Cell<bool>>,
     elapsed: Rc<Cell<Duration>>,
     since: Rc<Cell<Option<Instant>>>,
     timer: Timer,
-}
-
-enum CaptureSafety {
-    OutsideSelection(PhysicalRect),
-    #[cfg(target_os = "windows")]
-    NativeExclusion(bool),
 }
 
 impl View {
@@ -72,8 +85,22 @@ impl View {
         let Some(capability) = exclusion_capability() else {
             return Ok(None);
         };
-        let selection = recorded_rectangle(region, size);
         let geometry = region.geometry;
+        let selection = if cfg!(target_os = "macos") {
+            let [left, top, right, bottom] = clippy_platform::capture::pixel_rect(
+                geometry.width,
+                geometry.height,
+                region.bounds,
+            )?;
+            PhysicalRect {
+                x: geometry.x + left as i32,
+                y: geometry.y + top as i32,
+                width: right - left,
+                height: bottom - top,
+            }
+        } else {
+            recorded_rectangle(region, size)
+        };
         let monitor = PhysicalRect {
             x: geometry.x,
             y: geometry.y,
@@ -90,12 +117,25 @@ impl View {
             return Ok(None);
         };
         let window = RecordingControlWindow::new()?;
-        window
-            .window()
-            .set_position(PhysicalPosition::new(position.x, position.y));
-        window
-            .window()
-            .set_size(PhysicalSize::new(position.width, position.height));
+        #[cfg(target_os = "macos")]
+        {
+            window
+                .window()
+                .set_position(LogicalPosition::new(position.x as f32, position.y as f32));
+            window.window().set_size(LogicalSize::new(
+                position.width as f32,
+                position.height as f32,
+            ));
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            window
+                .window()
+                .set_position(PhysicalPosition::new(position.x, position.y));
+            window
+                .window()
+                .set_size(PhysicalSize::new(position.width, position.height));
+        }
         window.on_pause(|| send(Message::Control(Control::PauseResume)));
         window.on_stop(|| send(Message::Control(Control::Stop)));
         window.window().on_close_requested(|| {
@@ -119,43 +159,13 @@ impl View {
                 }
                 EventResult::Propagate
             });
+            window.show()?;
         }
-        window.show()?;
-        window.window().with_winit_window(|native| {
-            native.set_window_level(WindowLevel::AlwaysOnTop);
-            native.set_resizable(false);
-        });
-        let safety = CaptureSafety::OutsideSelection(selection);
-        #[cfg(target_os = "windows")]
-        let safety = if capability == WindowExclusionCapability::Native {
-            use slint::winit_030::winit::raw_window_handle::HasWindowHandle;
-
-            let exclusion = window
-                .window()
-                .with_winit_window(|native| -> Result<()> {
-                    let handle = native.window_handle()?;
-                    clippy_platform::recording_control::exclude_windows_control_from_capture(
-                        handle,
-                    )?;
-                    Ok(())
-                })
-                .unwrap_or_else(|| {
-                    Err(anyhow::anyhow!(
-                        "Cannot access the Windows recording control"
-                    ))
-                });
-            if let Err(error) = &exclusion {
-                eprintln!("Recording control capture exclusion: {error:#}");
-                // 保留启动阶段的等待，让 WGC 创建前先完成撤窗。
-                let _ = window.hide();
-            }
-            CaptureSafety::NativeExclusion(exclusion.is_ok())
-        } else {
-            safety
-        };
         Ok(Some(Self {
             window,
-            safety,
+            selection,
+            capability,
+            prepared_window: Cell::default(),
             armed,
             elapsed: Rc::default(),
             since: Rc::default(),
@@ -163,18 +173,98 @@ impl View {
         }))
     }
 
-    pub(super) fn arm(&self) -> bool {
-        let ready = match self.safety {
-            CaptureSafety::OutsideSelection(selection) => safe(self.window.window(), selection),
-            #[cfg(target_os = "windows")]
-            CaptureSafety::NativeExclusion(excluded) => excluded,
+    pub(super) fn schedule_begin(&self, begin: impl FnOnce() + 'static) -> Result<()> {
+        if self.capability == WindowExclusionCapability::GeometryOnly {
+            // 等窗口管理器落实坐标，再检查实际摆位。
+            Timer::single_shot(Duration::from_millis(90), begin);
+        } else {
+            let window = self.window.clone_strong();
+            slint::spawn_local(async move {
+                // Winit 在下一轮创建隐藏窗口，此时才能有可用的原生句柄。
+                if let Err(error) = window.window().winit_window().await {
+                    eprintln!("Recording control native window: {error}");
+                }
+                begin();
+            })?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn arm(&self, _source: &mut CaptureSource) -> bool {
+        self.window.window().with_winit_window(|native| {
+            native.set_window_level(WindowLevel::AlwaysOnTop);
+            native.set_resizable(false);
+        });
+        let ready = match self.capability {
+            WindowExclusionCapability::GeometryOnly => safe(self.window.window(), self.selection),
+            WindowExclusionCapability::Native => {
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
+                match self.prepare_native_exclusion(_source) {
+                    Ok(id) => {
+                        self.prepared_window.set(Some(id));
+                        true
+                    }
+                    Err(error) => {
+                        eprintln!("Recording control capture exclusion: {error:#}");
+                        false
+                    }
+                }
+                #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+                unreachable!("当前平台只允许按选区摆放浮窗");
+            }
         };
         self.armed.set(ready);
         ready
     }
 
-    pub(super) fn start(&self) {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    fn prepare_native_exclusion(&self, _source: &mut CaptureSource) -> Result<ControlWindowId> {
+        self.window
+            .window()
+            .with_winit_window(|native| {
+                let handle = native.window_handle()?;
+                #[cfg(target_os = "windows")]
+                {
+                    clippy_platform::recording_control::exclude_windows_control_from_capture(
+                        handle,
+                    )?;
+                    Ok(native.id())
+                }
+                #[cfg(target_os = "macos")]
+                {
+                    let window = MacControlWindow::from_handle(handle)?;
+                    _source.exclude_recording_control(window);
+                    Ok(window)
+                }
+            })
+            .context("Cannot access the native recording control")?
+    }
+
+    fn current_window_id(&self) -> Option<ControlWindowId> {
+        self.window
+            .window()
+            .with_winit_window(|native| {
+                #[cfg(target_os = "macos")]
+                {
+                    MacControlWindow::from_handle(native.window_handle().ok()?).ok()
+                }
+                #[cfg(not(target_os = "macos"))]
+                Some(native.id())
+            })
+            .flatten()
+    }
+
+    pub(super) fn start(&self) -> Result<()> {
         self.window.set_started(true);
+        if self.capability == WindowExclusionCapability::Native {
+            anyhow::ensure!(
+                self.prepared_window
+                    .get()
+                    .is_some_and(|id| self.current_window_id() == Some(id)),
+                "The recording control window changed before capture started"
+            );
+            self.window.show()?;
+        }
         self.since.set(Some(Instant::now()));
         let weak = self.window.as_weak();
         let elapsed = self.elapsed.clone();
@@ -188,6 +278,7 @@ impl View {
                     window.set_elapsed(format!("{:02}:{:02}", seconds / 60, seconds % 60).into());
                 }
             });
+        Ok(())
     }
 
     pub(super) fn sync(&self, paused: bool, pending: bool, finishing: bool) {

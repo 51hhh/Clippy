@@ -164,7 +164,7 @@ impl AudioStream {
             };
             let monitor = resolve_native_monitor(output, geometry)?;
             let (filter, configuration) =
-                display_configuration(monitor.id()?, Instant::now() + FIRST_FRAME_TIMEOUT)?;
+                display_configuration(monitor.id()?, None, Instant::now() + FIRST_FRAME_TIMEOUT)?;
             let device_id = microphone
                 .as_ref()
                 .map(|device| unsafe { device.uniqueID() });

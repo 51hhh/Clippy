@@ -29,7 +29,8 @@ impl ControlWindow {
             #[cfg(target_os = "windows")]
             RawWindowHandle::Win32(handle) => Ok(Self(handle.hwnd)),
             #[cfg(target_os = "macos")]
-            RawWindowHandle::AppKit(handle) => macos::control_window(handle.ns_view).map(Self),
+            RawWindowHandle::AppKit(handle) => crate::capture::appkit_window_number(handle.ns_view)
+                .map(|number| Self(number.get())),
             _ => anyhow::bail!("Could not identify the native scrolling controls"),
         }
     }

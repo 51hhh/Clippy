@@ -553,11 +553,13 @@ impl App {
             eprintln!("Recording controls: {error}");
             None
         });
-        if self.recordings.control.is_some() {
-            // WM 摆位有异步阶段，在首帧采集前检查实际坐标。
-            Timer::single_shot(Duration::from_millis(90), move || {
-                send(Message::Begin(region, size, track))
-            });
+        if let Some(control) = self.recordings.control.as_ref() {
+            if let Err(error) =
+                control.schedule_begin(move || send(Message::Begin(region, size, track)))
+            {
+                self.recordings.control.take();
+                self.capture_error(error);
+            }
         } else {
             self.begin_recording(region, size, track);
         }
@@ -624,12 +626,12 @@ impl App {
                 self.recordings.refresh_audio()?;
                 self.refresh_recordings()?;
             }
-            Message::Begin(region, size, track) => {
+            Message::Begin(mut region, size, track) => {
                 if self
                     .recordings
                     .control
                     .as_ref()
-                    .is_some_and(|control| !control.arm())
+                    .is_some_and(|control| !control.arm(&mut region.source))
                 {
                     self.recordings.control.take();
                     Timer::single_shot(Duration::from_millis(32), move || {
@@ -661,17 +663,21 @@ impl App {
             Message::Started(id)
                 if self.recordings.job.as_ref().is_some_and(|job| job.id == id) =>
             {
+                if self.recordings.finishing {
+                    return Ok(());
+                }
                 if let Some(control) = self.recordings.control.as_ref() {
-                    control.start();
+                    if let Err(error) = control.start() {
+                        eprintln!("Showing recording controls: {error:#}");
+                        self.recordings.control.take();
+                    }
                 }
                 self.complete(if self.recordings.control.is_some() {
                     "Recording"
                 } else {
                     "Recording · use the tray to pause or stop"
                 });
-                if !self.recordings.finishing {
-                    self.recordings.note(Ok("Recording".into()));
-                }
+                self.recordings.note(Ok("Recording".into()));
             }
             Message::Toggled(id, result)
                 if self.recordings.job.as_ref().is_some_and(|job| job.id == id) =>

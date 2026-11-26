@@ -2,7 +2,7 @@ use super::{
     clock::{ticks_to_ns, NativeClock},
     latest::LatestFrames,
     macos_frame::{bgra_span, bgra_to_rgba, region_layout},
-    FrameDemand, FrameTime, RegionFrame,
+    FrameDemand, FrameTime, MacControlWindow, RegionCancellation, RegionFrame,
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use block2::RcBlock;
@@ -13,8 +13,9 @@ use objc2::{
     define_class, extern_protocol, msg_send,
     rc::{autoreleasepool, Allocated, Retained},
     runtime::{AnyClass, AnyObject},
-    AllocAnyThread, DefinedClass,
+    AllocAnyThread, DefinedClass, MainThreadMarker,
 };
+use objc2_app_kit::NSView;
 use objc2_core_foundation::{CGPoint, CGRect, CGSize};
 use objc2_core_graphics::{
     CGDisplayBounds, CGDisplayIsActive, CGDisplayPixelsHigh, CGDisplayPixelsWide, CGDisplayRotation,
@@ -30,8 +31,10 @@ use objc2_foundation::{
 };
 use objc2_io_surface::{IOSurface, IOSurfaceLockOptions};
 use std::{
-    ffi::CStr,
-    ptr, slice,
+    ffi::{c_void, CStr},
+    num::NonZeroU32,
+    ptr::{self, NonNull},
+    slice,
     sync::{mpsc, Arc, OnceLock},
     time::{Duration, Instant},
 };
@@ -53,6 +56,15 @@ const FRAMEWORK_PATH: &str =
 
 pub(super) fn stream_supported() -> bool {
     os_at_least(12, 3)
+}
+
+pub(crate) fn appkit_window_number(view: NonNull<c_void>) -> Result<NonZeroU32> {
+    MainThreadMarker::new().context("AppKit window identity requires the main thread")?;
+    // 调用方在取得原生句柄时仍借用窗口，NSView 在这里有效。
+    let view = unsafe { view.cast::<NSView>().as_ref() };
+    let window = view.window().context("AppKit view has no window")?;
+    NonZeroU32::new(u32::try_from(window.windowNumber())?)
+        .context("AppKit window has no window number")
 }
 
 fn os_at_least(major: isize, minor: isize) -> bool {
@@ -311,18 +323,31 @@ pub(super) struct ScreenStream {
 }
 
 impl ScreenStream {
-    pub fn open(id: u32, source: (u32, u32), bounds: [f32; 4]) -> Result<Self> {
-        autoreleasepool(|_| Self::connect(id, source, bounds))
+    pub fn open(
+        id: u32,
+        source: (u32, u32),
+        bounds: [f32; 4],
+        control: Option<MacControlWindow>,
+        cancellation: &RegionCancellation,
+    ) -> Result<Self> {
+        autoreleasepool(|_| Self::connect(id, source, bounds, control, cancellation))
     }
 
-    fn connect(id: u32, source: (u32, u32), bounds: [f32; 4]) -> Result<Self> {
+    fn connect(
+        id: u32,
+        source: (u32, u32),
+        bounds: [f32; 4],
+        control: Option<MacControlWindow>,
+        cancellation: &RegionCancellation,
+    ) -> Result<Self> {
         let status_key = frame_key(c"SCStreamFrameInfoStatus")?;
         let display_time_key = frame_key(c"SCStreamFrameInfoDisplayTime").ok();
         let deadline = Instant::now() + FIRST_FRAME_TIMEOUT;
         let display = DisplayState::current(id);
         let logical = display.bounds.size;
         let region = region_layout(source, (logical.width, logical.height), bounds)?;
-        let (filter, configuration) = display_configuration(id, deadline)?;
+        let (filter, configuration) = display_configuration(id, control, deadline)?;
+        cancellation.check_recording_start()?;
         unsafe {
             let [x, y, width, height] = region.points;
             let rect = CGRect::new(CGPoint::new(x, y), CGSize::new(width, height));
@@ -360,9 +385,11 @@ impl ScreenStream {
             seen: 0,
         };
         request_running(&source.stream, true, deadline)?;
+        cancellation.check_recording_start()?;
         source
             .frames
             .wait(0, deadline.saturating_duration_since(Instant::now()))?;
+        cancellation.check_recording_start()?;
         source.check_display()?;
         Ok(source)
     }
@@ -408,17 +435,21 @@ impl Drop for ScreenStream {
 
 fn display_configuration(
     id: u32,
+    control: Option<MacControlWindow>,
     deadline: Instant,
 ) -> Result<(Retained<NSObject>, Retained<NSObject>)> {
     framework()?;
-    let display = request_display(id, deadline)?;
-    let windows = NSArray::<NSObject>::new();
+    let selection = request_selection(id, control, deadline)?;
+    let windows = match selection.window.as_ref() {
+        Some(window) => NSArray::from_slice(&[&**window]),
+        None => NSArray::<NSObject>::new(),
+    };
     let filter_class = class(c"SCContentFilter")?;
     let configuration_class = class(c"SCStreamConfiguration")?;
     unsafe {
         let filter: Allocated<NSObject> = msg_send![filter_class, alloc];
         Ok((
-            msg_send![filter, initWithDisplay: &*display, excludingWindows: &*windows],
+            msg_send![filter, initWithDisplay: &*selection.display, excludingWindows: &*windows],
             msg_send![configuration_class, new],
         ))
     }
@@ -448,12 +479,38 @@ fn stream_with_output(
     Ok(stream)
 }
 
-struct ShareableDisplay(Retained<NSObject>);
+struct ShareableSelection {
+    display: Retained<NSObject>,
+    window: Option<Retained<NSObject>>,
+}
 
-// 只交接 Apple 提供的只读 SCDisplay 快照，SCStream 本身由采集线程持有。
-unsafe impl Send for ShareableDisplay {}
+// 只交接 ScreenCaptureKit 的只读显示器与窗口快照，NSWindow 与 SCStream 各留在所属线程。
+unsafe impl Send for ShareableSelection {}
 
-fn request_display(id: u32, deadline: Instant) -> Result<Retained<NSObject>> {
+fn unique_item<T>(mut matches: impl Iterator<Item = T>, name: &str) -> Result<T> {
+    let item = matches
+        .next()
+        .with_context(|| format!("ScreenCaptureKit did not find the {name}"))?;
+    ensure!(
+        matches.next().is_none(),
+        "ScreenCaptureKit returned a duplicate {name}"
+    );
+    Ok(item)
+}
+
+fn check_control_owner(owner: Option<i32>) -> Result<()> {
+    ensure!(
+        owner.and_then(|pid| u32::try_from(pid).ok()) == Some(std::process::id()),
+        "ScreenCaptureKit recording control does not belong to Clippy"
+    );
+    Ok(())
+}
+
+fn request_selection(
+    id: u32,
+    control: Option<MacControlWindow>,
+    deadline: Instant,
+) -> Result<ShareableSelection> {
     let shareable = class(c"SCShareableContent")?;
     let (sender, receiver) = mpsc::sync_channel(1);
     let completion = RcBlock::new(move |content: *mut NSObject, error: *mut NSError| {
@@ -463,26 +520,47 @@ fn request_display(id: u32, deadline: Instant) -> Result<Retained<NSObject>> {
             } else {
                 let content = content.as_ref().context("Empty SCShareableContent")?;
                 let displays: Retained<NSArray<NSObject>> = msg_send![content, displays];
-                displays
-                    .to_vec()
-                    .into_iter()
-                    .find(|display| {
+                let display = unique_item(
+                    displays.to_vec().into_iter().filter(|display| {
                         let display_id: u32 = msg_send![&**display, displayID];
                         display_id == id
-                    })
-                    .map(ShareableDisplay)
-                    .context("Capture output is missing from ScreenCaptureKit")
+                    }),
+                    "capture output",
+                )?;
+                let window = if let Some(control) = control {
+                    let windows: Retained<NSArray<NSObject>> = msg_send![content, windows];
+                    let window = unique_item(
+                        windows.to_vec().into_iter().filter(|window| {
+                            let id: u32 = msg_send![&**window, windowID];
+                            id == control.0.get()
+                        }),
+                        "recording control",
+                    )?;
+                    let application: Option<Retained<NSObject>> =
+                        msg_send![&*window, owningApplication];
+                    check_control_owner(application.map(|owner| msg_send![&*owner, processID]))?;
+                    Some(window)
+                } else {
+                    None
+                };
+                Ok(ShareableSelection { display, window })
             }
         });
         let _ = sender.try_send(result);
     });
     unsafe {
-        let _: () = msg_send![shareable, getShareableContentWithCompletionHandler: &*completion];
+        if control.is_some() {
+            // 先选中尚未显示的窗口，录屏开始后才允许浮窗出现在桌面。
+            let _: () = msg_send![shareable, getShareableContentExcludingDesktopWindows: false,
+                onScreenWindowsOnly: false, completionHandler: &*completion];
+        } else {
+            let _: () =
+                msg_send![shareable, getShareableContentWithCompletionHandler: &*completion];
+        }
     }
-    let display = receiver
+    receiver
         .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-        .context("Waiting for ScreenCaptureKit displays")??;
-    Ok(display.0)
+        .context("Waiting for ScreenCaptureKit sources")?
 }
 
 fn request_running(stream: &NSObject, start: bool, deadline: Instant) -> Result<()> {
@@ -522,7 +600,24 @@ mod tests {
         CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow, CVPixelBufferLockBaseAddress,
         CVPixelBufferLockFlags, CVPixelBufferUnlockBaseAddress,
     };
-    use std::ptr::NonNull;
+    #[test]
+    fn screen_capture_kit_requires_unique_sources_and_own_recording_window() {
+        assert_eq!(unique_item([42].into_iter(), "control").unwrap(), 42);
+        assert!(unique_item(std::iter::empty::<u32>(), "control").is_err());
+        assert!(unique_item([42, 42].into_iter(), "control").is_err());
+        assert!(check_control_owner(Some(std::process::id() as i32)).is_ok());
+        assert!(check_control_owner(Some(0)).is_err());
+        assert!(check_control_owner(None).is_err());
+    }
+
+    #[test]
+    fn screen_capture_kit_video_start_observes_cancellation() {
+        let cancellation = RegionCancellation::default();
+        let worker = cancellation.clone();
+        assert!(worker.check_recording_start().is_ok());
+        cancellation.cancel();
+        assert!(worker.check_recording_start().is_err());
+    }
 
     #[test]
     fn screen_capture_kit_registers_its_runtime_types_without_starting_capture() {
