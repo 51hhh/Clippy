@@ -22,7 +22,7 @@ GitHub `dev` 仍指向 #27 的合入提交 `abfdeb5`。之前的安装包、三�
 | 冻结截图 | X11 root、GNOME Mutter 原始帧、其他 Wayland 的 wayshot、Windows xcap/WGC 单帧、macOS xcap/CoreGraphics。选区使用单输出源像素 | 复测 v5 速度与 GNOME 瞬时菜单。补窗口速选、旋转和混合 DPI 验收。跨屏选区和合成是原生计划中的新增目标，先固定输出坐标尺度。保留系统截图导入和延时截图。 [平台采集](../../../crates/clippy-platform/src/capture.rs) · [GNOME v5 合同](../specs/2026-10-23-gnome-capture-fast-path-rollback.md) |
 | 标注、查看器、贴图 | 截图层有五个内联工具。编辑器可做更多标注。查看器支持缩放拖动。贴图、修订、工作区分组和缩略图已接入 | 恢复高频内联笔、文字、马赛克等实际入口与撤销/重做。窗口速选和扫码结果交互按旧操作验证。贴图跨屏缩放、层级和重启位置恢复做原生验证。独立查看器持久化工程按现有修订合同接入。 [截图窗](../../../apps/slint/ui/capture.slint) · [编辑器控制](../../../apps/slint/src/app/editor.rs) · [贴图状态](../../../apps/slint/src/app/pins.rs) |
 | 长截图 | 手动追加、撤销、拼接、取消已验证，完成后进入编辑器 | 接自动滚动、到边界判停、目标丢失撤销输入，以及完成后快捷复制、保存、贴图。复用旧版自动输入与共享拼接算法。 [现有控制器](../../../apps/slint/src/app/longshot.rs) · [旧版自动滚动](../../../apps/legacy-tauri/native/src/capture/longshot/auto_scroll.rs) |
-| 区域录屏与回放 | VP9/WebM、暂停/继续、恢复与导出已接入。X11 有安全摆位浮窗。录屏库有首帧。回放与朗读调用 `ffplay` | 接 Win/macOS 连续帧、Wayland 授权流、跨平台录制控制和库内回放。Slint Linux/Windows 已有默认系统音或默认麦克风入口，需验证时钟、设备枚举与异常恢复。旧 QA 的混音和 macOS 音源需按能力接入。 [录屏入口](../../../apps/slint/src/app/recording.rs) · [媒体模块](../../../crates/clippy-media/src/recording/mod.rs) |
+| 区域录屏与回放 | VP9/WebM、暂停/继续、恢复与导出已接入。X11 有安全摆位浮窗。Wayland、WGC、ScreenCaptureKit 已接入原生帧时间。Slint Linux/Windows 支持默认系统或麦克风设备。回放与朗读调用 `ffplay` | 接库内播放器、指定设备界面、跨平台浮窗排除、双源混音和 macOS 音轨。持续帧、设备移除、有声音画同步及干净安装继续按平台验收。 [录屏入口](../../../apps/slint/src/app/recording.rs) · [媒体模块](../../../crates/clippy-media/src/recording/mod.rs) |
 | OCR、扫码、图片翻译 | Tesseract TSV 有行框、置信度及段落。配置可用时调用旧增强引擎。打开图像文字窗后可选行、选段及翻译，合适的译文已有覆盖层，长译文留在侧栏 | 打包可分发的离线引擎、补可靠多栏/暗色/旋转排版。统一结果缓存和坐标，补快捷入口和多段按需翻译。扫码从结果文本扩展到共享模型已经提供的位置与逐项操作时，复用真实字段。 [OCR 接口](../../../crates/clippy-vision/src/lib.rs) · [译文回填](../../../apps/slint/src/app/vision.rs#L342) |
 | 预览、工具与归档 | 图片、有限 HTML/Markdown、编解码工具、翻译历史、手动 tmux 捕获、统计、归档导入导出 | 复验旧版实际使用的代码高亮、复杂表格、链接和译文管理。按对照结果补齐入口。归档沿用现有校验合同和 SQLite schema。 [预览解析](../../../apps/slint/src/app/preview_document.rs) · [工具窗口](../../../apps/slint/src/app/tools.rs) · [归档入口](../../../apps/slint/src/app/settings.rs#L509) |
 | 安装、更新与数据 | semver 分流已实现。Slint 有 QA 身份、安装器及草稿发版。首次正式启动会备份配置和数据库，Linux 早期已验证解包运行和备份恢复 | 真实安装器原位升级、旧 updater 取包验签、正式签名/公证策略、失败回滚以及新版自主更新。核对 QA 与生产身份、实际最低系统版本和无 WebView。 [升级备份](../../../apps/slint/src/app/upgrade.rs) · [发行草稿](../../../.github/workflows/release.yml#L813) |
@@ -352,6 +352,20 @@ ScreenCaptureKit 取 `SCStreamFrameInfoDisplayTime`。原生时间缺失或超�
 
 **Out of Scope** 音源选择、录制浮窗排除与播放器保持本阶段的独立验收。
 
+#### 阶段 4 · Linux 和 Windows 录屏设备选择
+
+**Goal** 录屏库能为下一次录制选择明确的 PipeWire 系统输出、WASAPI 回环输出或麦克风设备。
+
+**Requirements** 复用平台设备枚举，打开录屏库或手动刷新时只启动一次后台查询。按设备身份保持选择，
+同时保留无声与跟随系统默认。显示名有长度上限，同名项可区分，原生 ID 留在 Rust 状态。
+显式设备启动前消失或录制中断开时报告错误，不自动切换到另一设备。录制开始时固定本次选择。
+[录屏设备约定](../specs/2026-09-23-recording-audio-devices.md)
+
+**Acceptance Criteria** 设备刷新、同名、过期选择、默认项和禁用音频构建通过测试。用隔离 PipeWire
+验证明确目标进入实际会话，目标缺失时不会录到默认音源，并在 Windows 继续实机核对。
+
+**Out of Scope** macOS 音源、双源混音、跨重启偏好、热切换及听感和长时漂移验收另行实施。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -618,6 +632,22 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   样本使用测试接收器，真实音频设备、长时定位和三平台干净安装的运行库闭包继续验证。
 - 原始记录与夹具见 `target/test-artifacts/slint-stage4-playback/` 的 `decoder-production-order.log`、
   `gst-av-compare.log`、`gst-av-i420.log`、`probe.rs` 和 `gst-compare.py`。
+
+### 阶段 4 · Linux 显式音源路由
+
+- 隔离 PipeWire 的默认节点在线时，修改前对不存在的显式目标返回了连接成功。显式源现在禁止自动回退、
+  移动与重连。复测两台虚拟输出均可指定连接，缺失目标返回 `defined target not found`。
+  [WirePlumber 路由规则](https://pipewire.pages.freedesktop.org/wireplumber/policies/linking.html)
+- 隔离虚拟设备未交付有效 SPA 音频帧头，持续采音和录制中拔出仍需真实设备验收。计划继续使用既有音频
+  时间戳合同。原始记录见 `target/test-artifacts/slint-stage4-audio-devices/`。
+- 完整 Linux 门禁 11 项通过、0 失败、0 跳过。Windows GNU 的 Slint QA 入口以默认录屏编解码和 WASAPI
+  功能通过交叉检查。相应日志为 `ci-local-routing.log` 与 `windows-qa-routing.log`。
+  真实 Windows 音源和采集行为继续由原生安装验收。
+- 新版设备目录已做过 UI 草稿。隔离 X11 键盘选中非默认设备、关闭录屏库、移除设备并重开后，
+  下拉框回到「无声」，启动录制也未拦截失效选择。改用控件的选中值回调和在窗口边界读取该值两种方式
+  均复现。恢复已验证的默认音源界面，下一轮先做可独立重现的 Slint 选择状态探针。
+  草稿与验收日志分别为 `audio-catalog-ui-draft.patch`、`audio-ui-selected-label.log` 与
+  `audio-ui-retained-selection.log`。
 
 ## Acceptance Criteria
 

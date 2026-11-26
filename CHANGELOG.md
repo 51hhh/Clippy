@@ -48,6 +48,9 @@
 
 ### Slint 区域录屏
 
+- Linux 录屏在使用指定的 PipeWire 音源时会锁定设备。隔离环境已验证缺失的目标会返回错误，
+  新版设备选择界面、实机拔出与长时间同步继续验收。
+  （需求 `SLINT-MIGRATION-CLOSURE-01`）
 - Windows WGC 和 macOS ScreenCaptureKit 的原生帧时间接入录屏时间线。静止时沿用最新画面推进恢复分段。
   已交叉检查，目标系统的原生采集、暂停和带音轨长录仍待验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 - Linux Wayland 录屏沿用 PipeWire 的采集时间。静止画面无需重复拷贝像素也能按时写出恢复分段，

@@ -618,6 +618,10 @@ fn audio_stream_properties(
     }
     if let Some(target) = target {
         properties.insert(PIPEWIRE_TARGET_OBJECT, target);
+        // 固定设备不能在目标消失或收到移动指令时切到另一音源。
+        properties.insert("node.dont-fallback", "true");
+        properties.insert("node.dont-move", "true");
+        properties.insert(*pw::keys::NODE_DONT_RECONNECT, "true");
     }
     properties
 }
@@ -1094,7 +1098,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_device_is_written_to_target_object() {
+    fn explicit_device_is_pinned_without_default_fallback() {
         let properties = audio_stream_properties(
             LinuxAudioSourceKind::DefaultMicrophone,
             Some("alsa_input.usb"),
@@ -1103,11 +1107,16 @@ mod tests {
             properties.get(PIPEWIRE_TARGET_OBJECT),
             Some("alsa_input.usb")
         );
-        assert_eq!(
-            audio_stream_properties(LinuxAudioSourceKind::SystemAudio, None)
-                .get(PIPEWIRE_TARGET_OBJECT),
-            None
-        );
+        let defaults = audio_stream_properties(LinuxAudioSourceKind::SystemAudio, None);
+        assert_eq!(defaults.get(PIPEWIRE_TARGET_OBJECT), None);
+        for key in [
+            "node.dont-fallback",
+            "node.dont-move",
+            *pw::keys::NODE_DONT_RECONNECT,
+        ] {
+            assert_eq!(properties.get(key), Some("true"));
+            assert_eq!(defaults.get(key), None);
+        }
     }
 
     #[test]
