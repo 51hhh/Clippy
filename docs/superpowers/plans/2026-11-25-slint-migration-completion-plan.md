@@ -791,6 +791,30 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   并核对旧 PipeWire 的运行时 ABI。符合现有同步门槛后可扩展支持不交付帧头的设备。变更时间戳合同前需审批。
   [PipeWire 每缓冲区时间](https://docs.pipewire.org/structpw__buffer.html) · [图时钟](https://docs.pipewire.org/structpw__time.html)
 
+### 阶段 5 · PP-OCRv6 small 离线探针
+
+- `oar-ocr 0.7.0` 解出了不兼容的 ORT 和 core 版本，先后在会话创建和四点框裁切处编译失败。
+  本次用 `oar-ocr 0.11.0` 和它明确绑定的 `ort 2.0.0-rc.15` 构建。只启用需要的 Rust 特性，
+  固定两个 ONNX 模型和字典。显式加载本地 ONNX Runtime 1.24.2 的 CPU 库，将同一环境交给 OAR 的会话。
+  PP-OCRv6 small 预设直接读取本地文件并返回四点框、文字和置信度。
+  [固定模型来源](../../../apps/legacy-tauri/native/ocr-sidecar/setup_models.py) · [ONNX Runtime 1.24.2](https://pypi.org/project/onnxruntime/1.24.2/)
+- 用仓库的 `compressed-status`（900×210）与 `long-document`（1000×2400）各跑 3 次两种配置。
+  沿用旧 OCR 的 2 个算子内线程、1 个算子间线程、顺序执行和关闭自旋。两种配置在 IoU 0.5 下都匹配了
+  3/3 和 30/30 行，四点框落在源图内。匹配行的文字分别有 6/72 和 28/1,035 个字符编辑。
+
+  | 每种配置 3 个独立进程 | OAR 默认配置 | 固定旧 OCR 线程参数 |
+  | --- | ---: | ---: |
+  | 加载模型 | 164–241 ms | 80–86 ms |
+  | 对压缩状态图识别 | 356–510 ms | 109–126 ms |
+  | 对长文档识别 | 1,355–1,433 ms | 1,013–1,050 ms |
+  | 两张图与进程启动合计 | 1.98–2.08 s | 1.24–1.30 s |
+  | 进程峰值 RSS | 293.6–295.6 MiB | 289.7–290.8 MiB |
+
+- 后续用固定线程参数作为主线基准，接入按需 worker 和 `StructuredOcr`，测取消与空闲退出回落。
+  完整语料的几何、文字、排序、旋转、多栏、冷热 P95 和三平台包仍需验证。当前记录位于
+  `target/test-artifacts/slint-stage5-ocr/`，核对 `ort-probe/thread-probe-summary.json`、
+  `ort-probe/corpus-smoke-assessment.json` 及 `runtime/runtime.sha256`。
+
 ## Acceptance Criteria
 
 - [ ] Linux 的 GNOME Wayland、X11、KDE/其他受支持 Wayland，以及 Windows 10/11、macOS Intel/Apple Silicon，
