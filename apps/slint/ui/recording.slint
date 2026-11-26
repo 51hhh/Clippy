@@ -1,4 +1,4 @@
-import { ComboBox, LineEdit, ListView } from "std-widgets.slint";
+import { ComboBox, LineEdit, ListView, Slider } from "std-widgets.slint";
 import { ClippyIcon, ClippyTheme, LibraryHeader, SurfaceButton } from "theme.slint";
 
 export struct RecordingFile { key: string, title: string, detail: string }
@@ -19,6 +19,14 @@ export component RecordingLibrary inherits Window {
     in property <string> audio-status;
     in property <[string]> audio-options;
     in-out property <string> audio-value;
+    in property <bool> playback-visible;
+    in property <bool> playback-ready;
+    in property <bool> playback-paused;
+    in property <image> playback-frame;
+    in property <float> playback-position;
+    in property <float> playback-duration;
+    in property <string> playback-time;
+    in property <string> playback-status;
     callback preview-recording(string);
     callback play(string);
     callback export-recording(string, string);
@@ -28,6 +36,9 @@ export component RecordingLibrary inherits Window {
     callback pause();
     callback stop();
     callback dismiss();
+    callback back-to-recordings();
+    callback toggle-playback();
+    callback seek-playback(float);
     private property <string> confirm-delete;
     private property <string> export-directory;
 
@@ -51,10 +62,55 @@ export component RecordingLibrary inherits Window {
         heading := LibraryHeader {
             height: 84px;
             title: "Recordings";
-            subtitle: "Export completed recordings or recover committed segments.";
+            subtitle: root.playback-visible ? "" : "Export completed recordings or recover committed segments.";
             dismiss => { root.dismiss(); }
         }
-        VerticalLayout {
+        if root.playback-visible: VerticalLayout {
+            padding: 18px; padding-left: 22px; padding-right: 22px; padding-bottom: 22px;
+            spacing: 10px;
+            HorizontalLayout {
+                height: 34px; spacing: 10px;
+                SurfaceButton {
+                    label: "Back to recordings";
+                    border-width: 1px; border-color: ClippyTheme.control-border;
+                    clicked => { root.back-to-recordings(); }
+                }
+                Text {
+                    text: root.playback-status; color: ClippyTheme.muted;
+                    font-size: 12px; overflow: elide; vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+            }
+            Rectangle {
+                vertical-stretch: 1; background: ClippyTheme.elevated; border-radius: 10px; clip: true;
+                Image {
+                    width: parent.width; height: parent.height;
+                    image-fit: contain; source: root.playback-frame;
+                }
+            }
+            HorizontalLayout {
+                height: 34px; spacing: 12px;
+                SurfaceButton {
+                    width: 76px; enabled: root.playback-ready;
+                    label: root.playback-paused ? "Resume" : "Pause";
+                    border-width: 1px; border-color: ClippyTheme.control-border;
+                    clicked => { root.toggle-playback(); }
+                }
+                Slider {
+                    accessible-label: "Playback position";
+                    maximum: max(1, root.playback-duration); step: 1000;
+                    value: root.playback-position;
+                    horizontal-stretch: 1;
+                    enabled: root.playback-ready && root.playback-duration > 0;
+                    released(value) => { root.seek-playback(value); }
+                }
+                Text {
+                    text: root.playback-time; color: ClippyTheme.muted;
+                    font-size: 12px; vertical-alignment: center;
+                }
+            }
+        }
+        if !root.playback-visible: VerticalLayout {
             padding: 18px; padding-left: 22px; padding-right: 22px; padding-bottom: 22px;
             spacing: 10px;
             if root.recording: HorizontalLayout {

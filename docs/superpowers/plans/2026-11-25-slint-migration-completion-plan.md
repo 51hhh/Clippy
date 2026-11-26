@@ -22,7 +22,7 @@ GitHub `dev` 仍指向 #27 的合入提交 `abfdeb5`。之前的安装包、三�
 | 冻结截图 | X11 root、GNOME Mutter 原始帧、其他 Wayland 的 wayshot、Windows xcap/WGC 单帧、macOS xcap/CoreGraphics。选区使用单输出源像素 | 复测 v5 速度与 GNOME 瞬时菜单。补窗口速选、旋转和混合 DPI 验收。跨屏选区和合成是原生计划中的新增目标，先固定输出坐标尺度。保留系统截图导入和延时截图。 [平台采集](../../../crates/clippy-platform/src/capture.rs) · [GNOME v5 合同](../specs/2026-10-23-gnome-capture-fast-path-rollback.md) |
 | 标注、查看器、贴图 | 截图层有五个内联工具。编辑器可做更多标注。查看器支持缩放拖动。贴图、修订、工作区分组和缩略图已接入 | 恢复高频内联笔、文字、马赛克等实际入口与撤销/重做。窗口速选和扫码结果交互按旧操作验证。贴图跨屏缩放、层级和重启位置恢复做原生验证。独立查看器持久化工程按现有修订合同接入。 [截图窗](../../../apps/slint/ui/capture.slint) · [编辑器控制](../../../apps/slint/src/app/editor.rs) · [贴图状态](../../../apps/slint/src/app/pins.rs) |
 | 长截图 | 手动追加、撤销、拼接、取消已验证，完成后进入编辑器 | 接自动滚动、到边界判停、目标丢失撤销输入，以及完成后快捷复制、保存、贴图。复用旧版自动输入与共享拼接算法。 [现有控制器](../../../apps/slint/src/app/longshot.rs) · [旧版自动滚动](../../../apps/legacy-tauri/native/src/capture/longshot/auto_scroll.rs) |
-| 区域录屏与回放 | VP9/WebM、暂停/继续、恢复与导出已接入。X11 有安全摆位浮窗。Wayland、WGC、ScreenCaptureKit 已接入原生帧时间。Slint Linux/Windows 支持选择系统音源或麦克风。回放与朗读调用 `ffplay` | 接库内播放器、跨平台浮窗排除、双源混音和 macOS 音轨。持续帧、设备移除、有声音画同步及干净安装继续按平台验收。 [录屏入口](../../../apps/slint/src/app/recording.rs) · [媒体模块](../../../crates/clippy-media/src/recording/mod.rs) |
+| 区域录屏与回放 | VP9/WebM、暂停/继续、恢复与导出已接入。X11 有安全摆位浮窗。Wayland、WGC、ScreenCaptureKit 已接入原生帧时间。Slint Linux/Windows 支持选择系统音源或麦克风。QA 构建已验证 GStreamer 库内回放 | 对照轻量播放器，确定正式库内回放与朗读后端。补跨平台浮窗排除、双源混音和 macOS 音轨。设备移除、长时同步和干净安装继续按平台验收。 [录屏入口](../../../apps/slint/src/app/recording.rs) · [媒体模块](../../../crates/clippy-media/src/recording/mod.rs) |
 | OCR、扫码、图片翻译 | Tesseract TSV 有行框、置信度及段落。配置可用时调用旧增强引擎。打开图像文字窗后可选行、选段及翻译，合适的译文已有覆盖层，长译文留在侧栏 | 打包可分发的离线引擎、补可靠多栏/暗色/旋转排版。统一结果缓存和坐标，补快捷入口和多段按需翻译。扫码从结果文本扩展到共享模型已经提供的位置与逐项操作时，复用真实字段。 [OCR 接口](../../../crates/clippy-vision/src/lib.rs) · [译文回填](../../../apps/slint/src/app/vision.rs#L342) |
 | 预览、工具与归档 | 图片、有限 HTML/Markdown、编解码工具、翻译历史、手动 tmux 捕获、统计、归档导入导出 | 复验旧版实际使用的代码高亮、复杂表格、链接和译文管理。按对照结果补齐入口。归档沿用现有校验合同和 SQLite schema。 [预览解析](../../../apps/slint/src/app/preview_document.rs) · [工具窗口](../../../apps/slint/src/app/tools.rs) · [归档入口](../../../apps/slint/src/app/settings.rs#L509) |
 | 安装、更新与数据 | semver 分流已实现。Slint 有 QA 身份、安装器及草稿发版。首次正式启动会备份配置和数据库，Linux 早期已验证解包运行和备份恢复 | 真实安装器原位升级、旧 updater 取包验签、正式签名/公证策略、失败回滚以及新版自主更新。核对 QA 与生产身份、实际最低系统版本和无 WebView。 [升级备份](../../../apps/slint/src/app/upgrade.rs) · [发行草稿](../../../.github/workflows/release.yml#L813) |
@@ -366,6 +366,16 @@ ScreenCaptureKit 取 `SCStreamFrameInfoDisplayTime`。原生时间缺失或超�
 
 **Out of Scope** macOS 音源、双源混音、跨重启偏好、热切换及听感和长时漂移验收另行实施。
 
+#### 阶段 4 · GStreamer 库内播放候选
+
+**Goal** 在录屏库验证原件、独立分段和恢复文件的原生嵌入播放、暂停、定位和关闭。
+
+**Requirements** 以可选构建特性接入 `playbin`、单帧 `appsink` 和系统音频输出。点击播放后在媒体线程校验本地产物并启动解码；窗口只取最新画面和播放状态。VP9 沿用录制使用的 BT.709 色彩矩阵。重复定位合并为最新请求，回到列表、关闭窗口和开始录像时停止播放并释放管线。
+
+**Acceptance Criteria** 在录屏库中用三份对照文件核对首帧、暂停后定位的画面和声音、结束反馈及关闭后的音频流回收。运行候选和默认构建的本地检查。按同一判据评估复用现有 VP9/Opus 的候选，并核对三平台安装包的运行库和插件。
+
+**Out of Scope** 正式播放器选型、改写既有录屏格式和原生音频采集时钟。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -632,6 +642,9 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   样本使用测试接收器，真实音频设备、长时定位和三平台干净安装的运行库闭包继续验证。
 - 原始记录与夹具见 `target/test-artifacts/slint-stage4-playback/` 的 `decoder-production-order.log`、
   `gst-av-compare.log`、`gst-av-i420.log`、`probe.rs` 和 `gst-compare.py`。
+- 同一批文件改用隔离 PipeWire-Pulse 音频输出，分别定位到 1.000、1.000、2.600 秒。输出监听端收到
+  439.8、619.5、620.2 Hz，三次都正常播放至结束并断开音频流。使用本地虚拟设备，长时同步和物理设备继续验收。
+  日志见 `target/test-artifacts/slint-stage4-playback/gst-pulse-output.log`。
 
 ### 阶段 4 · Linux 显式音源路由
 
@@ -663,6 +676,39 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
 - 完整 Linux 门禁 11 项通过、0 失败、0 跳过。关闭录屏音频特性时通过 Clippy 严格检查，Windows
   GNU 的 Slint QA 入口以默认录屏编解码和 WASAPI 功能通过交叉检查。实际硬件音频与录制中拔出继续验收。
   日志分别为 `ci-local-devices.log`、`no-audio-devices.log` 和 `windows-qa-devices.log`。
+
+### 阶段 4 · GStreamer 库内回放结果
+
+- `qa-build,recording-playback-gstreamer-qa` 启用录屏库内播放。校验和解码在专用线程，`appsink` 限一帧，
+  UI 的待取画面也只保留最新帧。进度定位合并为最新请求，回列表、切片、开始录制或关窗会停止并回收管线。
+- Linux 隔离 X11 使用正式录屏清单写入原件、独立分段和恢复件，点击录屏库的播放按钮。三份均在暂停时定位到
+  预期色块，色阶误差至多 2 级。恢复播放后系统输出约 440、620、620 Hz。自然播放完成和播放中关窗均无残留
+  音频流。原件另通过后退再前进定位。单次按钮到可见首帧为 160–186 毫秒。
+- 关闭宿主的 GStreamer 系统插件搜索并使用新 registry，限定在 11 个实际用到的插件内，三份 WebM 回归
+  通过。插件文件合计 2,381,720 字节，Linux 宿主的核心与间接依赖另计。隔离 Debug 单进程采到托盘
+  PSS 33.6–34.9 MiB，播放关窗后立即采到 132.4–162.0 MiB。正式包的内存和关窗回落继续按真实桌面验收。
+- 同一隔离桌面把默认和候选 Debug 构建各启动两次。两轮空托盘 PSS 分别为 31.9–32.0 和 34.6–34.9 MiB。
+  打开录屏库并关闭后静置 0.6 秒，两版分别为 132.0–132.7 和 135.2–143.6 MiB。此对照没有启动播放。
+- 三份 WebM 的 `SeekHead` 均可直接找到 `Cues`。两个 2 秒原件各有一个起始索引，恢复文件多一条
+  2 秒处的 cluster 索引和块编号。轻量候选可从前一个有效关键帧推进，并要覆盖 Opus 的预读和尾部裁切。
+- 完整 Linux 门禁在 `/tmp` 的 tmpfs 上 11 通过、0 失败、0 跳过。默认 Windows GNU QA 构建和启用
+  候选播放器的 Linux 严格 Clippy 通过。宿主完整插件环境还解码了既有 MJPEG 诊断 AVI 至正常结束。
+- 原始证据见 `target/test-artifacts/slint-stage4-playback/` 的 `gst-slint-library-matrix.log`、
+  `gst-slint-curated-runtime.log`、`gst-slint-host-memory.log`、`webm-cue-scan.log`、`diagnostic-player.log`、
+  `ci-local-embedded-tmpfs.log`、`gst-slint-clippy-final.log` 和 `windows-default-embedded.log`。
+  系统音频使用虚拟设备，三平台干净安装与轻量候选对照待验收。
+  [GStreamer 部署](https://gstreamer.freedesktop.org/documentation/deploying/index.html)
+
+#### Linux 音频时间戳提案 · 待实测和审批
+
+- PipeWire 1.6.2 的虚拟系统输出持续播放 620 Hz 时，产品采集路径连上明确目标，首包缺少 SPA 帧头并中止。
+  使用同一输出的 `object.serial` 比较格式协商后请求帧头、连接和格式协商时都请求帧头。两种方式各收到
+  24 个 512 帧的 PCM 缓冲，`n_metas` 均为 0。提前请求帧头无法让该来源满足已批准合同。
+  见 `target/test-artifacts/slint-stage4-playback/active-recording-source-targeted.log` 和 `spa-audio-header-target-serial.log`。
+- 可单独验证的替代方案是结合每缓冲区的 graph cycle time 和图时钟延迟推导首个 PCM sample 时刻。
+  24 个缓冲区的 cycle time 都有效递增。仍须在明确的声画标记上测首样本偏差、重采样、回压、暂停和断流，
+  并核对旧 PipeWire 的运行时 ABI。符合现有同步门槛后可扩展支持不交付帧头的设备。变更时间戳合同前需审批。
+  [PipeWire 每缓冲区时间](https://docs.pipewire.org/structpw__buffer.html) · [图时钟](https://docs.pipewire.org/structpw__time.html)
 
 ## Acceptance Criteria
 

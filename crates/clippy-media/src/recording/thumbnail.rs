@@ -3,7 +3,7 @@
 use super::manifest::RecordingThumbnailSource;
 
 pub const MAX_THUMBNAIL_EDGE: u32 = 320;
-const MAX_DECODE_PIXELS: u64 = 16_777_216;
+pub(super) const MAX_DECODE_PIXELS: u64 = 16_777_216;
 
 pub fn decode_thumbnail(source: &RecordingThumbnailSource) -> Result<image::RgbaImage, String> {
     use super::mux::webm_remux::{

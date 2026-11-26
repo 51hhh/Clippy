@@ -13,9 +13,18 @@ recording-vp9-source-build = ["recording-vp9-prototype", "shiguredo_libvpx/sourc
 recording-opus-webm = ["recording-vp9-prototype", "dep:opusic-c", "dep:opusic-sys"]
 recording-linux-audio = ["dep:anyhow", "dep:nix", "dep:pipewire"]
 recording-windows-audio = ["dep:windows"]
+recording-playback-gstreamer = [
+    "recording-vp9-prototype",
+    "dep:gstreamer",
+    "dep:gstreamer-app",
+    "dep:gstreamer-video",
+]
 
 [dependencies]
 clippy-platform = { path = "../clippy-platform" }
+gstreamer = { version = "0.25", optional = true }
+gstreamer-app = { version = "0.25", optional = true }
+gstreamer-video = { version = "0.25", optional = true }
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 log = "0.4"
 opusic-c = { version = "=1.6.1", default-features = false, optional = true }

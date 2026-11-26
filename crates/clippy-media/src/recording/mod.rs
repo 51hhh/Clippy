@@ -20,6 +20,8 @@ pub mod manifest;
 pub mod mux;
 pub mod pipeline;
 pub mod platform;
+#[cfg(feature = "recording-playback-gstreamer")]
+pub mod playback;
 pub mod segmenting;
 pub mod session;
 #[cfg(test)]

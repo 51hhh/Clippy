@@ -1,6 +1,6 @@
 use super::{editor, post, settings, App, Event};
 use crate::{ClippyTheme, RecordingFile, RecordingLibrary, RecordingRow};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use audio::{AudioOptions, AudioTrack};
 use clippy_core::image_output::{expand_user_path, unique_image_id};
 #[cfg(all(
@@ -21,20 +21,27 @@ use std::{
     collections::VecDeque,
     fs, io,
     path::{Path, PathBuf},
-    process::{Command as Process, Stdio},
     rc::Rc,
     sync::{
-        atomic::{AtomicBool, Ordering},
         mpsc::{self, RecvTimeoutError, SyncSender},
         Arc, Mutex,
     },
     thread::{self, JoinHandle},
     time::Duration,
 };
+#[cfg(not(feature = "recording-playback-gstreamer-qa"))]
+use std::{
+    process::{Command as Process, Stdio},
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 mod audio;
 mod control;
+#[cfg(feature = "recording-playback-gstreamer-qa")]
+mod playback;
 mod source;
+#[cfg(feature = "recording-playback-gstreamer-qa")]
+use playback::Playback;
 
 #[derive(Clone, Copy)]
 pub(super) enum Control {
@@ -61,9 +68,16 @@ pub(super) enum Message {
     Toggled(u64, Result<bool>),
     Finished(u64, Result<String>),
     Play(String),
+    #[cfg(feature = "recording-playback-gstreamer-qa")]
+    BackToRecordings,
+    #[cfg(feature = "recording-playback-gstreamer-qa")]
+    TogglePlayback,
+    #[cfg(feature = "recording-playback-gstreamer-qa")]
+    SeekPlayback(u64),
     Export(String, String),
     Delete(String),
     Merge(String),
+    #[cfg(not(feature = "recording-playback-gstreamer-qa"))]
     Update(Result<String>),
     Mutation(Result<String>),
 }
@@ -95,9 +109,19 @@ struct Job {
     cancellation: RegionCancellation,
 }
 
+#[cfg(not(feature = "recording-playback-gstreamer-qa"))]
 struct Playback {
     stop: Arc<AtomicBool>,
     worker: JoinHandle<()>,
+}
+
+#[cfg(not(feature = "recording-playback-gstreamer-qa"))]
+impl Playback {
+    fn stop(self) {
+        self.stop.store(true, Ordering::Release);
+        self.worker.thread().unpark();
+        let _ = self.worker.join();
+    }
 }
 
 impl Drop for Job {
@@ -338,6 +362,12 @@ impl Recordings {
         window.on_pause(|| send(Message::Control(Control::PauseResume)));
         window.on_stop(|| send(Message::Control(Control::Stop)));
         window.on_play(|key| send(Message::Play(key.to_string())));
+        #[cfg(feature = "recording-playback-gstreamer-qa")]
+        {
+            window.on_back_to_recordings(|| send(Message::BackToRecordings));
+            window.on_toggle_playback(|| send(Message::TogglePlayback));
+            window.on_seek_playback(|millis| send(Message::SeekPlayback(millis.round() as u64)));
+        }
         window.on_export_recording(|key, path| {
             send(Message::Export(key.to_string(), path.to_string()))
         });
@@ -387,10 +417,13 @@ impl Recordings {
     }
 
     fn stop_playback(&mut self) {
-        if let Some(Playback { stop, worker }) = self.playback.take() {
-            stop.store(true, Ordering::Release);
-            worker.thread().unpark();
-            let _ = worker.join();
+        if let Some(playback) = self.playback.take() {
+            playback.stop();
+            #[cfg(feature = "recording-playback-gstreamer-qa")]
+            if let Some(window) = self.window.as_ref() {
+                window.set_playback_visible(false);
+                window.set_playback_frame(slint::Image::default());
+            }
         }
     }
 
@@ -658,6 +691,7 @@ impl App {
                 self.status(self.recordings.status.clone());
                 self.refresh_recordings()?;
             }
+            #[cfg(not(feature = "recording-playback-gstreamer-qa"))]
             Message::Update(result) => self.recordings.note(result),
             Message::Mutation(result) => {
                 self.recordings.editing_library = false;
@@ -723,6 +757,20 @@ impl App {
                 self.begin_recording_preview()?;
             }
             Message::Play(key) => self.play_recording(key)?,
+            #[cfg(feature = "recording-playback-gstreamer-qa")]
+            Message::BackToRecordings => self.recordings.stop_playback(),
+            #[cfg(feature = "recording-playback-gstreamer-qa")]
+            Message::TogglePlayback => {
+                if let Some(playback) = self.recordings.playback.as_ref() {
+                    playback.toggle();
+                }
+            }
+            #[cfg(feature = "recording-playback-gstreamer-qa")]
+            Message::SeekPlayback(millis) => {
+                if let Some(playback) = self.recordings.playback.as_ref() {
+                    playback.seek(millis);
+                }
+            }
             Message::Export(key, directory) if !self.recordings.editing_library => {
                 let root = self.paths.data_dir.clone();
                 let destination = if directory.trim().is_empty() {
@@ -823,6 +871,7 @@ impl App {
         Ok(())
     }
 
+    #[cfg(not(feature = "recording-playback-gstreamer-qa"))]
     fn play_recording(&mut self, key: String) -> Result<()> {
         self.recordings.stop_playback();
         let stop = Arc::new(AtomicBool::new(false));
@@ -857,7 +906,9 @@ impl App {
                             return if status.success() {
                                 Ok("Playback finished".into())
                             } else {
-                                Err(anyhow!("Native player failed to open this recording"))
+                                Err(anyhow::anyhow!(
+                                    "Native player failed to open this recording"
+                                ))
                             };
                         }
                         thread::park_timeout(Duration::from_millis(100));
@@ -876,7 +927,7 @@ impl App {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "recording-playback-gstreamer-qa")))]
 mod tests {
     use super::*;
 

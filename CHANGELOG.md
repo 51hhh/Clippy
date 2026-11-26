@@ -48,6 +48,9 @@
 
 ### Slint 区域录屏
 
+- 启用 `recording-playback-gstreamer-qa` 的 QA 构建，可在录屏库播放、暂停和定位视频。隔离 X11 已验证有声
+  WebM 原件、独立分段及恢复文件的画面、系统音频、正常结束与关窗回收。其他平台、安装包依赖和正式播放器选型
+  继续验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 - 录屏库可为下一次录制指定 Linux 或 Windows 的系统音源或麦克风。刷新设备时按设备身份保留选择。
   选中的设备消失时，录屏库会提示设备不可用，并拦下本次录制。Linux 已通过隔离桌面回归，
   Windows 实机继续验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
@@ -60,7 +63,7 @@
   暂停时的画面不会混入续录。隔离 GNOME 和 Sway 已验证，实机有声长录与其他平台时钟待验收。
   （需求 `SLINT-MIGRATION-CLOSURE-01`）
 - 框选支持启动 VP9/WebM 录屏，托盘控制暂停、恢复和停止。录屏库可打开、导出及恢复中断的分段，
-  播放在用户打开时调用 `ffplay`，设置音轨可选无声、Linux PipeWire 或 Windows WASAPI 默认设备。
+  默认构建按需调用 `ffplay` 播放，设置音轨可选无声、Linux PipeWire 或 Windows WASAPI 默认设备。
 - X11 已实测 140×100 区域、暂停扣时、文件解析和导出字节一致。实际音频设备、长时音画同步和
   macOS 系统音频仍待验证或迁移。（需求 `SLINT-NATIVE-PIPELINE-01`）
 - 退出 Clippy、关闭录屏库或切换录屏时，等待当前播放器退出并回收子进程。
