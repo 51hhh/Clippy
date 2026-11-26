@@ -1,14 +1,20 @@
 use super::{
-    macos_audio_contract::{MacAudioContractError, MappedPcmChunk},
-    macos_audio_resampler::{MacAudioResamplerError, MacAudioStreamResampler},
+    macos_audio_contract::{frames_to_ns_at_rate, MacAudioContractError, MappedPcmChunk},
+    macos_audio_resampler::{
+        MacAudioResamplerError, MacAudioStreamResampler, MAX_NATIVE_PACKET_MILLIS,
+    },
 };
-use crate::recording::audio::{
-    frames_to_ns, AudioFormat, CapturedAudioChunk, AUDIO_SAMPLE_RATE_HZ, MAX_AUDIO_CHUNK_FRAMES,
+use crate::recording::{
+    audio::{
+        frames_to_ns, AudioFormat, CapturedAudioChunk, AUDIO_SAMPLE_RATE_HZ, MAX_AUDIO_CHUNK_FRAMES,
+    },
+    audio_mixer::MAX_JITTER_NS,
 };
 use std::{cmp::Ordering, collections::VecDeque, io};
 
 pub(super) const CHANNELS: u16 = 2;
 const NANOSECONDS_PER_SECOND: u64 = 1_000_000_000;
+const MIC_TAIL_IDLE_NS: u64 = MAX_NATIVE_PACKET_MILLIS * 1_000_000 + MAX_JITTER_NS;
 
 #[derive(Default)]
 pub(super) struct PcmTimeline {
@@ -24,6 +30,7 @@ struct MicrophoneSegment {
     session_start: u64,
     frames: u64,
     rate_hz: u32,
+    native_end_ns: u64,
 }
 
 impl MicrophoneSegment {
@@ -84,6 +91,7 @@ impl PcmTimeline {
                 session_start: timestamp.max(self.end),
                 frames: 0,
                 rate_hz,
+                native_end_ns: timestamp,
             });
         }
 
@@ -92,6 +100,9 @@ impl PcmTimeline {
         let preceding_frames = segment.frames;
         segment.frames = preceding_frames
             .checked_add(u64::from(frames))
+            .ok_or_else(overflow)?;
+        segment.native_end_ns = timestamp
+            .checked_add(frames_to_ns_at_rate(frames, rate_hz).map_err(io::Error::other)?)
             .ok_or_else(overflow)?;
         if rate_hz == AUDIO_SAMPLE_RATE_HZ {
             let elapsed_ns = u64::try_from(
@@ -119,6 +130,29 @@ impl PcmTimeline {
             self.queue_resampled(chunks)?;
         }
         Ok(())
+    }
+
+    pub fn finish_idle_microphone(&mut self, now_ns: u64) -> io::Result<()> {
+        if self.microphone_segment.as_ref().is_some_and(|segment| {
+            segment.rate_hz != AUDIO_SAMPLE_RATE_HZ
+                && now_ns.saturating_sub(segment.native_end_ns) >= MIC_TAIL_IDLE_NS
+        }) {
+            // 连续的下一包可能仍在原生采集。留出一个最大原生包和已有的迟到窗口，再交付滤波尾部。
+            self.finish_microphone()?;
+        }
+        Ok(())
+    }
+
+    pub fn pending_audio_start_ns(&self) -> Option<u64> {
+        self.ready
+            .front()
+            .map(|chunk| chunk.captured_at_ns)
+            .or_else(|| {
+                self.microphone_segment.as_ref().and_then(|segment| {
+                    (segment.rate_hz != AUDIO_SAMPLE_RATE_HZ)
+                        .then(|| self.end.max(segment.session_start))
+                })
+            })
     }
 
     pub fn discard(&mut self) {
@@ -190,6 +224,111 @@ fn overflow() -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::recording::{audio_mixer::MixedAudioSource, audio_worker::RecordingAudioSource};
+    use std::{
+        cell::{Cell, RefCell},
+        rc::Rc,
+        time::Duration,
+    };
+
+    struct TimelineSource {
+        time: Rc<Cell<u64>>,
+        pcm: Rc<RefCell<PcmTimeline>>,
+    }
+
+    impl RecordingAudioSource for TimelineSource {
+        type Error = io::Error;
+
+        fn start_capture(&mut self) -> io::Result<Option<u64>> {
+            Ok(Some(self.time.get()))
+        }
+
+        fn control_timestamp_ns(&mut self) -> io::Result<u64> {
+            Ok(self.time.get())
+        }
+
+        fn capture_next_available(
+            &mut self,
+            _: Duration,
+        ) -> io::Result<Option<CapturedAudioChunk>> {
+            let mut pcm = self.pcm.borrow_mut();
+            pcm.finish_idle_microphone(self.time.get())?;
+            Ok(pcm.ready.pop_front())
+        }
+
+        fn pending_audio_start_ns(&self) -> Option<u64> {
+            self.pcm.borrow().pending_audio_start_ns()
+        }
+    }
+
+    #[test]
+    fn mixed_eight_khz_preserves_pending_pcm_and_resumes_silence_after_idle_tail() {
+        let origin = 1_000_000_000;
+        let time = Rc::new(Cell::new(origin));
+        let pcm = Rc::new(RefCell::new(PcmTimeline::default()));
+        let mut mixer = MixedAudioSource::new(
+            TimelineSource {
+                time: time.clone(),
+                pcm: Rc::default(),
+            },
+            TimelineSource {
+                time: time.clone(),
+                pcm: pcm.clone(),
+            },
+        );
+        assert_eq!(mixer.start_capture().unwrap(), Some(origin));
+
+        let rate = 8_000;
+        let frames = 512;
+        mic(&mut pcm.borrow_mut(), (0, rate), origin, rate, frames).unwrap();
+        time.set(origin + 125_000_000);
+        assert_eq!(pcm.borrow().pending_audio_start_ns(), Some(origin));
+        assert!(mixer
+            .capture_next_available(Duration::ZERO)
+            .unwrap()
+            .is_none());
+
+        time.set(origin + 128_000_000);
+        mic(
+            &mut pcm.borrow_mut(),
+            (u64::from(frames), rate),
+            origin + 64_000_000,
+            rate,
+            frames,
+        )
+        .unwrap();
+        let first = mixer
+            .capture_next_available(Duration::ZERO)
+            .unwrap()
+            .unwrap();
+        assert_eq!((first.captured_at_ns, first.frame_count), (origin, 960));
+        // 跳过阶跃进入 sinc 窗口时的瞬态，检查稳态的固定增益。
+        assert!(first.samples[1_536..]
+            .iter()
+            .all(|sample| (*sample - 0.125).abs() < 0.001));
+
+        time.set(origin + 128_000_000 + MIC_TAIL_IDLE_NS - 1);
+        let mut output_end = first.captured_at_ns + frames_to_ns(first.frame_count).unwrap();
+        while let Some(chunk) = mixer.capture_next_available(Duration::ZERO).unwrap() {
+            output_end = chunk.captured_at_ns + frames_to_ns(chunk.frame_count).unwrap();
+        }
+        assert!(output_end < origin + 128_000_000);
+        assert!(pcm.borrow().pending_audio_start_ns().is_some());
+        time.set(time.get() + 1);
+        let mut tail_is_audible = false;
+        let mut silence_continued = false;
+        while let Some(chunk) = mixer.capture_next_available(Duration::ZERO).unwrap() {
+            if chunk.captured_at_ns < origin + 128_000_000 {
+                tail_is_audible |= chunk.samples.iter().any(|sample| sample.abs() > 0.1);
+            } else {
+                assert!(chunk.samples.iter().all(|sample| *sample == 0.0));
+                silence_continued = true;
+            }
+        }
+        assert!(tail_is_audible && silence_continued);
+        assert!(pcm.borrow().pending_audio_start_ns().is_none());
+        assert_eq!(pcm.borrow().end, origin + 128_000_000);
+    }
 
     #[test]
     fn packet_split_preserves_native_pts_and_stop_end() {

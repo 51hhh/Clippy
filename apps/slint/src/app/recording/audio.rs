@@ -6,6 +6,8 @@ use anyhow::{Context, Result};
 use clippy_media::recording::audio_devices::{
     NativeRecordingAudioDevice, RecordingAudioDeviceKind,
 };
+#[cfg(feature = "native-recording-audio")]
+use clippy_media::recording::audio_mixer::OUTPUT_CHANNELS;
 #[cfg(all(feature = "native-recording-audio", target_os = "linux"))]
 use clippy_media::recording::platform::linux_audio::{
     enumerate_recording_audio_devices, LinuxPipeWireAudioSourcePlan as SourcePlan,
@@ -23,47 +25,96 @@ use clippy_media::recording::platform::windows_audio::{
 use clippy_platform::capture::Region;
 #[cfg(all(feature = "native-recording-audio", target_os = "macos"))]
 use clippy_platform::capture::{macos_audio::AudioInput, RegionCancellation};
-use slint::{ModelRc, VecModel};
+use slint::{ModelRc, SharedString, VecModel};
 use std::io;
+
+#[cfg(feature = "native-recording-audio")]
+const MIXED_LABEL: &str = "System audio + microphone";
+const UNAVAILABLE_LABEL: &str = "Selected device unavailable";
+const UNAVAILABLE_ERROR: &str =
+    "The selected audio device is unavailable. Choose an audio source in Recordings.";
 
 #[derive(Clone, PartialEq, Eq)]
 pub(in crate::app) enum AudioTrack {
     Silent,
-    #[cfg(all(feature = "native-recording-audio", target_os = "macos"))]
-    MacSystem,
-    #[cfg(all(
-        feature = "native-recording-audio",
-        any(target_os = "linux", target_os = "windows")
-    ))]
+    #[cfg(feature = "native-recording-audio")]
     System(Option<String>),
     #[cfg(feature = "native-recording-audio")]
     Microphone(Option<String>),
+    #[cfg(feature = "native-recording-audio")]
+    Mixed {
+        system: Option<String>,
+        microphone: Option<String>,
+    },
 }
 
 impl AudioTrack {
     #[cfg(all(feature = "native-recording-audio", target_os = "macos"))]
     pub(super) fn prepare(&self, cancellation: &RegionCancellation) -> Result<()> {
-        if matches!(self, Self::Microphone(_)) {
+        if matches!(self, Self::Microphone(_) | Self::Mixed { .. }) {
             request_microphone_permission(cancellation)?;
         }
         Ok(())
     }
 
     #[cfg(feature = "native-recording-audio")]
-    pub(super) fn into_plan(self, _region: &Region) -> SourcePlan {
+    pub(super) fn into_plan(self, region: &Region) -> AudioPlan {
         match self {
-            #[cfg(target_os = "macos")]
-            Self::MacSystem => SourcePlan::for_region(_region, AudioInput::System),
-            #[cfg(target_os = "macos")]
-            Self::Microphone(id) => SourcePlan::for_region(_region, AudioInput::Microphone(id)),
-            #[cfg(target_os = "linux")]
-            Self::System(id) => SourcePlan::system_audio(id),
-            #[cfg(target_os = "windows")]
-            Self::System(id) => SourcePlan::system_loopback(id),
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
-            Self::Microphone(id) => SourcePlan::microphone(id),
+            Self::System(id) => AudioPlan::Single(system_plan(region, id)),
+            Self::Microphone(id) => AudioPlan::Single(microphone_plan(region, id)),
+            Self::Mixed { system, microphone } => AudioPlan::Mixed {
+                system: system_plan(region, system),
+                microphone: microphone_plan(region, microphone),
+            },
             Self::Silent => unreachable!("无声录屏不打开音频源"),
         }
+    }
+}
+
+#[cfg(feature = "native-recording-audio")]
+pub(super) enum AudioPlan {
+    Single(SourcePlan),
+    Mixed {
+        system: SourcePlan,
+        microphone: SourcePlan,
+    },
+}
+
+#[cfg(feature = "native-recording-audio")]
+impl AudioPlan {
+    pub(super) fn channels(&self) -> u16 {
+        match self {
+            Self::Single(plan) => plan.channels(),
+            Self::Mixed { .. } => OUTPUT_CHANNELS,
+        }
+    }
+}
+
+#[cfg(feature = "native-recording-audio")]
+fn system_plan(_region: &Region, _id: Option<String>) -> SourcePlan {
+    #[cfg(target_os = "macos")]
+    {
+        SourcePlan::for_region(_region, AudioInput::System)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        SourcePlan::system_audio(_id)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        SourcePlan::system_loopback(_id)
+    }
+}
+
+#[cfg(feature = "native-recording-audio")]
+fn microphone_plan(_region: &Region, id: Option<String>) -> SourcePlan {
+    #[cfg(target_os = "macos")]
+    {
+        SourcePlan::for_region(_region, AudioInput::Microphone(id))
+    }
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    {
+        SourcePlan::microphone(id)
     }
 }
 
@@ -87,6 +138,10 @@ pub(super) struct AudioOptions {
     status: &'static str,
     #[cfg(feature = "native-recording-audio")]
     refreshing: bool,
+    #[cfg(feature = "native-recording-audio")]
+    mixed_system: Option<String>,
+    #[cfg(feature = "native-recording-audio")]
+    mixed_microphone: Option<String>,
 }
 
 impl Default for AudioOptions {
@@ -97,50 +152,84 @@ impl Default for AudioOptions {
             status: "",
             #[cfg(feature = "native-recording-audio")]
             refreshing: false,
+            #[cfg(feature = "native-recording-audio")]
+            mixed_system: None,
+            #[cfg(feature = "native-recording-audio")]
+            mixed_microphone: None,
         }
     }
 }
 
 impl AudioOptions {
     pub(super) fn remember(&mut self, value: &str) {
-        if let Some(choice) = self
-            .choices
-            .iter()
-            .find(|choice| tr(&choice.label) == value)
-        {
-            self.selection = choice.track.clone();
+        if let Some(track) = self.track_for_label(value) {
+            self.selection = track;
         }
     }
 
-    fn selected_index(&self) -> Option<usize> {
+    #[cfg(feature = "native-recording-audio")]
+    pub(super) fn remember_mixed(&mut self, system: &str, microphone: &str) {
+        if let Some(AudioTrack::System(id)) = self.track_for_label(system) {
+            self.mixed_system = id;
+        }
+        if let Some(AudioTrack::Microphone(id)) = self.track_for_label(microphone) {
+            self.mixed_microphone = id;
+        }
+    }
+
+    fn track_for_label(&self, value: &str) -> Option<AudioTrack> {
         self.choices
             .iter()
-            .position(|choice| choice.track == self.selection)
+            .find(|choice| tr(&choice.label) == value)
+            .map(|choice| choice.track.clone())
     }
 
     pub(super) fn selected(&self) -> Result<AudioTrack> {
-        self.selected_index()
-            .map(|_| self.selection.clone())
-            .context(tr(
-                "The selected audio device is unavailable. Choose an audio source in Recordings.",
-            ))
+        let available =
+            |track: &AudioTrack| self.choices.iter().any(|choice| &choice.track == track);
+        available(&self.selection)
+            .then_some(())
+            .context(tr(UNAVAILABLE_ERROR))?;
+        #[cfg(feature = "native-recording-audio")]
+        if matches!(self.selection, AudioTrack::Mixed { .. }) {
+            let system = self.mixed_system.clone();
+            let microphone = self.mixed_microphone.clone();
+            return (available(&AudioTrack::System(system.clone()))
+                && available(&AudioTrack::Microphone(microphone.clone())))
+            .then_some(AudioTrack::Mixed { system, microphone })
+            .context(tr(UNAVAILABLE_ERROR));
+        }
+        Ok(self.selection.clone())
     }
 
     pub(super) fn show(&self, window: &RecordingLibrary) {
-        let mut labels = self
+        let (options, value) = present(self.choices.iter(), &self.selection);
+        window.set_audio_options(options);
+        window.set_audio_value(value);
+        #[cfg(feature = "native-recording-audio")]
+        if self
             .choices
             .iter()
-            .map(|choice| tr(&choice.label).into())
-            .collect::<Vec<_>>();
-        let value = if let Some(index) = self.selected_index() {
-            tr(&self.choices[index].label)
-        } else {
-            let unavailable = tr("Selected device unavailable");
-            labels.push(unavailable.into());
-            unavailable
-        };
-        window.set_audio_options(ModelRc::new(VecModel::from(labels)));
-        window.set_audio_value(value.into());
+            .any(|choice| matches!(choice.track, AudioTrack::Mixed { .. }))
+        {
+            let (options, value) = present(
+                self.choices
+                    .iter()
+                    .filter(|choice| matches!(choice.track, AudioTrack::System(_))),
+                &AudioTrack::System(self.mixed_system.clone()),
+            );
+            window.set_mixed_system_options(options);
+            window.set_mixed_system_value(value);
+            let (options, value) = present(
+                self.choices
+                    .iter()
+                    .filter(|choice| matches!(choice.track, AudioTrack::Microphone(_))),
+                &AudioTrack::Microphone(self.mixed_microphone.clone()),
+            );
+            window.set_mixed_microphone_options(options);
+            window.set_mixed_microphone_value(value);
+            window.set_mixed_audio_label(tr(MIXED_LABEL).into());
+        }
         self.show_status(window);
     }
 
@@ -183,17 +272,53 @@ impl AudioOptions {
     }
 }
 
+fn present<'a>(
+    choices: impl Iterator<Item = &'a Choice>,
+    selected: &AudioTrack,
+) -> (ModelRc<SharedString>, SharedString) {
+    let mut labels = Vec::new();
+    let mut value = None;
+    for choice in choices {
+        let label = SharedString::from(tr(&choice.label));
+        if &choice.track == selected {
+            value = Some(label.clone());
+        }
+        labels.push(label);
+    }
+    let value = value.unwrap_or_else(|| {
+        let label = SharedString::from(tr(UNAVAILABLE_LABEL));
+        labels.push(label.clone());
+        label
+    });
+    (ModelRc::new(VecModel::from(labels)), value)
+}
+
+#[cfg(feature = "native-recording-audio")]
+fn mixed_choice() -> Choice {
+    Choice::new(
+        AudioTrack::Mixed {
+            system: None,
+            microphone: None,
+        },
+        MIXED_LABEL,
+    )
+}
+
 #[cfg(all(feature = "native-recording-audio", target_os = "macos"))]
 fn default_choices() -> Vec<Choice> {
     let mut choices = vec![Choice::new(AudioTrack::Silent, "No audio")];
     if system_audio_available() {
-        choices.push(Choice::new(AudioTrack::MacSystem, "Default system audio"));
+        choices.push(Choice::new(
+            AudioTrack::System(None),
+            "Default system audio",
+        ));
     }
     if microphone_available() {
         choices.push(Choice::new(
             AudioTrack::Microphone(None),
             "Default microphone",
         ));
+        choices.push(mixed_choice());
     }
     choices
 }
@@ -209,6 +334,7 @@ fn default_choices() -> Vec<Choice> {
             Choice::new(AudioTrack::Silent, "No audio"),
             Choice::new(AudioTrack::System(None), "Default system audio"),
             Choice::new(AudioTrack::Microphone(None), "Default microphone"),
+            mixed_choice(),
         ]
     }
     #[cfg(not(all(
@@ -267,15 +393,12 @@ fn catalog_choices(devices: Vec<NativeRecordingAudioDevice>) -> Vec<Choice> {
                 suffix += 1;
             }
             let track = match kind {
-                #[cfg(any(target_os = "linux", target_os = "windows"))]
                 RecordingAudioDeviceKind::SystemAudio => {
                     AudioTrack::System(Some(device.native_id.clone()))
                 }
                 RecordingAudioDeviceKind::Microphone => {
                     AudioTrack::Microphone(Some(device.native_id.clone()))
                 }
-                #[cfg(target_os = "macos")]
-                RecordingAudioDeviceKind::SystemAudio => unreachable!("macOS 仅枚举麦克风"),
             };
             choices.push(Choice::new(track, format!("{heading} · {label}")));
         }
@@ -301,12 +424,17 @@ mod tests {
         let mut options = AudioOptions::default();
         options.remember(tr("Default system audio"));
         assert_eq!(
-            matches!(options.selected(), Ok(AudioTrack::MacSystem)),
+            matches!(options.selected(), Ok(AudioTrack::System(None))),
             system_audio_available()
         );
         options.remember(tr("Default microphone"));
         assert_eq!(
             matches!(options.selected(), Ok(AudioTrack::Microphone(None))),
+            microphone_available()
+        );
+        options.remember(tr(MIXED_LABEL));
+        assert_eq!(
+            matches!(options.selected(), Ok(AudioTrack::Mixed { .. })),
             microphone_available()
         );
     }
@@ -341,5 +469,46 @@ mod tests {
             options.selected(),
             Ok(AudioTrack::Microphone(None))
         ));
+    }
+
+    #[cfg(all(
+        feature = "native-recording-audio",
+        any(target_os = "linux", target_os = "windows")
+    ))]
+    #[test]
+    fn mixed_selection_recovers_an_independent_source_without_losing_the_other() {
+        let speakers = NativeRecordingAudioDevice {
+            kind: RecordingAudioDeviceKind::SystemAudio,
+            native_id: "unshown-output-id".into(),
+            label: "Dock speakers".into(),
+            is_default: false,
+        };
+        let mut microphone = NativeRecordingAudioDevice {
+            kind: RecordingAudioDeviceKind::Microphone,
+            native_id: "unshown-input-id".into(),
+            label: "Dock microphone".into(),
+            is_default: true,
+        };
+        let mut options = AudioOptions::default();
+        options.updated(Ok(vec![speakers.clone(), microphone.clone()]));
+        options.remember(MIXED_LABEL);
+        options.remember_mixed(
+            "System audio · Dock speakers",
+            "Microphone · Dock microphone",
+        );
+        microphone.label = "Renamed microphone".into();
+        options.updated(Ok(vec![speakers, microphone.clone()]));
+        assert!(
+            matches!(options.selected(), Ok(AudioTrack::Mixed { system: Some(system), microphone: Some(microphone) })
+            if system == "unshown-output-id" && microphone == "unshown-input-id")
+        );
+
+        options.updated(Ok(vec![microphone]));
+        assert!(options.selected().is_err());
+        options.remember_mixed("Default system audio", "Microphone · Renamed microphone");
+        assert!(
+            matches!(options.selected(), Ok(AudioTrack::Mixed { system: None, microphone: Some(microphone) })
+            if microphone == "unshown-input-id")
+        );
     }
 }

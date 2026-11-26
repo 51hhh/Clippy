@@ -108,7 +108,8 @@ impl MacAudioSource {
                 return Ok(Some(chunk));
             }
         }
-        Ok(None)
+        self.timeline.finish_idle_microphone(self.clock.now_ns())?;
+        Ok(self.timeline.ready.pop_front())
     }
 }
 
@@ -124,6 +125,10 @@ impl RecordingAudioSource for MacAudioSource {
         timeout: Duration,
     ) -> io::Result<Option<CapturedAudioChunk>> {
         self.next(timeout)
+    }
+
+    fn pending_audio_start_ns(&self) -> Option<u64> {
+        self.timeline.pending_audio_start_ns()
     }
 
     fn control_timestamp_ns(&mut self) -> io::Result<u64> {

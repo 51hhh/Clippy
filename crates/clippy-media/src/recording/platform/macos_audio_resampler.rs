@@ -14,7 +14,7 @@ const CHANNELS: usize = 2;
 const RESAMPLER_INPUT_FRAMES: usize = 1_024;
 const MAX_NATIVE_SAMPLE_RATE_HZ: u32 = 192_000;
 const MIN_NATIVE_SAMPLE_RATE_HZ: u32 = 8_000;
-const MAX_NATIVE_PACKET_MILLIS: u64 = 200;
+pub(super) const MAX_NATIVE_PACKET_MILLIS: u64 = 200;
 const MAX_FLUSH_PASSES: usize = 16;
 
 #[derive(Debug, Error)]

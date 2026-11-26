@@ -44,6 +44,11 @@ pub trait RecordingAudioSource: 'static {
         timeout: Duration,
     ) -> Result<Option<CapturedAudioChunk>, Self::Error>;
 
+    /// 已采集且尚未交付的最早 PCM 时刻，供混音器保留仍在处理中的音频。
+    fn pending_audio_start_ns(&self) -> Option<u64> {
+        None
+    }
+
     /// 返回与 `CapturedAudioChunk::captured_at_ns` 相同会话时间域的控制时间戳。
     fn control_timestamp_ns(&mut self) -> Result<u64, Self::Error>;
 

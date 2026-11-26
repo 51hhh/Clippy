@@ -13,9 +13,9 @@ use std::time::Duration;
 use thiserror::Error;
 
 const NANOS_PER_SECOND: u128 = 1_000_000_000;
-const OUTPUT_CHANNELS: u16 = 2;
+pub const OUTPUT_CHANNELS: u16 = 2;
 const INPUT_GAIN: f32 = 0.5;
-const MAX_JITTER_NS: u64 = 100_000_000;
+pub(crate) const MAX_JITTER_NS: u64 = 100_000_000;
 const MAX_STAGING_FRAMES: u64 = AUDIO_SAMPLE_RATE_HZ as u64;
 const MAX_STAGING_CHUNKS: usize = 128;
 const MAX_NONBLOCKING_DRAIN: usize = 8;
@@ -131,13 +131,20 @@ impl InputTimeline {
         Ok(())
     }
 
-    fn advance_control(&mut self, timestamp_ns: u64) -> Result<(), AudioMixerError> {
+    fn advance_control(
+        &mut self,
+        timestamp_ns: u64,
+        pending_start_ns: Option<u64>,
+    ) -> Result<(), AudioMixerError> {
         let frame = ns_to_frame_floor(timestamp_ns)?;
         if self.last_control_frame.is_some_and(|last| frame < last) {
             return Err(AudioMixerError::ControlTimestampRegressed);
         }
         self.last_control_frame = Some(frame);
-        let safe_ns = timestamp_ns.saturating_sub(MAX_JITTER_NS);
+        let mut safe_ns = timestamp_ns.saturating_sub(MAX_JITTER_NS);
+        if let Some(start) = pending_start_ns {
+            safe_ns = safe_ns.min(start);
+        }
         self.silence_watermark_frame = self
             .silence_watermark_frame
             .max(ns_to_frame_floor(safe_ns)?);
@@ -241,9 +248,12 @@ impl AudioMixer {
         &mut self,
         system_timestamp_ns: u64,
         microphone_timestamp_ns: u64,
+        [system_pending, microphone_pending]: [Option<u64>; 2],
     ) -> Result<(), AudioMixerError> {
-        self.system.advance_control(system_timestamp_ns)?;
-        self.microphone.advance_control(microphone_timestamp_ns)?;
+        self.system
+            .advance_control(system_timestamp_ns, system_pending)?;
+        self.microphone
+            .advance_control(microphone_timestamp_ns, microphone_pending)?;
         Ok(())
     }
 
@@ -463,7 +473,11 @@ where
             .control_timestamp_ns()
             .map_err(|error| MixedAudioSourceError::Microphone(error.to_string()))?;
         self.validate_native_controls(system, microphone)?;
-        self.mixer.advance_control(system, microphone)?;
+        let pending = [
+            self.system.pending_audio_start_ns(),
+            self.microphone.pending_audio_start_ns(),
+        ];
+        self.mixer.advance_control(system, microphone, pending)?;
         Ok(())
     }
 
@@ -971,7 +985,9 @@ mod tests {
         mixer
             .push(MixerInput::System, constant(0, 0, 960, 2, 0.5))
             .unwrap();
-        mixer.advance_control(120_000_000, 120_000_000).unwrap();
+        mixer
+            .advance_control(120_000_000, 120_000_000, [None; 2])
+            .unwrap();
         let output = mixer.pop_ready().unwrap().unwrap();
         assert_eq!(output.frame_count, 960);
         assert!(output.samples.iter().all(|sample| *sample == 0.25));
@@ -980,7 +996,9 @@ mod tests {
     #[test]
     fn packets_older_than_confirmed_silence_fail() {
         let mut mixer = AudioMixer::default();
-        mixer.advance_control(200_000_000, 200_000_000).unwrap();
+        mixer
+            .advance_control(200_000_000, 200_000_000, [None; 2])
+            .unwrap();
         assert_eq!(
             mixer.push(MixerInput::System, constant(0, 0, 960, 2, 0.5)),
             Err(AudioMixerError::LateInput)

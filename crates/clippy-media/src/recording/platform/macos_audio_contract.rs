@@ -251,7 +251,7 @@ fn frames_to_ns(frame_count: u32) -> Result<u64, MacAudioContractError> {
     frames_to_ns_at_rate(frame_count, AUDIO_SAMPLE_RATE_HZ)
 }
 
-fn frames_to_ns_at_rate(
+pub(super) fn frames_to_ns_at_rate(
     frame_count: u32,
     sample_rate_hz: u32,
 ) -> Result<u64, MacAudioContractError> {

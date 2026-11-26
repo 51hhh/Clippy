@@ -19,6 +19,11 @@ export component RecordingLibrary inherits Window {
     in property <string> audio-status;
     in property <[string]> audio-options;
     in-out property <string> audio-value;
+    in property <string> mixed-audio-label;
+    in property <[string]> mixed-system-options;
+    in-out property <string> mixed-system-value;
+    in property <[string]> mixed-microphone-options;
+    in-out property <string> mixed-microphone-value;
     in property <bool> playback-visible;
     in property <bool> playback-ready;
     in property <bool> playback-paused;
@@ -256,6 +261,21 @@ export component RecordingLibrary inherits Window {
                     width: 224px;
                     model: root.audio-options; current-value <=> root.audio-value;
                     accessible-label: @tr("Audio for the next recording");
+                }
+            }
+            if !root.mixed-audio-label.is-empty && root.audio-value == root.mixed-audio-label: HorizontalLayout {
+                spacing: 7px; height: 32px;
+                ComboBox {
+                    horizontal-stretch: 1;
+                    model: root.mixed-system-options; current-value <=> root.mixed-system-value;
+                    enabled: root.mixed-system-options.length > 1;
+                    accessible-label: @tr("System audio for the next recording");
+                }
+                ComboBox {
+                    horizontal-stretch: 1;
+                    model: root.mixed-microphone-options; current-value <=> root.mixed-microphone-value;
+                    enabled: root.mixed-microphone-options.length > 1;
+                    accessible-label: @tr("Microphone for the next recording");
                 }
             }
         }

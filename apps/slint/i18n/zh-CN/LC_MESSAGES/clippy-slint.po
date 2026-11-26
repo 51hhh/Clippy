@@ -316,6 +316,15 @@ msgstr "默认麦克风"
 msgid "Default system audio"
 msgstr "默认系统声音"
 
+msgid "System audio + microphone"
+msgstr "系统声音和麦克风"
+
+msgid "System audio for the next recording"
+msgstr "下一次录屏的系统音源"
+
+msgid "Microphone for the next recording"
+msgstr "下一次录屏的麦克风"
+
 msgid "Delete"
 msgstr "删除"
 

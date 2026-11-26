@@ -1,10 +1,15 @@
 use super::{editor, post, settings, App, Event};
 use crate::{locale::tr, ClippyTheme, RecordingFile, RecordingLibrary, RecordingRow};
 use anyhow::{Context, Result};
+#[cfg(feature = "native-recording-audio")]
+use audio::AudioPlan;
 use audio::{AudioOptions, AudioTrack};
 use clippy_core::image_output::{expand_user_path, unique_image_id};
 #[cfg(feature = "native-recording-audio")]
-use clippy_media::recording::av_session::{AvRecordingConfig, AvRecordingSession};
+use clippy_media::recording::{
+    audio_mixer::MixedAudioSource,
+    av_session::{AvRecordingConfig, AvRecordingSession},
+};
 use clippy_media::recording::{
     manifest::{self, RecordingLibraryItem, ResolvedRecordingArtifact},
     recover_interrupted_sessions,
@@ -180,12 +185,26 @@ impl Session {
                     audio_channels: plan.channels(),
                     segment_duration_ns: config.segment_duration_ns,
                 };
-                Ok(Self::WithAudio(AvRecordingSession::start_with_factories(
-                    base,
-                    config,
-                    video(region, cancellation),
-                    |clock| plan.connect(clock).map_err(|error| error.to_string()),
-                )?))
+                let video = video(region, cancellation);
+                let session = match plan {
+                    AudioPlan::Single(plan) => {
+                        AvRecordingSession::start_with_factories(base, config, video, |clock| {
+                            plan.connect(clock).map_err(|error| error.to_string())
+                        })
+                    }
+                    AudioPlan::Mixed { system, microphone } => {
+                        AvRecordingSession::start_with_factories(base, config, video, |clock| {
+                            let system = system
+                                .connect(clock.clone())
+                                .map_err(|error| format!("System audio: {error}"))?;
+                            let microphone = microphone
+                                .connect(clock)
+                                .map_err(|error| format!("Microphone: {error}"))?;
+                            Ok(MixedAudioSource::new(system, microphone))
+                        })
+                    }
+                }?;
+                Ok(Self::WithAudio(session))
             }
         }
     }
@@ -381,6 +400,11 @@ impl Recordings {
     pub(super) fn remember_audio(&mut self) {
         if let Some(window) = self.window.as_ref() {
             self.audio.remember(window.get_audio_value().as_str());
+            #[cfg(feature = "native-recording-audio")]
+            self.audio.remember_mixed(
+                window.get_mixed_system_value().as_str(),
+                window.get_mixed_microphone_value().as_str(),
+            );
         }
     }
 

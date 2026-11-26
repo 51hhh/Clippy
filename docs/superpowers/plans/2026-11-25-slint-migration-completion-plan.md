@@ -22,7 +22,7 @@ GitHub `dev` 仍指向 #27 的合入提交 `abfdeb5`。之前的安装包、三�
 | 冻结截图 | X11 root、GNOME Mutter 原始帧、其他 Wayland 的 wayshot、Windows xcap/WGC 单帧、macOS xcap/CoreGraphics。选区使用单输出源像素 | 复测 v5 速度与 GNOME 瞬时菜单。补窗口速选、旋转和混合 DPI 验收。跨屏选区和合成是原生计划中的新增目标，先固定输出坐标尺度。保留系统截图导入和延时截图。 [平台采集](../../../crates/clippy-platform/src/capture.rs) · [GNOME v5 合同](../specs/2026-10-23-gnome-capture-fast-path-rollback.md) |
 | 标注、查看器、贴图 | 截图层有五个内联工具。编辑器可做更多标注。查看器支持缩放拖动。贴图、修订、工作区分组和缩略图已接入 | 恢复高频内联笔、文字、马赛克等实际入口与撤销/重做。窗口速选和扫码结果交互按旧操作验证。贴图跨屏缩放、层级和重启位置恢复做原生验证。独立查看器持久化工程按现有修订合同接入。 [截图窗](../../../apps/slint/ui/capture.slint) · [编辑器控制](../../../apps/slint/src/app/editor.rs) · [贴图状态](../../../apps/slint/src/app/pins.rs) |
 | 长截图 | 手动追加、撤销、拼接、取消已验证，完成后进入编辑器 | 接自动滚动、到边界判停、目标丢失撤销输入，以及完成后快捷复制、保存、贴图。复用旧版自动输入与共享拼接算法。 [现有控制器](../../../apps/slint/src/app/longshot.rs) · [旧版自动滚动](../../../apps/legacy-tauri/native/src/capture/longshot/auto_scroll.rs) |
-| 区域录屏与回放 | VP9/WebM、暂停/继续、恢复与导出已接入。X11 有安全摆位浮窗。Wayland、WGC、ScreenCaptureKit 已接入原生帧时间。Slint Linux/Windows 支持选择系统音源或麦克风，macOS 13 起可选系统声，15 起可选默认或指定麦克风。GStreamer 与轻量播放器已通过 Linux 隔离桌面的短片回归 | 根据长时同步、三平台设备与安装包验证确定正式回放与朗读后端。补跨平台浮窗排除和双源混音。macOS 麦克风的系统授权、设备移除和长时录音继续按平台验收。 [录屏入口](../../../apps/slint/src/app/recording.rs) · [媒体模块](../../../crates/clippy-media/src/recording/mod.rs) |
+| 区域录屏与回放 | VP9/WebM、暂停/继续、恢复与导出已接入。X11 有安全摆位浮窗。Wayland、WGC、ScreenCaptureKit 已接入原生帧时间。Linux/Windows 可选系统音源、麦克风或混音。macOS 13 起可选系统声，15 起可选麦克风或混音。GStreamer 与轻量播放器已通过 Linux 隔离桌面的短片回归 | 根据长时同步、三平台设备与安装包验证确定正式回放与朗读后端。补跨平台浮窗排除，验收设备移除、macOS 授权和三平台的有声长录。 [录屏入口](../../../apps/slint/src/app/recording.rs) · [媒体模块](../../../crates/clippy-media/src/recording/mod.rs) |
 | OCR、扫码、图片翻译 | Tesseract TSV 有行框、置信度及段落。配置可用时调用旧增强引擎。打开图像文字窗后可选行、选段及翻译，合适的译文已有覆盖层，长译文留在侧栏 | 打包可分发的离线引擎、补可靠多栏/暗色/旋转排版。统一结果缓存和坐标，补快捷入口和多段按需翻译。扫码从结果文本扩展到共享模型已经提供的位置与逐项操作时，复用真实字段。 [OCR 接口](../../../crates/clippy-vision/src/lib.rs) · [译文回填](../../../apps/slint/src/app/vision.rs#L342) |
 | 预览、工具与归档 | 图片、有限 HTML/Markdown、编解码工具、翻译历史、手动 tmux 捕获、统计、归档导入导出 | 复验旧版实际使用的代码高亮、复杂表格、链接和译文管理。按对照结果补齐入口。归档沿用现有校验合同和 SQLite schema。 [预览解析](../../../apps/slint/src/app/preview_document.rs) · [工具窗口](../../../apps/slint/src/app/tools.rs) · [归档入口](../../../apps/slint/src/app/settings.rs#L509) |
 | 安装、更新与数据 | semver 分流已实现。Slint 有 QA 身份、安装器及草稿发版。首次正式启动会备份配置和数据库，Linux 早期已验证解包运行和备份恢复 | 真实安装器原位升级、旧 updater 取包验签、正式签名/公证策略、失败回滚以及新版自主更新。核对 QA 与生产身份、实际最低系统版本和无 WebView。 [升级备份](../../../apps/slint/src/app/upgrade.rs) · [发行草稿](../../../.github/workflows/release.yml#L813) |
@@ -421,6 +421,22 @@ ScreenCaptureKit 取 `SCStreamFrameInfoDisplayTime`。原生时间缺失或超�
 内建/外接设备、不同原生采样率、权限拒绝后重试、设备消失、暂停恢复、短录音和 30 分钟音画时钟。
 
 **Out of Scope** 双源混音、旧系统麦克风、持久化设备偏好与录制中切换设备。
+
+#### 阶段 4 · Slint 录屏双源混音
+
+**Goal** 录屏库可为下一次录制同时选择系统声和麦克风，生成一条可随视频分段恢复的 Opus 音轨。
+
+**Requirements** 两个原生源由同一音频工作线程和会话时钟持有，复用共享混音、暂停、继续和停录合同。沿用
+48 kHz 双声道、固定 0.5 增益、100 毫秒迟到判定与一秒队列上限。已进入重采样器的真实 PCM 阻止对应区间
+被确认成静音。原生包预算内无后续数据时提交已采集的滤波尾部。系统输出和麦克风按各自目录固定，已移除的
+显式选择会拦截启动。macOS 15 起显示混音，系统声音使用已有默认路径。
+[共享混音合同](../specs/2026-09-23-recording-audio-mix.md) · [设备选择合同](../specs/2026-09-23-recording-audio-devices.md)
+
+**Acceptance Criteria** 重放 8 kHz 分包，验证首次输出、静音与有声转换、较晚输入、暂停与尾部。用两路可区分
+信号解码成品，检查固定增益、单音轨、时长与分段。验证录屏库选择、独立设备刷新和失效状态。真实设备的权限、
+断开、暂停、恢复和 30 分钟音画同步按平台验收。
+
+**Out of Scope** 录制中热切换、每路可调增益、降噪、跨重启设备偏好和容器变更。
 
 #### 阶段 4 · GStreamer 库内播放候选
 
@@ -1044,6 +1060,25 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   `ci-local-slint-microphone.log`、`slint-microphone-*-apple-darwin.log`、`slint-microphone-mach-o-imports.txt`
   和 `slint-microphone-package-hook.log`。同一 SHA 原生 CI、实际 DMG 和 macOS 15+ 的权限、设备拔出及
   30 分钟同步继续验收。
+
+### 阶段 4 · Slint 录屏双源混音结果
+
+- 录屏库可为下次录制同时选择系统声和麦克风。两个设备按各自的原生身份保留，录屏时由同一工作线程和
+  会话时钟构造音源。Linux/Windows 分别选择两路设备，macOS 15 起可将默认系统声与选中的麦克风混合。
+- 8 kHz 麦克风分包经过 Rubato 时，旧混音器在 125 毫秒先提交了 960 帧静音，后续拒收第一个包含声音的包。
+  已接受、仍在滤波的 PCM 现在限制静音的提交范围。复测第一个 20 毫秒块含预期音量，空闲后交付滤波尾部并
+  恢复静音。继续使用 100 毫秒迟到窗口和一秒队列预算。
+- 生产编码器以两路合成信号生成 1.2 秒录像。完整文件有 18 个 VP9 帧及一条包含 57,600 帧 PCM 的
+  48 kHz 双声道 Opus 音轨。三个独立分段各有 19,200 帧 PCM。由录屏库恢复合并后，三个区间仍能解出
+  440 Hz 与 730 Hz，幅值约为 0.20 与 0.15。FFmpeg 8.0.1 解码退出码为 0，解析诊断也出现在其自身编码
+  的对照样本上。
+- 隔离 X11 使用虚拟 PipeWire 设备选择两路指定设备，关闭再打开录屏库时保留选择。删除系统音源后保留
+  麦克风选择，尝试录制时提示设备不可用，未创建会话清单。三平台的实体设备、权限、录制中拔出和
+  30 分钟音画同步继续验收。
+- Linux 完整门禁 11 通过、0 失败、0 跳过。开启 Linux、Opus 与 macOS 重采样特性的录屏测试 407 通过、
+  2 忽略，Slint 设备选择用例 3 通过。macOS 双架构的平台和媒体层通过交叉 Clippy。证据位于
+  `target/test-artifacts/slint-stage4-macos-audio/`，包括 `ci-local-slint-mixed-audio.log`、
+  `slint-mixed-ui-final.log`、`slint-mixed-tones-paced-decode.log` 和 `slint-mixed-tones-recovered.log`。
 
 ### 阶段 4 · GStreamer 库内回放结果
 
