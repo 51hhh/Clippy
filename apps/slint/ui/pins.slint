@@ -28,6 +28,7 @@ export component PinnedWindow inherits Window {
     callback resize-pin(float);
     callback close-pin();
     callback edit-pin();
+    callback scan-pin();
     callback copy-pin();
     callback save-pin();
     callback workspace();
@@ -41,7 +42,7 @@ export component PinnedWindow inherits Window {
     preferred-width: 500px;
     preferred-height: 440px;
     min-width: 330px;
-    min-height: root.has-image ? 341px : 281px;
+    min-height: root.has-image ? 371px : 281px;
     background: transparent;
     init => { ClippyTheme.sync-native-palette(); }
 
@@ -97,7 +98,7 @@ export component PinnedWindow inherits Window {
             VerticalLayout {
                 alignment: start;
                 Rectangle {
-                    height: root.has-image ? 327px : 267px;
+                    height: root.has-image ? 357px : 267px;
                     background: #22242a;
                     border-radius: 7px; border-width: 1px; border-color: #3a3e48;
                     VerticalLayout {
@@ -146,6 +147,10 @@ export component PinnedWindow inherits Window {
                             clicked => { root.save-pin(); }
                         }
                         PinButton { label: @tr("Copy"); icon: "M9 8h11v13H9ZM6 16H4V3h11v2"; clicked => { root.copy-pin(); } }
+                        if root.has-image: PinButton {
+                            label: @tr("Scan code"); icon: "M3 3h6v6H3Z M15 3h6v6h-6Z M3 15h6v6H3Z M15 15h3v3h-3Z M21 15v6h-6";
+                            clicked => { root.scan-pin(); }
+                        }
                         PinButton { label: @tr("Hide"); icon: "M6 6l12 12m0-12L6 18"; danger: true; clicked => { root.close-pin(); } }
                     }
                 }

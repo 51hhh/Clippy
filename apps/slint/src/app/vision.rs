@@ -1,5 +1,7 @@
 use super::{clipboard, editor, post, settings, App, Event};
-use crate::{ClippyTheme, ImageTextWindow, TextBox, TextParagraph};
+use crate::{
+    locale::tr, ClippyTheme, CodeMarker, CodeMatch, ImageTextWindow, TextBox, TextParagraph,
+};
 use anyhow::{anyhow, Context, Result};
 use clippy_capture::png_io::encode_png;
 use clippy_core::{clipboard::is_sensitive_text, config::AppConfig};
@@ -13,7 +15,7 @@ use clippy_translate::{
 };
 use clippy_vision::{code_detection, NativeOcr, StructuredOcr};
 use image::RgbaImage;
-use slint::{CloseRequestResponse, ComponentHandle, ModelRc, VecModel};
+use slint::{CloseRequestResponse, ComponentHandle, Model, ModelRc, VecModel};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -34,7 +36,8 @@ pub(super) enum Message {
     Recognized(u64, Result<Recognition>),
     SelectLine(i32),
     SelectParagraph(i32),
-    Copy,
+    SelectCode(u64, i32),
+    Copy(u64, Option<i32>),
     Translate,
     Translated(u64, Selection, String, Result<TranslationResult>),
     Status(u64, String),
@@ -58,7 +61,7 @@ impl Selection {
 
 pub(super) enum Recognition {
     Ocr(StructuredOcr),
-    Text(String),
+    Codes(code_detection::CodeScanResponse),
 }
 
 #[derive(Default)]
@@ -138,7 +141,7 @@ fn send(message: Message) {
 }
 
 impl View {
-    fn open(id: u64, image: &RgbaImage, config: &AppConfig) -> Result<Self> {
+    fn open(id: u64, image: &RgbaImage, config: &AppConfig, mode: Mode) -> Result<Self> {
         let window = ImageTextWindow::new()?;
         let appearance = window.global::<ClippyTheme>();
         appearance.set_index(settings::theme_index(&config.theme));
@@ -146,14 +149,17 @@ impl View {
         window.set_picture(editor::to_slint(image));
         window.set_image_width(image.width() as f32);
         window.set_image_height(image.height() as f32);
+        window.set_scan_mode(matches!(mode, Mode::Scan));
         window.set_busy(true);
-        window.set_status("Reading image…".into());
+        window.set_status(tr("Reading image…").into());
         if let Some(service) = config.enabled_translation_services().first() {
             window.set_service(service.provider.clone().into());
         }
         window.on_select_line(|line| send(Message::SelectLine(line)));
         window.on_select_paragraph(|paragraph| send(Message::SelectParagraph(paragraph)));
-        window.on_copy_result(|| send(Message::Copy));
+        window.on_select_code(move |code| send(Message::SelectCode(id, code)));
+        window.on_copy_code(move |code| send(Message::Copy(id, Some(code))));
+        window.on_copy_result(move || send(Message::Copy(id, None)));
         window.on_translate(|| send(Message::Translate));
         window.on_dismiss(|| send(Message::Close));
         window.window().on_close_requested(|| {
@@ -173,19 +179,63 @@ impl View {
 
     fn display(&mut self, result: Recognition) {
         match result {
-            Recognition::Text(text) => {
-                self.window.set_status(
-                    if text.is_empty() {
-                        "No barcode found"
-                    } else {
-                        "Code recognition"
-                    }
-                    .into(),
-                );
-                self.window.set_original(text.into());
-            }
+            Recognition::Codes(result) => self.display_codes(result),
             Recognition::Ocr(result) => self.layout(result),
         }
+    }
+
+    fn display_codes(&self, result: code_detection::CodeScanResponse) {
+        let width = self.window.get_image_width();
+        let height = self.window.get_image_height();
+        let mut markers = Vec::new();
+        let mut matches = Vec::with_capacity(result.results.len());
+        for (index, code) in result.results.into_iter().enumerate() {
+            let id = index as i32;
+            markers.extend(code.points.into_iter().map(|point| CodeMarker {
+                id,
+                x: point.x / width,
+                y: point.y / height,
+            }));
+            let format = match code.format.as_str() {
+                "qr_code" => "QR Code",
+                "code_39" => "Code 39",
+                "code_128" => "Code 128",
+                "ean_13" => "EAN-13",
+                format => format,
+            };
+            matches.push(CodeMatch {
+                id,
+                format: format.into(),
+                text: code.text.into(),
+            });
+        }
+        let original = matches
+            .iter()
+            .map(|code| code.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.window.set_status(if matches.is_empty() {
+            tr("No barcode found").into()
+        } else {
+            Default::default()
+        });
+        self.window.set_original(original.into());
+        self.window.set_scan_limited(result.limited);
+        self.window
+            .set_code_matches(ModelRc::new(VecModel::from(matches)));
+        self.window
+            .set_code_markers(ModelRc::new(VecModel::from(markers)));
+    }
+
+    fn select_code(&self, id: i32) -> slint::SharedString {
+        let code = self
+            .window
+            .get_code_matches()
+            .row_data(id as usize)
+            .expect("扫码操作来自当前结果列表");
+        self.window.set_selected_code(id);
+        self.window.set_current_text(code.text.clone());
+        code.text
     }
 
     fn layout(&mut self, mut result: StructuredOcr) {
@@ -331,7 +381,7 @@ impl App {
         }
         self.vision.serial += 1;
         let id = self.vision.serial;
-        let new_view = View::open(id, &image, &self.config)?;
+        let new_view = View::open(id, &image, &self.config, mode)?;
         let native = self.vision.native_engine();
         let cancelled = new_view.cancelled.clone();
         thread::Builder::new()
@@ -343,16 +393,7 @@ impl App {
                         image.width(),
                         image.height(),
                     )
-                    .map(|result| {
-                        Recognition::Text(
-                            result
-                                .results
-                                .into_iter()
-                                .map(|code| code.text)
-                                .collect::<Vec<_>>()
-                                .join("\n"),
-                        )
-                    })
+                    .map(Recognition::Codes)
                     .map_err(Into::into),
                     Mode::Recognize => recognize(image, native, cancelled).map(Recognition::Ocr),
                 };
@@ -408,19 +449,29 @@ impl App {
                         });
                 }
             }
-            Message::Copy => {
-                let id = view.id;
-                let mut text = view.window.get_current_text();
-                if text.is_empty() {
-                    text = view.window.get_original();
-                }
+            Message::SelectCode(id, code) if view.id == id => {
+                view.select_code(code);
+            }
+            Message::Copy(id, code) if view.id == id => {
+                let text = match code {
+                    Some(code) => view.select_code(code),
+                    None if view.window.get_scan_mode() => view.window.get_original(),
+                    None => {
+                        let selected = view.window.get_current_text();
+                        if selected.is_empty() {
+                            view.window.get_original()
+                        } else {
+                            selected
+                        }
+                    }
+                };
                 self.clipboard.submit(clipboard::Request::WriteText {
                     text: text.to_string(),
                     finish: Box::new(move |result| {
                         send(Message::Status(
                             id,
                             result
-                                .map(|()| "Copied to clipboard".to_owned())
+                                .map(|()| tr("Copied to clipboard").to_owned())
                                 .unwrap_or_else(|error| error.to_string()),
                         ))
                     }),

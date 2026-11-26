@@ -175,6 +175,9 @@ msgstr "剪贴板图片"
 msgid "Clippy Actions"
 msgstr "Clippy 动作"
 
+msgid "Clippy Code Scan"
+msgstr "Clippy 扫码"
+
 msgid "Clippy Image Editor"
 msgstr "Clippy 图片编辑器"
 
@@ -252,6 +255,9 @@ msgstr "已复制到剪贴板"
 
 msgid "Copy"
 msgstr "复制"
+
+msgid "Copy all"
+msgstr "复制全部"
 
 msgid "Copy image"
 msgstr "复制图片"
@@ -715,6 +721,9 @@ msgstr "下次录屏"
 msgid "No audio"
 msgstr "无声"
 
+msgid "No barcode found"
+msgstr "未识别到二维码或条码"
+
 msgid "No matching actions"
 msgstr "没有匹配的动作"
 
@@ -927,6 +936,9 @@ msgstr "识别结果"
 
 msgid "Recognizing text locally…"
 msgstr "正在本地识字…"
+
+msgid "Reading image…"
+msgstr "正在读取图片…"
 
 msgid "Record"
 msgstr "录制"
@@ -1146,6 +1158,9 @@ msgstr "显示"
 
 msgid "Show translation on image"
 msgstr "在图片上显示译文"
+
+msgid "Some codes were omitted."
+msgstr "部分扫码结果超出显示上限。"
 
 msgid "Sign out to finish setup"
 msgstr "请重新登录以完成设置"

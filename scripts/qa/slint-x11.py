@@ -904,7 +904,7 @@ def run(binary, root):
         copied_pin = wait_for(edited_clipboard, "pin toolbar did not copy the stored image")
         assert copied_pin.get_pixels() == edited_copy.get_pixels()
         save_qa_window("pin-toolbar.png", (pin_x, pin_y, pin_width, pin_height))
-        desktop.click(pin_x + pin_width - 26, pin_y + 318)
+        desktop.click(pin_x + pin_width - 26, pin_y + 348)
         wait_for(lambda: not titled_window(PIN_TITLE), "pin did not hide")
         print("PASS pin toolbar stores opacity and size lock and copies unchanged pixels", flush=True)
         tray.activate("Pinned Workspace")

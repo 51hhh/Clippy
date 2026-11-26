@@ -74,6 +74,7 @@ pub(super) enum PinInput {
 
 pub(super) enum Action {
     Edit,
+    Scan,
     Copy,
     Save,
     Update,
@@ -211,6 +212,7 @@ impl Pins {
         window.on_update_pin(move || send(Message::View(id, Action::Update)));
         window.on_resize_pin(move |scale| send(Message::View(id, Action::Resize(scale))));
         window.on_edit_pin(move || send(Message::View(id, Action::Edit)));
+        window.on_scan_pin(move || send(Message::View(id, Action::Scan)));
         window.on_copy_pin(move || send(Message::View(id, Action::Copy)));
         window.on_save_pin(move || send(Message::View(id, Action::Save)));
         window.on_workspace(|| send(Message::Workspace));
@@ -713,6 +715,11 @@ impl App {
             Action::Edit => {
                 if let Content::Image { rendered, project } = &view.content {
                     self.open_editor_project(rendered.clone(), project.clone())?;
+                }
+            }
+            Action::Scan => {
+                if let Content::Image { rendered, .. } = &view.content {
+                    self.analyze_image(rendered.clone(), super::vision::Mode::Scan)?;
                 }
             }
             Action::Copy => {
