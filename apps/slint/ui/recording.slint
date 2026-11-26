@@ -16,9 +16,9 @@ export component RecordingLibrary inherits Window {
     in property <bool> finishing;
     in property <bool> loaded;
     in property <string> status;
+    in property <string> audio-status;
     in property <[string]> audio-options;
-    in-out property <int> audio-index;
-    callback audio-changed(int);
+    in-out property <string> audio-value;
     callback preview-recording(string);
     callback play(string);
     callback export-recording(string, string);
@@ -186,13 +186,20 @@ export component RecordingLibrary inherits Window {
             }
             if root.audio-options.length > 1: HorizontalLayout {
                 spacing: 7px; height: 32px;
-                Rectangle { horizontal-stretch: 1; }
+                Text {
+                    text: root.audio-status; color: ClippyTheme.subtle; font-size: 11px;
+                    vertical-alignment: center; horizontal-stretch: 1; overflow: elide;
+                }
+                if root.recordings.length == 0: SurfaceButton {
+                    label: "Refresh audio devices"; caption: "Refresh";
+                    border-width: 1px; border-color: ClippyTheme.control-border;
+                    clicked => { root.reload(); }
+                }
                 Text { text: "Next recording"; color: ClippyTheme.subtle; font-size: 11px; vertical-alignment: center; }
                 ComboBox {
-                    width: 180px;
-                    model: root.audio-options; current-index <=> root.audio-index;
+                    width: 224px;
+                    model: root.audio-options; current-value <=> root.audio-value;
                     accessible-label: "Audio for the next recording";
-                    selected => { root.audio-changed(self.current-index); }
                 }
             }
         }

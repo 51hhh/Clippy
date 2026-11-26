@@ -1,6 +1,7 @@
 use super::{editor, post, settings, App, Event};
 use crate::{ClippyTheme, RecordingFile, RecordingLibrary, RecordingRow};
 use anyhow::{anyhow, Context, Result};
+use audio::{AudioOptions, AudioTrack};
 use clippy_core::image_output::{expand_user_path, unique_image_id};
 #[cfg(all(
     feature = "native-recording-audio",
@@ -31,6 +32,7 @@ use std::{
     time::Duration,
 };
 
+mod audio;
 mod control;
 mod source;
 
@@ -40,65 +42,18 @@ pub(super) enum Control {
     Stop,
 }
 
-#[derive(Clone, Copy, Default)]
-pub(super) enum AudioTrack {
-    #[default]
-    Silent,
-    #[cfg(all(
-        feature = "native-recording-audio",
-        any(target_os = "linux", target_os = "windows")
-    ))]
-    System,
-    #[cfg(all(
-        feature = "native-recording-audio",
-        any(target_os = "linux", target_os = "windows")
-    ))]
-    Microphone,
-}
-
-impl AudioTrack {
-    fn from_index(index: i32) -> Self {
-        match index {
-            #[cfg(all(
-                feature = "native-recording-audio",
-                any(target_os = "linux", target_os = "windows")
-            ))]
-            1 => Self::System,
-            #[cfg(all(
-                feature = "native-recording-audio",
-                any(target_os = "linux", target_os = "windows")
-            ))]
-            2 => Self::Microphone,
-            _ => Self::Silent,
-        }
-    }
-
-    const fn names() -> &'static [&'static str] {
-        #[cfg(all(
-            feature = "native-recording-audio",
-            any(target_os = "linux", target_os = "windows")
-        ))]
-        {
-            &["No audio", "Default system audio", "Default microphone"]
-        }
-        #[cfg(not(all(
-            feature = "native-recording-audio",
-            any(target_os = "linux", target_os = "windows")
-        )))]
-        {
-            &["No audio"]
-        }
-    }
-}
-
 pub(super) enum Message {
     Show,
     Refresh,
     Close,
-    Begin(Region, (u32, u32)),
+    Begin(Region, (u32, u32), AudioTrack),
     HideControl,
     Control(Control),
-    Audio(i32),
+    #[cfg(all(
+        feature = "native-recording-audio",
+        any(target_os = "linux", target_os = "windows")
+    ))]
+    AudioDevices(Result<Vec<clippy_media::recording::audio_devices::NativeRecordingAudioDevice>>),
     List(u64, Result<Vec<RecordingLibraryItem>>),
     Preview(String),
     PreviewReady(u64, String, Result<Option<RgbaImage>>),
@@ -126,7 +81,7 @@ pub(super) struct Recordings {
     preview_cached: VecDeque<String>,
     preview_running: bool,
     recovered: Arc<Mutex<bool>>,
-    audio_selection: i32,
+    audio: AudioOptions,
     status: String,
     paused: bool,
     toggle_pending: bool,
@@ -192,25 +147,8 @@ impl Session {
                 feature = "native-recording-audio",
                 any(target_os = "linux", target_os = "windows")
             ))]
-            AudioTrack::System | AudioTrack::Microphone => {
-                #[cfg(target_os = "linux")]
-                let plan = {
-                    use clippy_media::recording::platform::linux_audio::LinuxPipeWireAudioSourcePlan as Plan;
-                    match track {
-                        AudioTrack::System => Plan::system_audio(None),
-                        AudioTrack::Microphone => Plan::microphone(None),
-                        AudioTrack::Silent => unreachable!(),
-                    }
-                };
-                #[cfg(target_os = "windows")]
-                let plan = {
-                    use clippy_media::recording::platform::windows_audio::WindowsWasapiAudioSourcePlan as Plan;
-                    match track {
-                        AudioTrack::System => Plan::system_loopback(None),
-                        AudioTrack::Microphone => Plan::microphone(None),
-                        AudioTrack::Silent => unreachable!(),
-                    }
-                };
+            track @ (AudioTrack::System(_) | AudioTrack::Microphone(_)) => {
+                let plan = track.into_plan();
                 let config = AvRecordingConfig {
                     session_id: config.session_id,
                     source_id: config.source_id,
@@ -394,15 +332,7 @@ impl Recordings {
         let appearance = window.global::<ClippyTheme>();
         appearance.set_index(theme);
         settings::connect_titlebar(&window, RecordingLibrary::invoke_titlebar_contains);
-        window.set_audio_options(ModelRc::new(VecModel::from(
-            AudioTrack::names()
-                .iter()
-                .copied()
-                .map(Into::into)
-                .collect::<Vec<_>>(),
-        )));
-        window.set_audio_index(self.audio_selection);
-        window.on_audio_changed(|index| send(Message::Audio(index)));
+        self.audio.show(&window);
         window.on_dismiss(|| send(Message::Close));
         window.on_reload(|| send(Message::Refresh));
         window.on_pause(|| send(Message::Control(Control::PauseResume)));
@@ -422,6 +352,20 @@ impl Recordings {
         self.window = Some(window);
         self.sync_controls();
         Ok(())
+    }
+
+    fn refresh_audio(&mut self) -> io::Result<()> {
+        if let Some(window) = self.window.as_ref() {
+            self.audio.refresh()?;
+            self.audio.show_status(window);
+        }
+        Ok(())
+    }
+
+    fn remember_audio(&mut self) {
+        if let Some(window) = self.window.as_ref() {
+            self.audio.remember(window.get_audio_value().as_str());
+        }
     }
 
     fn note(&mut self, result: Result<String>) {
@@ -541,6 +485,11 @@ impl App {
             self.complete("A recording is already in progress");
             return;
         }
+        self.recordings.remember_audio();
+        let track = match self.recordings.audio.selected() {
+            Ok(track) => track,
+            Err(error) => return self.capture_error(error),
+        };
         self.recordings.stop_playback();
         if let Some(window) = self.recordings.window.take() {
             let _ = window.hide();
@@ -557,14 +506,14 @@ impl App {
         if self.recordings.control.is_some() {
             // WM 摆位有异步阶段，在首帧采集前检查实际坐标。
             Timer::single_shot(Duration::from_millis(90), move || {
-                send(Message::Begin(region, size))
+                send(Message::Begin(region, size, track))
             });
         } else {
-            self.begin_recording(region, size);
+            self.begin_recording(region, size, track);
         }
     }
 
-    fn begin_recording(&mut self, region: Region, size: (u32, u32)) {
+    fn begin_recording(&mut self, region: Region, size: (u32, u32), track: AudioTrack) {
         self.capture_task_id += 1;
         let result = Job::open(
             self.capture_task_id,
@@ -572,7 +521,7 @@ impl App {
             region,
             size,
             self.recordings.recovered.clone(),
-            AudioTrack::from_index(self.recordings.audio_selection),
+            track,
         );
         match result {
             Ok(job) => {
@@ -618,10 +567,14 @@ impl App {
             Message::Show => {
                 self.recordings
                     .show(settings::theme_index(&self.config.theme))?;
+                self.recordings.refresh_audio()?;
                 self.refresh_recordings()?;
             }
-            Message::Refresh => self.refresh_recordings()?,
-            Message::Begin(region, size) => {
+            Message::Refresh => {
+                self.recordings.refresh_audio()?;
+                self.refresh_recordings()?;
+            }
+            Message::Begin(region, size, track) => {
                 if self
                     .recordings
                     .control
@@ -630,17 +583,28 @@ impl App {
                 {
                     self.recordings.control.take();
                     Timer::single_shot(Duration::from_millis(32), move || {
-                        send(Message::Begin(region, size))
+                        send(Message::Begin(region, size, track))
                     });
                 } else {
-                    self.begin_recording(region, size);
+                    self.begin_recording(region, size, track);
                 }
             }
             Message::HideControl => {
                 self.recordings.control.take();
             }
-            Message::Audio(index) => self.recordings.audio_selection = index,
+            #[cfg(all(
+                feature = "native-recording-audio",
+                any(target_os = "linux", target_os = "windows")
+            ))]
+            Message::AudioDevices(devices) => {
+                self.recordings.remember_audio();
+                self.recordings.audio.updated(devices);
+                if let Some(window) = self.recordings.window.as_ref() {
+                    self.recordings.audio.show(window);
+                }
+            }
             Message::Close => {
+                self.recordings.remember_audio();
                 self.recordings.stop_playback();
                 if let Some(window) = self.recordings.window.take() {
                     window.hide()?;

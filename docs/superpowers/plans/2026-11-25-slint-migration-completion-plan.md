@@ -22,7 +22,7 @@ GitHub `dev` 仍指向 #27 的合入提交 `abfdeb5`。之前的安装包、三�
 | 冻结截图 | X11 root、GNOME Mutter 原始帧、其他 Wayland 的 wayshot、Windows xcap/WGC 单帧、macOS xcap/CoreGraphics。选区使用单输出源像素 | 复测 v5 速度与 GNOME 瞬时菜单。补窗口速选、旋转和混合 DPI 验收。跨屏选区和合成是原生计划中的新增目标，先固定输出坐标尺度。保留系统截图导入和延时截图。 [平台采集](../../../crates/clippy-platform/src/capture.rs) · [GNOME v5 合同](../specs/2026-10-23-gnome-capture-fast-path-rollback.md) |
 | 标注、查看器、贴图 | 截图层有五个内联工具。编辑器可做更多标注。查看器支持缩放拖动。贴图、修订、工作区分组和缩略图已接入 | 恢复高频内联笔、文字、马赛克等实际入口与撤销/重做。窗口速选和扫码结果交互按旧操作验证。贴图跨屏缩放、层级和重启位置恢复做原生验证。独立查看器持久化工程按现有修订合同接入。 [截图窗](../../../apps/slint/ui/capture.slint) · [编辑器控制](../../../apps/slint/src/app/editor.rs) · [贴图状态](../../../apps/slint/src/app/pins.rs) |
 | 长截图 | 手动追加、撤销、拼接、取消已验证，完成后进入编辑器 | 接自动滚动、到边界判停、目标丢失撤销输入，以及完成后快捷复制、保存、贴图。复用旧版自动输入与共享拼接算法。 [现有控制器](../../../apps/slint/src/app/longshot.rs) · [旧版自动滚动](../../../apps/legacy-tauri/native/src/capture/longshot/auto_scroll.rs) |
-| 区域录屏与回放 | VP9/WebM、暂停/继续、恢复与导出已接入。X11 有安全摆位浮窗。Wayland、WGC、ScreenCaptureKit 已接入原生帧时间。Slint Linux/Windows 支持默认系统或麦克风设备。回放与朗读调用 `ffplay` | 接库内播放器、指定设备界面、跨平台浮窗排除、双源混音和 macOS 音轨。持续帧、设备移除、有声音画同步及干净安装继续按平台验收。 [录屏入口](../../../apps/slint/src/app/recording.rs) · [媒体模块](../../../crates/clippy-media/src/recording/mod.rs) |
+| 区域录屏与回放 | VP9/WebM、暂停/继续、恢复与导出已接入。X11 有安全摆位浮窗。Wayland、WGC、ScreenCaptureKit 已接入原生帧时间。Slint Linux/Windows 支持选择系统音源或麦克风。回放与朗读调用 `ffplay` | 接库内播放器、跨平台浮窗排除、双源混音和 macOS 音轨。持续帧、设备移除、有声音画同步及干净安装继续按平台验收。 [录屏入口](../../../apps/slint/src/app/recording.rs) · [媒体模块](../../../crates/clippy-media/src/recording/mod.rs) |
 | OCR、扫码、图片翻译 | Tesseract TSV 有行框、置信度及段落。配置可用时调用旧增强引擎。打开图像文字窗后可选行、选段及翻译，合适的译文已有覆盖层，长译文留在侧栏 | 打包可分发的离线引擎、补可靠多栏/暗色/旋转排版。统一结果缓存和坐标，补快捷入口和多段按需翻译。扫码从结果文本扩展到共享模型已经提供的位置与逐项操作时，复用真实字段。 [OCR 接口](../../../crates/clippy-vision/src/lib.rs) · [译文回填](../../../apps/slint/src/app/vision.rs#L342) |
 | 预览、工具与归档 | 图片、有限 HTML/Markdown、编解码工具、翻译历史、手动 tmux 捕获、统计、归档导入导出 | 复验旧版实际使用的代码高亮、复杂表格、链接和译文管理。按对照结果补齐入口。归档沿用现有校验合同和 SQLite schema。 [预览解析](../../../apps/slint/src/app/preview_document.rs) · [工具窗口](../../../apps/slint/src/app/tools.rs) · [归档入口](../../../apps/slint/src/app/settings.rs#L509) |
 | 安装、更新与数据 | semver 分流已实现。Slint 有 QA 身份、安装器及草稿发版。首次正式启动会备份配置和数据库，Linux 早期已验证解包运行和备份恢复 | 真实安装器原位升级、旧 updater 取包验签、正式签名/公证策略、失败回滚以及新版自主更新。核对 QA 与生产身份、实际最低系统版本和无 WebView。 [升级备份](../../../apps/slint/src/app/upgrade.rs) · [发行草稿](../../../.github/workflows/release.yml#L813) |
@@ -648,6 +648,21 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   均复现。恢复已验证的默认音源界面，下一轮先做可独立重现的 Slint 选择状态探针。
   草稿与验收日志分别为 `audio-catalog-ui-draft.patch`、`audio-ui-selected-label.log` 与
   `audio-ui-retained-selection.log`。
+
+### 阶段 4 · 指定录屏设备界面
+
+- 最小 Slint 1.19 窗口对照复现了隔离 X11 未给目标窗口焦点时的选中值丢失。明确赋予窗口焦点后，
+  索引和值绑定均收到四次真实按键更新，Rust 在窗口关闭时仍能读到最后选择。
+- 恢复基于控件值的实现。设备枚举在后台单次运行，刷新和关窗前均按当前目录解析选中值，再以原生设备
+  身份保留选择。启动录制前先核对选择，创建会话时固定设备。当目录发现设备已移除时，下拉框显示
+  设备失效并在创建录屏清单之前报告错误。
+- 完整应用在隔离 X11 选中非默认 PipeWire 输出，关窗后移除设备并重开，仍显示设备不可用。
+  失效选择会被拦截，重新选择无声后产出可解码 VP9 文件。最小探针和正式应用测试分别位于
+  `target/test-artifacts/slint-stage4-audio-devices/slint-selection-probe/focused.log` 与
+  `target/test-artifacts/slint-stage4-audio-devices/audio-ui-focused.log`。
+- 完整 Linux 门禁 11 项通过、0 失败、0 跳过。关闭录屏音频特性时通过 Clippy 严格检查，Windows
+  GNU 的 Slint QA 入口以默认录屏编解码和 WASAPI 功能通过交叉检查。实际硬件音频与录制中拔出继续验收。
+  日志分别为 `ci-local-devices.log`、`no-audio-devices.log` 和 `windows-qa-devices.log`。
 
 ## Acceptance Criteria
 

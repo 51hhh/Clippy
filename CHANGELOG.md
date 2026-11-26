@@ -48,8 +48,11 @@
 
 ### Slint 区域录屏
 
+- 录屏库可为下一次录制指定 Linux 或 Windows 的系统音源或麦克风。刷新设备时按设备身份保留选择。
+  选中的设备消失时，录屏库会提示设备不可用，并拦下本次录制。Linux 已通过隔离桌面回归，
+  Windows 实机继续验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 - Linux 录屏在使用指定的 PipeWire 音源时会锁定设备。隔离环境已验证缺失的目标会返回错误，
-  新版设备选择界面、实机拔出与长时间同步继续验收。
+  实机拔出与长时间同步继续验收。
   （需求 `SLINT-MIGRATION-CLOSURE-01`）
 - Windows WGC 和 macOS ScreenCaptureKit 的原生帧时间接入录屏时间线。静止时沿用最新画面推进恢复分段。
   已交叉检查，目标系统的原生采集、暂停和带音轨长录仍待验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
