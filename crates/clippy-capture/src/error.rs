@@ -75,6 +75,8 @@ pub enum CaptureError {
     LongshotEstimateDisplacementTooLarge,
     #[error("长截图相邻帧没有新增内容")]
     LongshotEstimateNoExtension,
+    #[error("长截图相邻帧方向与滚动方向不一致")]
+    LongshotEstimateUnexpectedDirection,
     #[error("已有长截图会话正在进行")]
     LongshotSessionBusy,
     #[error("长截图会话不存在")]
@@ -155,6 +157,7 @@ impl CaptureError {
                 "longshot_estimate_displacement_too_large"
             }
             Self::LongshotEstimateNoExtension => "longshot_estimate_no_extension",
+            Self::LongshotEstimateUnexpectedDirection => "longshot_estimate_unexpected_direction",
             Self::LongshotSessionBusy => "longshot_session_busy",
             Self::LongshotSessionMissing => "longshot_session_missing",
             Self::LongshotSessionSuperseded => "longshot_session_superseded",
@@ -286,6 +289,7 @@ mod tests {
             CaptureError::LongshotEstimateAmbiguous,
             CaptureError::LongshotEstimateDisplacementTooLarge,
             CaptureError::LongshotEstimateNoExtension,
+            CaptureError::LongshotEstimateUnexpectedDirection,
             CaptureError::LongshotSessionBusy,
             CaptureError::LongshotSessionMissing,
             CaptureError::LongshotSessionSuperseded,

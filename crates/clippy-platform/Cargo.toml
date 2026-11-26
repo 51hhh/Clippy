@@ -29,7 +29,7 @@ smithay-client-toolkit = { version = "0.19", default-features = false }
 tokio = { version = "1", features = ["rt", "macros", "sync", "time"] }
 url = "2"
 wayland-client = "0.31"
-x11rb = { version = "0.13", features = ["image", "randr", "xfixes"] }
+x11rb = { version = "0.13", features = ["image", "randr", "xfixes", "xtest"] }
 zbus = "5"
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]

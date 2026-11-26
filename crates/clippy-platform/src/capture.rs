@@ -259,8 +259,7 @@ pub fn with_region_reader<T>(
     }
     #[cfg(target_os = "linux")]
     {
-        let pixels = pixel_rect(geometry.width, geometry.height, [left, top, right, bottom])?;
-        let rectangle = offset_rect(geometry, pixels)?;
+        let rectangle = x11_region_rect(geometry, [left, top, right, bottom])?;
         let source = x11::Source::open()?;
         consume(&mut || source.read(rectangle))
     }
@@ -319,6 +318,14 @@ fn gnome_region(
         pixel_rect(geometry.width, geometry.height, bounds)?,
     )?;
     Ok((area, [0.0, 0.0, 1.0, 1.0], (area.width, area.height)))
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn x11_region_rect(geometry: DesktopRect, bounds: [f32; 4]) -> Result<DesktopRect> {
+    offset_rect(
+        geometry,
+        pixel_rect(geometry.width, geometry.height, bounds)?,
+    )
 }
 
 #[cfg(target_os = "linux")]

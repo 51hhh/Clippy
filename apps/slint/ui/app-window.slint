@@ -16,6 +16,7 @@ export { CaptureWindow, CaptureAction, CaptureMark, CaptureTool } from "capture.
 
 export component ClippyTray inherits SystemTrayIcon {
     in property <string> product-name;
+    in property <bool> scrolling;
     callback open-panel();
     callback screenshot();
     callback delayed-screenshot();
@@ -26,6 +27,7 @@ export component ClippyTray inherits SystemTrayIcon {
     callback recordings();
     callback recording-pause();
     callback recording-stop();
+    callback stop-scrolling();
     callback quit();
 
     tooltip: root.product-name;
@@ -42,6 +44,7 @@ export component ClippyTray inherits SystemTrayIcon {
         MenuItem { title: "Recordings"; activated => { root.recordings(); } }
         MenuItem { title: "Pause / Resume recording"; activated => { root.recording-pause(); } }
         MenuItem { title: "Stop recording"; activated => { root.recording-stop(); } }
+        if root.scrolling : MenuItem { title: "Stop scrolling capture"; activated => { root.stop-scrolling(); } }
         MenuItem { title: "Settings"; activated => { root.open-settings(); } }
         MenuItem { title: "Quit"; activated => { root.quit(); } }
     }

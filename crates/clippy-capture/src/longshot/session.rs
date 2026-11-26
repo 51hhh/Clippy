@@ -4,7 +4,7 @@
 //! 事务顺序估计并拼接。失败时最后一帧和拼接缓冲都保持可重试状态。
 
 use super::canvas::{CanvasAppend, LongshotCanvas};
-use super::overlap::{OverlapEstimate, ScrollAxis};
+use super::overlap::{OverlapEstimate, ScrollAxis, ScrollDirection};
 use super::{checked_pixel_count, overlap, CaptureError, RGBA_BYTES_PER_PIXEL};
 use image::RgbaImage;
 use std::sync::Arc;
@@ -67,6 +67,26 @@ impl LongshotSession {
 
     /// 原子地估计相邻帧的四向位移，并提交新增区域或只移动 viewport anchor。
     pub fn append(&mut self, incoming: RgbaImage) -> Result<LongshotAppendOutcome, CaptureError> {
+        self.append_frame(incoming, None)
+    }
+
+    pub fn append_after_scroll(
+        &mut self,
+        incoming: RgbaImage,
+        direction: ScrollDirection,
+    ) -> Result<LongshotAppendOutcome, CaptureError> {
+        self.append_frame(incoming, Some(direction))
+    }
+
+    pub fn current_frame(&self) -> &RgbaImage {
+        &self.last_frame
+    }
+
+    fn append_frame(
+        &mut self,
+        incoming: RgbaImage,
+        direction: Option<ScrollDirection>,
+    ) -> Result<LongshotAppendOutcome, CaptureError> {
         // 这两步在成对估计之前执行，既避免在会话预算外分配灰度图，也不改变估计器
         // 自身对尺寸不一致/质量门禁的优先级。
         overlap::validate_frame_nonempty_and_global(&incoming)?;
@@ -77,6 +97,9 @@ impl LongshotSession {
             &incoming,
             self.preferred_axis,
         )?;
+        if direction.is_some_and(|expected| expected != estimate.direction) {
+            return Err(CaptureError::LongshotEstimateUnexpectedDirection);
+        }
         let next_x = self
             .viewport_x
             .checked_add(i64::from(estimate.delta_x))
@@ -309,6 +332,27 @@ mod tests {
             png_rgba(&session.finish_png().expect("结果应可导出")),
             frame(&source, 0, 96).into_raw()
         );
+    }
+
+    #[test]
+    fn an_opposite_scroll_leaves_the_canvas_and_viewport_unchanged() {
+        let (previous, incoming, source) = pair(24);
+        let mut session = LongshotSession::start(previous.clone()).unwrap();
+        let snapshot = session.snapshot();
+        assert!(matches!(
+            session.append_after_scroll(incoming.clone(), ScrollDirection::Up),
+            Err(CaptureError::LongshotEstimateUnexpectedDirection)
+        ));
+        assert_eq!(session.snapshot(), snapshot);
+        assert_eq!(session.current_frame(), &previous);
+        assert_eq!(session.finish_pixels().unwrap(), previous);
+        assert!(
+            session
+                .append_after_scroll(incoming, ScrollDirection::Down)
+                .unwrap()
+                .committed
+        );
+        assert_eq!(session.finish_pixels().unwrap(), frame(&source, 0, 96));
     }
 
     #[test]

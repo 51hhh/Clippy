@@ -56,6 +56,7 @@ pub(super) enum Message {
 pub(super) enum PinRequest {
     Editor(u64),
     Launcher(u64),
+    Longshot(u64),
     History,
 }
 
@@ -591,6 +592,12 @@ impl App {
                         id,
                         result.map(|()| "Pinned image added to workspace".to_owned()),
                     ),
+                    PinRequest::Longshot(id) => {
+                        self.longshot_message(super::longshot::Message::Exported(
+                            id,
+                            result.map(|()| "Pinned image added to workspace".to_owned()),
+                        ))
+                    }
                     PinRequest::Launcher(generation) => {
                         self.launcher_pin_created(generation, result)
                     }

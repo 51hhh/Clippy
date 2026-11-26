@@ -1,5 +1,7 @@
 import { SurfaceButton } from "theme.slint";
 
+export enum LongshotDirection { down, up, left, right }
+
 component CaptureStatistic inherits Rectangle {
     in property <string> caption;
     in property <string> value;
@@ -29,6 +31,7 @@ export component LongshotWindow inherits Window {
     in property <image> preview;
     in property <bool> busy: true;
     in property <bool> can-undo;
+    in property <bool> auto-scroll-available;
     in property <int> frames;
     in property <int> capture-width;
     in property <int> capture-height;
@@ -36,7 +39,11 @@ export component LongshotWindow inherits Window {
     callback append();
     callback undo();
     callback finish();
+    callback copy();
+    callback save();
+    callback pin();
     callback cancel();
+    callback auto-scroll(LongshotDirection);
 
     title: "Clippy Scrolling Capture";
     no-frame: true;
@@ -82,6 +89,19 @@ export component LongshotWindow inherits Window {
                     background: #282a2f; border-radius: 6px; clip: true;
                     Image { width: parent.width; height: parent.height; source: root.preview; image-fit: contain; }
                 }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                LongshotButton { label: "Copy"; enabled: !root.busy; clicked => { root.copy(); } }
+                LongshotButton { label: "Save PNG"; enabled: !root.busy; clicked => { root.save(); } }
+                LongshotButton { label: "Pin"; enabled: !root.busy; clicked => { root.pin(); } }
+            }
+            if root.auto-scroll-available : HorizontalLayout {
+                spacing: 8px;
+                LongshotButton { label: "Auto down"; enabled: !root.busy; clicked => { root.auto-scroll(LongshotDirection.down); } }
+                LongshotButton { label: "Auto up"; enabled: !root.busy; clicked => { root.auto-scroll(LongshotDirection.up); } }
+                LongshotButton { label: "Auto left"; enabled: !root.busy; clicked => { root.auto-scroll(LongshotDirection.left); } }
+                LongshotButton { label: "Auto right"; enabled: !root.busy; clicked => { root.auto-scroll(LongshotDirection.right); } }
             }
             HorizontalLayout {
                 spacing: 8px;

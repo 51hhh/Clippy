@@ -102,6 +102,11 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
             recording::Control::Stop,
         )))
     });
+    tray.on_stop_scrolling(|| {
+        handle(Event::Longshot(longshot::Message::Action(
+            longshot::Action::Stop,
+        )))
+    });
     tray.on_quit(|| {
         let _ = slint::quit_event_loop();
     });
@@ -142,6 +147,7 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
             pins: pins::Pins::default(),
             preview: preview::Preview::default(),
             thumbnails: thumbnails::Thumbnails::default(),
+            tray: tray.clone_strong(),
             longshot: None,
             capture_task_id: 0,
             vision: vision::Vision::default(),
@@ -278,6 +284,7 @@ struct App {
     pins: pins::Pins,
     preview: preview::Preview,
     thumbnails: thumbnails::Thumbnails,
+    tray: ClippyTray,
     longshot: Option<longshot::View>,
     capture_task_id: u64,
     vision: vision::Vision,
