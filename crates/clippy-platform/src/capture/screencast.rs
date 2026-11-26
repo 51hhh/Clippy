@@ -14,6 +14,7 @@ pub(super) const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 pub(super) const CHOOSER_TIMEOUT: Duration = Duration::from_secs(120);
 pub(super) const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(5);
+const KWIN_EFFECT_INTERVAL: Duration = Duration::from_millis(16);
 
 pub(super) struct ScreenCast {
     runtime: Runtime,
@@ -117,6 +118,31 @@ impl ScreenCast {
         Ok((stream, wait_for_frame(&self.runtime, first, cancellation)?))
     }
 
+    pub fn wait_for_kwin_picker(&self, cancellation: &RegionCancellation) -> Result<()> {
+        self.runtime
+            .block_on(cancellable(cancellation, CALL_TIMEOUT, async {
+                let effects = zbus::proxy::Builder::<zbus::Proxy>::new(&self.connection)
+                    .destination("org.kde.KWin")?
+                    .path("/Effects")?
+                    .interface("org.kde.kwin.Effects")?
+                    .cache_properties(zbus::proxy::CacheProperties::No)
+                    .build()
+                    .await?;
+                let mut idle = false;
+                loop {
+                    let active: Vec<String> = effects.get_property("activeEffects").await?;
+                    let settled = !active.iter().any(|name| is_kwin_close_effect(name));
+                    // 选屏回应和关闭特效的激活可以落在相邻两次合成更新。
+                    if settled && idle {
+                        return Ok(());
+                    }
+                    idle = settled;
+                    tokio::time::sleep(KWIN_EFFECT_INTERVAL).await;
+                }
+            }))
+            .context("Waiting for the KDE screen sharing dialog to disappear")
+    }
+
     pub fn resume_region(
         &self,
         stream: &ScreenCastStream,
@@ -132,6 +158,20 @@ impl ScreenCast {
         )?;
         Ok(())
     }
+}
+
+fn is_kwin_close_effect(name: &str) -> bool {
+    matches!(
+        name,
+        "fade"
+            | "fadingpopups"
+            | "fallapart"
+            | "glide"
+            | "scale"
+            | "sheet"
+            | "slidingpopups"
+            | "squash"
+    )
 }
 
 impl Drop for ScreenCast {

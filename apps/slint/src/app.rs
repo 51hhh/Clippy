@@ -248,6 +248,8 @@ enum Event {
         result: Result<Vec<Vec<clippy_platform::capture::window_pick::WindowTarget>>>,
     },
     CapturePlacementFailed(slint::Weak<crate::CaptureWindow>, anyhow::Error),
+    CaptureOverlayCleared(Instant),
+    CaptureOverlayClearTimedOut(Instant),
     CaptureWindowDestroyed(slint::winit_030::winit::window::WindowId, Instant),
     CaptureCancel,
     CaptureSelection {
@@ -497,6 +499,23 @@ impl App {
                     self.capture_error(error);
                 }
             }
+            Event::CaptureOverlayCleared(started) => {
+                if let Some(pending) = &mut self.capture_after_close {
+                    pending.overlay_cleared(started);
+                }
+            }
+            Event::CaptureOverlayClearTimedOut(started) => {
+                if self
+                    .capture_after_close
+                    .as_ref()
+                    .is_some_and(|pending| pending.is_clearing(started))
+                {
+                    self.capture_after_close.take();
+                    self.capture_error(anyhow::anyhow!(
+                        "The capture overlay did not clear in time"
+                    ));
+                }
+            }
             Event::CaptureWindowDestroyed(id, closed) => {
                 #[cfg(target_os = "linux")]
                 self.longshot_window_destroyed(id, closed);
@@ -511,7 +530,9 @@ impl App {
                 }
             }
             Event::CaptureCancel => {
-                if self.capture_selection.take().is_some() {
+                if self.capture_selection.take().is_some()
+                    || self.capture_after_close.take().is_some()
+                {
                     self.set_busy(false);
                 }
             }

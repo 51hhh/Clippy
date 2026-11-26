@@ -129,6 +129,9 @@ fn prepare_selection(
         "ScreenCast output is smaller than its logical viewport"
     );
     let output_count = outputs.len();
+    if crate::session::is_kde() {
+        portal.wait_for_kwin_picker(cancellation)?;
+    }
     let (stream, pixels) = portal.open_stream(
         granted.pipe_wire_node_id(),
         size,

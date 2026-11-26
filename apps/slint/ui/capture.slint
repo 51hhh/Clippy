@@ -98,6 +98,8 @@ component MarkVisual inherits Rectangle {
 
 export component CaptureWindow inherits Window {
     in property <image> frame;
+    in property <bool> portal-stream;
+    in property <bool> blank;
     in property <int> source-width;
     in property <int> source-height;
     in property <[CaptureWindowTarget]> window-targets;
@@ -207,7 +209,7 @@ export component CaptureWindow inherits Window {
 
     title: @tr("Clippy Screenshot");
     no-frame: true;
-    background: #161616;
+    background: root.portal-stream ? transparent : #161616;
     forward-focus: keys;
 
     pure function near-selection(x: length, y: length) -> bool {
@@ -277,493 +279,500 @@ export component CaptureWindow inherits Window {
         return true;
     }
 
-    Image {
-        width: parent.width;
-        height: parent.height;
-        source: root.frame;
-        image-fit: fill;
-    }
+    Rectangle {
+        width: root.width;
+        height: root.height;
+        background: root.portal-stream ? #161616 : transparent;
+        visible: !root.blank;
 
-    if !root.reveals-region: Rectangle { x: 0px; y: 0px; width: root.width; height: root.height; background: #00000061; }
-    if root.reveals-region: Rectangle {
-        x: 0px; y: 0px; width: root.width; height: root.revealed.top; background: root.shade;
-    }
-    if root.reveals-region: Rectangle {
-        x: 0px; y: root.revealed.bottom; width: root.width; height: root.height - root.revealed.bottom; background: root.shade;
-    }
-    if root.reveals-region: Rectangle {
-        x: 0px; y: root.revealed.top; width: root.revealed.left;
-        height: root.revealed.bottom - root.revealed.top; background: root.shade;
-    }
-    if root.reveals-region: Rectangle {
-        x: root.revealed.right; y: root.revealed.top; width: root.width - root.revealed.right;
-        height: root.revealed.bottom - root.revealed.top; background: root.shade;
-    }
-    if root.hovered-window >= 0: Rectangle {
-        x: root.hover-bounds.left;
-        y: root.hover-bounds.top;
-        width: root.hover-bounds.right - self.x;
-        height: root.hover-bounds.bottom - self.y;
-        border-width: 2px;
-        border-color: #0a84ff;
-        background: transparent;
-    }
-    if root.desktop-preview.active && root.desktop-visible: Rectangle {
-        x: root.desktop-bounds.left;
-        y: root.desktop-bounds.top;
-        width: root.desktop-bounds.right - self.x;
-        height: root.desktop-bounds.bottom - self.y;
-        Path {
-            width: parent.width; height: parent.height;
-            fit: preserve;
-            stroke: #0a84ff; stroke-width: 2px; stroke-dash-array: [5px, 4px];
-            property <float> end-x: max(1.0, self.width / 1px - 1);
-            property <float> end-y: max(1.0, self.height / 1px - 1);
-            commands: (root.desktop-preview.edge-top ? "M 0 1 H " + (self.width / 1px) + " " : "")
-                + (root.desktop-preview.edge-bottom ? "M 0 " + end-y + " H " + (self.width / 1px) + " " : "")
-                + (root.desktop-preview.edge-left ? "M 1 0 V " + (self.height / 1px) + " " : "")
-                + (root.desktop-preview.edge-right ? "M " + end-x + " 0 V " + (self.height / 1px) : "");
-        }
-    }
-
-    drag := TouchArea {
-        enabled: !root.marking && !root.mosaic-pending;
-        mouse-cursor: crosshair;
-        pointer-event(event) => {
-            if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
-                let point-x = self.mouse-x;
-                let point-y = self.mouse-y;
-                let margin = 7px;
-                let near = root.near-selection(point-x, point-y);
-                root.resize-x = abs(point-x - root.left) <= margin ? -1 : abs(point-x - root.right) <= margin ? 1 : 0;
-                root.resize-y = abs(point-y - root.top) <= margin ? -1 : abs(point-y - root.bottom) <= margin ? 1 : 0;
-                root.annotation-error = "";
-                root.gesture = near && (root.resize-x != 0 || root.resize-y != 0) ? SelectionGesture.resize
-                    : near && !root.covers-output ? SelectionGesture.move : SelectionGesture.select;
-                root.drag-start = { left: root.left, top: root.top, right: root.right, bottom: root.bottom };
-                root.moved-selection = false;
-                if root.gesture == SelectionGesture.select {
-                    root.pressed-window = root.hit-window(point-x, point-y);
-                    root.snapped-window = -1;
-                    if root.desktop-enabled {
-                        root.begin-desktop-selection();
-                        root.active-tool = CaptureTool.select;
-                        if root.entering-text {
-                            root.dismiss-caption();
-                        }
-                    }
-                    root.clear-marks();
-                    root.drag-bounds(point-x, point-y, point-x, point-y);
-                }
-                keys.focus();
-            } else if event.kind == PointerEventKind.up && event.button == PointerEventButton.left
-                && root.gesture == SelectionGesture.select {
-                let dx = (self.mouse-x - self.pressed-x) / 1px;
-                let dy = (self.mouse-y - self.pressed-y) / 1px;
-                if dx * dx + dy * dy < 16.0 {
-                    if root.desktop-enabled {
-                        root.reset-desktop-selection();
-                    }
-                    root.snapped-window = root.pressed-window;
-                    root.set-bounds(root.snapped-window >= 0
-                        ? root.window-bounds(root.window-targets[root.snapped-window])
-                        : { left: 0px, top: 0px, right: root.width, bottom: root.height });
-                } else {
-                    root.update-drag(self.pressed-x, self.pressed-y, self.mouse-x, self.mouse-y, true);
-                }
-            } else if event.kind == PointerEventKind.cancel && root.desktop-preview.dragging {
-                root.reset-desktop-selection();
-            }
-        }
-        moved => {
-            if self.pressed && root.gesture == SelectionGesture.select {
-                root.update-drag(self.pressed-x, self.pressed-y, self.mouse-x, self.mouse-y, false);
-            } else if self.pressed && (self.mouse-x != self.pressed-x || self.mouse-y != self.pressed-y) {
-                if !root.moved-selection {
-                    root.clear-marks();
-                    root.snapped-window = -1;
-                    root.moved-selection = true;
-                }
-                let dx = self.mouse-x - self.pressed-x;
-                let dy = self.mouse-y - self.pressed-y;
-                if root.gesture == SelectionGesture.move {
-                    let shift-x = clamp(dx, -root.drag-start.left, root.width - root.drag-start.right);
-                    let shift-y = clamp(dy, -root.drag-start.top, root.height - root.drag-start.bottom);
-                    root.left = root.drag-start.left + shift-x;
-                    root.top = root.drag-start.top + shift-y;
-                    root.right = root.drag-start.right + shift-x;
-                    root.bottom = root.drag-start.bottom + shift-y;
-                } else {
-                    if root.resize-x < 0 { root.left = clamp(root.drag-start.left + dx, 0px, root.drag-start.right - 1px); }
-                    if root.resize-x > 0 { root.right = clamp(root.drag-start.right + dx, root.drag-start.left + 1px, root.width); }
-                    if root.resize-y < 0 { root.top = clamp(root.drag-start.top + dy, 0px, root.drag-start.bottom - 1px); }
-                    if root.resize-y > 0 { root.bottom = clamp(root.drag-start.bottom + dy, root.drag-start.top + 1px, root.height); }
-                }
-            }
-        }
-    }
-
-    if root.hovered-window >= 0 && root.window-targets[root.hovered-window].title != "": Rectangle {
-        x: clamp(root.hover-bounds.left, root.gap, root.width - self.width - root.gap);
-        y: max(root.gap, root.hover-bounds.top - root.chip-height - 4px);
-        width: min(title-text.preferred-width + 14px, 280px, root.width - 2 * root.gap);
-        height: root.chip-height;
-        border-radius: 5px;
-        background: #202124;
-        title-text := Text {
-            x: 7px; y: 0px; width: parent.width - 14px; height: parent.height;
-            text: root.window-targets[root.hovered-window].title;
-            font-size: 12px; color: #ffffff; vertical-alignment: center;
-            overflow: elide;
-        }
-    }
-
-    if root.selected && !root.desktop-preview.active: Rectangle {
-        x: root.left;
-        y: root.top;
-        width: root.right - root.left;
-        height: root.bottom - root.top;
-        clip: true;
-        for item in root.marks: Rectangle {
-            width: parent.width; height: parent.height;
-            if item.geometry.tool == CaptureTool.mosaic: Rectangle {
-                x: item.mosaic.x * parent.width; y: item.mosaic.y * parent.height;
-                width: item.mosaic.width * parent.width; height: item.mosaic.height * parent.height;
-                clip: true;
-                Image {
-                    x: 0px; y: 0px;
-                    width: item.mosaic.tiled-width * root.selection-width;
-                    height: item.mosaic.tiled-height * root.selection-height;
-                    source: item.mosaic.source; image-fit: fill; image-rendering: pixelated;
-                }
-            }
-        }
-        Path {
+        Image {
             width: parent.width;
             height: parent.height;
-            stroke: #0a84ff;
-            stroke-width: 2px;
-            stroke-dash-array: [5px, 4px];
-            commands: "M1 1 H " + (self.width / 1px - 1) + " V " + (self.height / 1px - 1) + " H1 Z";
+            source: root.frame;
+            image-fit: fill;
         }
-        for item in root.marks: MarkVisual {
-            x: 0px; y: 0px; width: parent.width; height: parent.height;
-            visible: item.geometry.tool != CaptureTool.mosaic;
-            mark: item.geometry; pixel-scale: root.pixel-scale; path: item.path; caption: item.text;
+
+        if !root.reveals-region: Rectangle { x: 0px; y: 0px; width: root.width; height: root.height; background: #00000061; }
+        if root.reveals-region: Rectangle {
+            x: 0px; y: 0px; width: root.width; height: root.revealed.top; background: root.shade;
         }
-        mark-drag := TouchArea {
-            enabled: root.marking && root.marks.length < 64 && !root.entering-text && !root.mosaic-pending;
-            mouse-cursor: root.active-tool == CaptureTool.text ? text : crosshair;
-            property <float> cursor-x: clamp(self.mouse-x / self.width, 0.0, 1.0);
-            property <float> cursor-y: clamp(self.mouse-y / self.height, 0.0, 1.0);
-            property <CaptureMark> current: {
-                x0: clamp(self.pressed-x / self.width, 0.0, 1.0),
-                y0: clamp(self.pressed-y / self.height, 0.0, 1.0),
-                x1: self.cursor-x, y1: self.cursor-y,
-                tool: root.active-tool, ink: root.active-ink, stroke: root.stroke,
-            };
-            function sample(begin: bool) {
-                root.sample-pen(begin, self.cursor-x, self.cursor-y, self.width / 1px, self.height / 1px);
+        if root.reveals-region: Rectangle {
+            x: 0px; y: root.revealed.bottom; width: root.width; height: root.height - root.revealed.bottom; background: root.shade;
+        }
+        if root.reveals-region: Rectangle {
+            x: 0px; y: root.revealed.top; width: root.revealed.left;
+            height: root.revealed.bottom - root.revealed.top; background: root.shade;
+        }
+        if root.reveals-region: Rectangle {
+            x: root.revealed.right; y: root.revealed.top; width: root.width - root.revealed.right;
+            height: root.revealed.bottom - root.revealed.top; background: root.shade;
+        }
+        if root.hovered-window >= 0: Rectangle {
+            x: root.hover-bounds.left;
+            y: root.hover-bounds.top;
+            width: root.hover-bounds.right - self.x;
+            height: root.hover-bounds.bottom - self.y;
+            border-width: 2px;
+            border-color: #0a84ff;
+            background: transparent;
+        }
+        if root.desktop-preview.active && root.desktop-visible: Rectangle {
+            x: root.desktop-bounds.left;
+            y: root.desktop-bounds.top;
+            width: root.desktop-bounds.right - self.x;
+            height: root.desktop-bounds.bottom - self.y;
+            Path {
+                width: parent.width; height: parent.height;
+                fit: preserve;
+                stroke: #0a84ff; stroke-width: 2px; stroke-dash-array: [5px, 4px];
+                property <float> end-x: max(1.0, self.width / 1px - 1);
+                property <float> end-y: max(1.0, self.height / 1px - 1);
+                commands: (root.desktop-preview.edge-top ? "M 0 1 H " + (self.width / 1px) + " " : "")
+                    + (root.desktop-preview.edge-bottom ? "M 0 " + end-y + " H " + (self.width / 1px) + " " : "")
+                    + (root.desktop-preview.edge-left ? "M 1 0 V " + (self.height / 1px) + " " : "")
+                    + (root.desktop-preview.edge-right ? "M " + end-x + " 0 V " + (self.height / 1px) : "");
             }
-            moved => {
-                if self.pressed && root.active-tool == CaptureTool.pen {
-                    self.sample(false);
-                }
-            }
+        }
+
+        drag := TouchArea {
+            enabled: !root.marking && !root.mosaic-pending;
+            mouse-cursor: crosshair;
             pointer-event(event) => {
                 if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                    let point-x = self.mouse-x;
+                    let point-y = self.mouse-y;
+                    let margin = 7px;
+                    let near = root.near-selection(point-x, point-y);
+                    root.resize-x = abs(point-x - root.left) <= margin ? -1 : abs(point-x - root.right) <= margin ? 1 : 0;
+                    root.resize-y = abs(point-y - root.top) <= margin ? -1 : abs(point-y - root.bottom) <= margin ? 1 : 0;
                     root.annotation-error = "";
-                    if root.active-tool == CaptureTool.pen {
-                        self.sample(true);
+                    root.gesture = near && (root.resize-x != 0 || root.resize-y != 0) ? SelectionGesture.resize
+                        : near && !root.covers-output ? SelectionGesture.move : SelectionGesture.select;
+                    root.drag-start = { left: root.left, top: root.top, right: root.right, bottom: root.bottom };
+                    root.moved-selection = false;
+                    if root.gesture == SelectionGesture.select {
+                        root.pressed-window = root.hit-window(point-x, point-y);
+                        root.snapped-window = -1;
+                        if root.desktop-enabled {
+                            root.begin-desktop-selection();
+                            root.active-tool = CaptureTool.select;
+                            if root.entering-text {
+                                root.dismiss-caption();
+                            }
+                        }
+                        root.clear-marks();
+                        root.drag-bounds(point-x, point-y, point-x, point-y);
                     }
                     keys.focus();
-                }
-                if event.kind == PointerEventKind.up && event.button == PointerEventButton.left {
-                    if root.active-tool == CaptureTool.pen {
-                        self.sample(false);
-                        root.finish-pen(self.current);
-                    } else if root.active-tool == CaptureTool.text {
-                        root.draft-mark = self.current;
-                        root.entering-text = true;
-                        caption-entry.focus();
+                } else if event.kind == PointerEventKind.up && event.button == PointerEventButton.left
+                    && root.gesture == SelectionGesture.select {
+                    let dx = (self.mouse-x - self.pressed-x) / 1px;
+                    let dy = (self.mouse-y - self.pressed-y) / 1px;
+                    if dx * dx + dy * dy < 16.0 {
+                        if root.desktop-enabled {
+                            root.reset-desktop-selection();
+                        }
+                        root.snapped-window = root.pressed-window;
+                        root.set-bounds(root.snapped-window >= 0
+                            ? root.window-bounds(root.window-targets[root.snapped-window])
+                            : { left: 0px, top: 0px, right: root.width, bottom: root.height });
                     } else {
-                        let dx = abs(self.current.x1 - self.current.x0) * self.width;
-                        let dy = abs(self.current.y1 - self.current.y0) * self.height;
-                        let linear = root.active-tool == CaptureTool.line || root.active-tool == CaptureTool.arrow;
-                        if linear ? max(dx, dy) >= 2px : min(dx, dy) >= 2px {
-                            if root.active-tool == CaptureTool.mosaic {
-                                root.pending-mosaic = self.current;
-                                root.render-mosaic(self.current, root.left / root.width, root.top / root.height,
-                                    root.right / root.width, root.bottom / root.height);
-                            } else {
-                                root.add-mark({ geometry: self.current });
+                        root.update-drag(self.pressed-x, self.pressed-y, self.mouse-x, self.mouse-y, true);
+                    }
+                } else if event.kind == PointerEventKind.cancel && root.desktop-preview.dragging {
+                    root.reset-desktop-selection();
+                }
+            }
+            moved => {
+                if self.pressed && root.gesture == SelectionGesture.select {
+                    root.update-drag(self.pressed-x, self.pressed-y, self.mouse-x, self.mouse-y, false);
+                } else if self.pressed && (self.mouse-x != self.pressed-x || self.mouse-y != self.pressed-y) {
+                    if !root.moved-selection {
+                        root.clear-marks();
+                        root.snapped-window = -1;
+                        root.moved-selection = true;
+                    }
+                    let dx = self.mouse-x - self.pressed-x;
+                    let dy = self.mouse-y - self.pressed-y;
+                    if root.gesture == SelectionGesture.move {
+                        let shift-x = clamp(dx, -root.drag-start.left, root.width - root.drag-start.right);
+                        let shift-y = clamp(dy, -root.drag-start.top, root.height - root.drag-start.bottom);
+                        root.left = root.drag-start.left + shift-x;
+                        root.top = root.drag-start.top + shift-y;
+                        root.right = root.drag-start.right + shift-x;
+                        root.bottom = root.drag-start.bottom + shift-y;
+                    } else {
+                        if root.resize-x < 0 { root.left = clamp(root.drag-start.left + dx, 0px, root.drag-start.right - 1px); }
+                        if root.resize-x > 0 { root.right = clamp(root.drag-start.right + dx, root.drag-start.left + 1px, root.width); }
+                        if root.resize-y < 0 { root.top = clamp(root.drag-start.top + dy, 0px, root.drag-start.bottom - 1px); }
+                        if root.resize-y > 0 { root.bottom = clamp(root.drag-start.bottom + dy, root.drag-start.top + 1px, root.height); }
+                    }
+                }
+            }
+        }
+
+        if root.hovered-window >= 0 && root.window-targets[root.hovered-window].title != "": Rectangle {
+            x: clamp(root.hover-bounds.left, root.gap, root.width - self.width - root.gap);
+            y: max(root.gap, root.hover-bounds.top - root.chip-height - 4px);
+            width: min(title-text.preferred-width + 14px, 280px, root.width - 2 * root.gap);
+            height: root.chip-height;
+            border-radius: 5px;
+            background: #202124;
+            title-text := Text {
+                x: 7px; y: 0px; width: parent.width - 14px; height: parent.height;
+                text: root.window-targets[root.hovered-window].title;
+                font-size: 12px; color: #ffffff; vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+
+        if root.selected && !root.desktop-preview.active: Rectangle {
+            x: root.left;
+            y: root.top;
+            width: root.right - root.left;
+            height: root.bottom - root.top;
+            clip: true;
+            for item in root.marks: Rectangle {
+                width: parent.width; height: parent.height;
+                if item.geometry.tool == CaptureTool.mosaic: Rectangle {
+                    x: item.mosaic.x * parent.width; y: item.mosaic.y * parent.height;
+                    width: item.mosaic.width * parent.width; height: item.mosaic.height * parent.height;
+                    clip: true;
+                    Image {
+                        x: 0px; y: 0px;
+                        width: item.mosaic.tiled-width * root.selection-width;
+                        height: item.mosaic.tiled-height * root.selection-height;
+                        source: item.mosaic.source; image-fit: fill; image-rendering: pixelated;
+                    }
+                }
+            }
+            Path {
+                width: parent.width;
+                height: parent.height;
+                stroke: #0a84ff;
+                stroke-width: 2px;
+                stroke-dash-array: [5px, 4px];
+                commands: "M1 1 H " + (self.width / 1px - 1) + " V " + (self.height / 1px - 1) + " H1 Z";
+            }
+            for item in root.marks: MarkVisual {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                visible: item.geometry.tool != CaptureTool.mosaic;
+                mark: item.geometry; pixel-scale: root.pixel-scale; path: item.path; caption: item.text;
+            }
+            mark-drag := TouchArea {
+                enabled: root.marking && root.marks.length < 64 && !root.entering-text && !root.mosaic-pending;
+                mouse-cursor: root.active-tool == CaptureTool.text ? text : crosshair;
+                property <float> cursor-x: clamp(self.mouse-x / self.width, 0.0, 1.0);
+                property <float> cursor-y: clamp(self.mouse-y / self.height, 0.0, 1.0);
+                property <CaptureMark> current: {
+                    x0: clamp(self.pressed-x / self.width, 0.0, 1.0),
+                    y0: clamp(self.pressed-y / self.height, 0.0, 1.0),
+                    x1: self.cursor-x, y1: self.cursor-y,
+                    tool: root.active-tool, ink: root.active-ink, stroke: root.stroke,
+                };
+                function sample(begin: bool) {
+                    root.sample-pen(begin, self.cursor-x, self.cursor-y, self.width / 1px, self.height / 1px);
+                }
+                moved => {
+                    if self.pressed && root.active-tool == CaptureTool.pen {
+                        self.sample(false);
+                    }
+                }
+                pointer-event(event) => {
+                    if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                        root.annotation-error = "";
+                        if root.active-tool == CaptureTool.pen {
+                            self.sample(true);
+                        }
+                        keys.focus();
+                    }
+                    if event.kind == PointerEventKind.up && event.button == PointerEventButton.left {
+                        if root.active-tool == CaptureTool.pen {
+                            self.sample(false);
+                            root.finish-pen(self.current);
+                        } else if root.active-tool == CaptureTool.text {
+                            root.draft-mark = self.current;
+                            root.entering-text = true;
+                            caption-entry.focus();
+                        } else {
+                            let dx = abs(self.current.x1 - self.current.x0) * self.width;
+                            let dy = abs(self.current.y1 - self.current.y0) * self.height;
+                            let linear = root.active-tool == CaptureTool.line || root.active-tool == CaptureTool.arrow;
+                            if linear ? max(dx, dy) >= 2px : min(dx, dy) >= 2px {
+                                if root.active-tool == CaptureTool.mosaic {
+                                    root.pending-mosaic = self.current;
+                                    root.render-mosaic(self.current, root.left / root.width, root.top / root.height,
+                                        root.right / root.width, root.bottom / root.height);
+                                } else {
+                                    root.add-mark({ geometry: self.current });
+                                }
                             }
                         }
                     }
                 }
             }
+            if (mark-drag.pressed && root.active-tool != CaptureTool.text) || root.mosaic-pending: MarkVisual {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                mark: root.mosaic-pending ? root.pending-mosaic : mark-drag.current;
+                pixel-scale: root.pixel-scale; path: root.pen-path;
+            }
         }
-        if (mark-drag.pressed && root.active-tool != CaptureTool.text) || root.mosaic-pending: MarkVisual {
-            x: 0px; y: 0px; width: parent.width; height: parent.height;
-            mark: root.mosaic-pending ? root.pending-mosaic : mark-drag.current;
-            pixel-scale: root.pixel-scale; path: root.pen-path;
-        }
-    }
 
-    if root.ready && !root.marking: Rectangle {
-        x: root.left;
-        y: root.top;
-        width: root.right - root.left;
-        height: root.bottom - root.top;
-        for handle in [{ x: 0.0, y: 0.0 }, { x: 0.5, y: 0.0 }, { x: 1.0, y: 0.0 },
-                       { x: 0.0, y: 0.5 }, { x: 1.0, y: 0.5 },
-                       { x: 0.0, y: 1.0 }, { x: 0.5, y: 1.0 }, { x: 1.0, y: 1.0 }]: Rectangle {
-            x: handle.x * parent.width - 5px;
-            y: handle.y * parent.height - 5px;
-            width: 10px;
-            height: 10px;
-            border-radius: 2px;
-            border-width: 1px;
-            border-color: #ffffff;
-            background: #2f8cff;
+        if root.ready && !root.marking: Rectangle {
+            x: root.left;
+            y: root.top;
+            width: root.right - root.left;
+            height: root.bottom - root.top;
+            for handle in [{ x: 0.0, y: 0.0 }, { x: 0.5, y: 0.0 }, { x: 1.0, y: 0.0 },
+                           { x: 0.0, y: 0.5 }, { x: 1.0, y: 0.5 },
+                           { x: 0.0, y: 1.0 }, { x: 0.5, y: 1.0 }, { x: 1.0, y: 1.0 }]: Rectangle {
+                x: handle.x * parent.width - 5px;
+                y: handle.y * parent.height - 5px;
+                width: 10px;
+                height: 10px;
+                border-radius: 2px;
+                border-width: 1px;
+                border-color: #ffffff;
+                background: #2f8cff;
+            }
         }
-    }
 
-    if root.selected && !root.desktop-preview.active: Rectangle {
-        x: clamp(root.left, root.gap, root.width - self.width - root.gap);
-        y: root.chip-y;
-        width: dimensions.preferred-width + 14px;
-        height: root.chip-height;
-        border-radius: 5px;
-        background: #202124;
-        dimensions := Text {
-            text: root.snapped-window >= 0
-                ? "" + (root.window-targets[root.snapped-window].right - root.window-targets[root.snapped-window].left)
-                    + " × " + (root.window-targets[root.snapped-window].bottom - root.window-targets[root.snapped-window].top)
-                : "" + (ceil(root.right / root.width * root.source-width) - floor(root.left / root.width * root.source-width))
-                    + " × " + (ceil(root.bottom / root.height * root.source-height) - floor(root.top / root.height * root.source-height));
-            font-size: 12px;
-            color: #ffffff;
-            vertical-alignment: center;
-            horizontal-alignment: center;
-        }
-    }
-
-    if !root.selected && !root.desktop-preview.active && !drag.pressed && root.hovered-window < 0: Rectangle {
-        x: (parent.width - self.width) / 2;
-        y: 16px;
-        width: 260px;
-        height: 44px;
-        border-radius: 8px;
-        background: #202124;
-        HorizontalLayout {
-            padding: 8px;
-            spacing: 6px;
-            Text {
-                text: root.window-targets.length > 0 ? @tr("Click a window or drag an area") : @tr("Drag to select an area");
+        if root.selected && !root.desktop-preview.active: Rectangle {
+            x: clamp(root.left, root.gap, root.width - self.width - root.gap);
+            y: root.chip-y;
+            width: dimensions.preferred-width + 14px;
+            height: root.chip-height;
+            border-radius: 5px;
+            background: #202124;
+            dimensions := Text {
+                text: root.snapped-window >= 0
+                    ? "" + (root.window-targets[root.snapped-window].right - root.window-targets[root.snapped-window].left)
+                        + " × " + (root.window-targets[root.snapped-window].bottom - root.window-targets[root.snapped-window].top)
+                    : "" + (ceil(root.right / root.width * root.source-width) - floor(root.left / root.width * root.source-width))
+                        + " × " + (ceil(root.bottom / root.height * root.source-height) - floor(root.top / root.height * root.source-height));
+                font-size: 12px;
                 color: #ffffff;
-                font-size: 13px;
                 vertical-alignment: center;
                 horizontal-alignment: center;
-                horizontal-stretch: 1;
             }
-            OverlayButton { label: @tr("Cancel"); width: 32px; drawing: root.cancel-icon; clicked => { root.cancel(); } }
         }
-    }
 
-    if root.ready: Rectangle {
-        x: clamp(root.right - self.width, root.gap, root.width - self.width - root.gap);
-        y: root.toolbar-y;
-        width: root.toolbar-width;
-        height: root.toolbar-height;
-        border-radius: 8px;
-        background: #202124;
-        TouchArea { }
-        for tool[index] in root.tools: OverlayButton {
-            x: 6px + index * root.tool-width; y: 4px; width: root.tool-width; height: 30px;
-            label: tool.label; drawing: tool.drawing;
-            enabled: !root.mosaic-pending;
-            selected: root.active-tool == tool.tool;
-            clicked => {
-                if root.finish-caption() {
-                    root.active-tool = tool.tool;
-                    keys.focus();
+        if !root.selected && !root.desktop-preview.active && !drag.pressed && root.hovered-window < 0: Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: 16px;
+            width: 260px;
+            height: 44px;
+            border-radius: 8px;
+            background: #202124;
+            HorizontalLayout {
+                padding: 8px;
+                spacing: 6px;
+                Text {
+                    text: root.window-targets.length > 0 ? @tr("Click a window or drag an area") : @tr("Drag to select an area");
+                    color: #ffffff;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                    horizontal-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                OverlayButton { label: @tr("Cancel"); width: 32px; drawing: root.cancel-icon; clicked => { root.cancel(); } }
+            }
+        }
+
+        if root.ready: Rectangle {
+            x: clamp(root.right - self.width, root.gap, root.width - self.width - root.gap);
+            y: root.toolbar-y;
+            width: root.toolbar-width;
+            height: root.toolbar-height;
+            border-radius: 8px;
+            background: #202124;
+            TouchArea { }
+            for tool[index] in root.tools: OverlayButton {
+                x: 6px + index * root.tool-width; y: 4px; width: root.tool-width; height: 30px;
+                label: tool.label; drawing: tool.drawing;
+                enabled: !root.mosaic-pending;
+                selected: root.active-tool == tool.tool;
+                clicked => {
+                    if root.finish-caption() {
+                        root.active-tool = tool.tool;
+                        keys.focus();
+                    }
+                }
+            }
+            Rectangle { x: 8px + root.tools.length * root.tool-width; y: 8px; width: 1px; height: 22px; background: #444956; }
+            for command[index] in root.commands: OverlayButton {
+                x: 15px + (root.tools.length + index) * root.tool-width; y: 4px; width: root.tool-width; height: 30px;
+                label: command.label; drawing: command.drawing;
+                enabled: !root.mosaic-pending;
+                clicked => { root.commit(command.action); }
+            }
+            Rectangle { x: 8px; y: 37px; width: parent.width - 16px; height: 1px; background: #3d4049; }
+            for sample[index] in root.inks: SurfaceButton {
+                x: 7px + index * 19px; y: 45px; width: 19px; min-width: 19px; height: 24px;
+                label: sample.label; caption: ""; background: transparent;
+                enabled: !root.entering-text && !root.mosaic-pending;
+                Rectangle {
+                    x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+                    width: 15px; height: 15px; border-radius: 8px; border-color: #b7bdca;
+                    border-width: 1px; background: sample.ink;
+                }
+                if root.active-ink == sample.ink: Rectangle {
+                    x: 0.5px; y: 3px; width: 18px; height: 18px; border-radius: 9px;
+                    border-color: #2f8cff; border-width: 1px;
+                }
+                clicked => { root.active-ink = sample.ink; keys.focus(); }
+            }
+            if root.toolbar-width >= 380px: Text {
+                x: 126px; y: 45px; width: 28px; height: 24px;
+                text: @tr("Size"); font-size: 11px; color: #e5e7eb; vertical-alignment: center;
+            }
+            if root.toolbar-width >= 380px: Rectangle {
+                x: 157px; y: 45px; width: min(100px, history-actions.x - self.x - 8px); height: 24px;
+                accessible-role: slider;
+                accessible-label: @tr("Stroke width");
+                accessible-value: "" + round(root.stroke);
+                Rectangle { width: parent.width; height: 4px; border-radius: 2px; background: #535967; }
+                Rectangle { x: 0px; width: (root.stroke - 1) / 11 * parent.width; height: 4px; border-radius: 2px; background: #2f8cff; }
+                Rectangle { x: (root.stroke - 1) / 11 * parent.width - 5px; width: 10px; height: 10px; border-radius: 5px; background: #ffffff; }
+                TouchArea {
+                    enabled: !root.entering-text && !root.mosaic-pending;
+                    mouse-cursor: pointer;
+                    clicked => { root.stroke = clamp(round(1 + 11 * self.mouse-x / self.width), 1, 12); keys.focus(); }
+                    moved => { if self.pressed { root.stroke = clamp(round(1 + 11 * self.mouse-x / self.width), 1, 12); } }
+                }
+            }
+            history-actions := HorizontalLayout {
+                x: parent.width - 6px - 6 * root.tool-width; y: 42px; width: 6 * root.tool-width; height: 30px;
+                OverlayButton {
+                    label: @tr("Undo"); drawing: "M9 5l-6 6 6 6 M3 11h12a5 5 0 0 1 5 5v3";
+                    width: root.tool-width; enabled: root.marks.length > 0 && !root.entering-text && !root.mosaic-pending;
+                    clicked => { root.undo-mark(); keys.focus(); }
+                }
+                OverlayButton {
+                    label: @tr("Redo"); drawing: "M15 5l6 6-6 6 M21 11H9a5 5 0 0 0-5 5v3";
+                    width: root.tool-width; enabled: root.undone-marks.length > 0 && !root.entering-text && !root.mosaic-pending;
+                    clicked => { root.redo-mark(); keys.focus(); }
+                }
+                OverlayButton {
+                    label: @tr("Clear marks"); drawing: "M4 6h16m-6 0V3h-4v3M6 6l1 15h10l1-15M10 10v7m4-7v7";
+                    width: root.tool-width;
+                    enabled: (root.marks.length > 0 || root.undone-marks.length > 0) && !root.entering-text && !root.mosaic-pending;
+                    clicked => { root.clear-marks(); keys.focus(); }
+                }
+                OverlayButton {
+                    label: @tr("Save PNG"); drawing: root.save-icon;
+                    width: root.tool-width; enabled: !root.mosaic-pending;
+                    clicked => { root.commit(CaptureAction.save); }
+                }
+                OverlayButton {
+                    label: @tr("Copy"); drawing: root.copy-icon; ink: #6ee7a8;
+                    width: root.tool-width; enabled: !root.mosaic-pending;
+                    clicked => { root.commit(CaptureAction.copy); }
+                }
+                OverlayButton { label: @tr("Cancel"); drawing: root.cancel-icon; width: root.tool-width; clicked => { root.cancel(); } }
+            }
+        }
+
+        if root.desktop-preview.controls: Rectangle {
+            x: clamp(root.desktop-bounds.right - self.width, root.gap, root.width - self.width - root.gap);
+            y: root.desktop-bounds.bottom + self.height + 2 * root.gap <= root.height
+                ? root.desktop-bounds.bottom + root.gap : max(root.gap, root.desktop-bounds.top - self.height - root.gap);
+            width: 144px; height: 46px; border-radius: 8px; background: #202124;
+            TouchArea { }
+            HorizontalLayout {
+                padding: 8px;
+                OverlayButton {
+                    label: @tr("Edit image"); drawing: root.commands[0].drawing; enabled: root.desktop-valid;
+                    clicked => { root.confirm-desktop(CaptureAction.edit); }
+                }
+                OverlayButton {
+                    label: @tr("Save PNG"); drawing: root.save-icon; enabled: root.desktop-valid;
+                    clicked => { root.confirm-desktop(CaptureAction.save); }
+                }
+                OverlayButton {
+                    label: @tr("Copy"); drawing: root.copy-icon; ink: #6ee7a8; enabled: root.desktop-valid;
+                    clicked => { root.confirm-desktop(CaptureAction.copy); }
+                }
+                OverlayButton { label: @tr("Cancel"); drawing: root.cancel-icon; clicked => { root.cancel(); } }
+            }
+            Rectangle {
+                x: clamp(root.desktop-bounds.left - parent.x, root.gap - parent.x,
+                    root.width - parent.x - self.width - root.gap);
+                y: parent.y >= root.gap + self.height + 4px ? -self.height - 4px : parent.height + 4px;
+                width: desktop-size.preferred-width + 14px; height: root.chip-height;
+                border-radius: 5px; background: #202124;
+                desktop-size := Text {
+                    text: root.desktop-valid ? "" + root.desktop-preview.pixel-width + " × " + root.desktop-preview.pixel-height
+                        : @tr("Selection is too large");
+                    font-size: 12px; color: white;
+                    horizontal-alignment: center; vertical-alignment: center;
                 }
             }
         }
-        Rectangle { x: 8px + root.tools.length * root.tool-width; y: 8px; width: 1px; height: 22px; background: #444956; }
-        for command[index] in root.commands: OverlayButton {
-            x: 15px + (root.tools.length + index) * root.tool-width; y: 4px; width: root.tool-width; height: 30px;
-            label: command.label; drawing: command.drawing;
-            enabled: !root.mosaic-pending;
-            clicked => { root.commit(command.action); }
-        }
-        Rectangle { x: 8px; y: 37px; width: parent.width - 16px; height: 1px; background: #3d4049; }
-        for sample[index] in root.inks: SurfaceButton {
-            x: 7px + index * 19px; y: 45px; width: 19px; min-width: 19px; height: 24px;
-            label: sample.label; caption: ""; background: transparent;
-            enabled: !root.entering-text && !root.mosaic-pending;
-            Rectangle {
-                x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
-                width: 15px; height: 15px; border-radius: 8px; border-color: #b7bdca;
-                border-width: 1px; background: sample.ink;
-            }
-            if root.active-ink == sample.ink: Rectangle {
-                x: 0.5px; y: 3px; width: 18px; height: 18px; border-radius: 9px;
-                border-color: #2f8cff; border-width: 1px;
-            }
-            clicked => { root.active-ink = sample.ink; keys.focus(); }
-        }
-        if root.toolbar-width >= 380px: Text {
-            x: 126px; y: 45px; width: 28px; height: 24px;
-            text: @tr("Size"); font-size: 11px; color: #e5e7eb; vertical-alignment: center;
-        }
-        if root.toolbar-width >= 380px: Rectangle {
-            x: 157px; y: 45px; width: min(100px, history-actions.x - self.x - 8px); height: 24px;
-            accessible-role: slider;
-            accessible-label: @tr("Stroke width");
-            accessible-value: "" + round(root.stroke);
-            Rectangle { width: parent.width; height: 4px; border-radius: 2px; background: #535967; }
-            Rectangle { x: 0px; width: (root.stroke - 1) / 11 * parent.width; height: 4px; border-radius: 2px; background: #2f8cff; }
-            Rectangle { x: (root.stroke - 1) / 11 * parent.width - 5px; width: 10px; height: 10px; border-radius: 5px; background: #ffffff; }
-            TouchArea {
-                enabled: !root.entering-text && !root.mosaic-pending;
-                mouse-cursor: pointer;
-                clicked => { root.stroke = clamp(round(1 + 11 * self.mouse-x / self.width), 1, 12); keys.focus(); }
-                moved => { if self.pressed { root.stroke = clamp(round(1 + 11 * self.mouse-x / self.width), 1, 12); } }
-            }
-        }
-        history-actions := HorizontalLayout {
-            x: parent.width - 6px - 6 * root.tool-width; y: 42px; width: 6 * root.tool-width; height: 30px;
-            OverlayButton {
-                label: @tr("Undo"); drawing: "M9 5l-6 6 6 6 M3 11h12a5 5 0 0 1 5 5v3";
-                width: root.tool-width; enabled: root.marks.length > 0 && !root.entering-text && !root.mosaic-pending;
-                clicked => { root.undo-mark(); keys.focus(); }
-            }
-            OverlayButton {
-                label: @tr("Redo"); drawing: "M15 5l6 6-6 6 M21 11H9a5 5 0 0 0-5 5v3";
-                width: root.tool-width; enabled: root.undone-marks.length > 0 && !root.entering-text && !root.mosaic-pending;
-                clicked => { root.redo-mark(); keys.focus(); }
-            }
-            OverlayButton {
-                label: @tr("Clear marks"); drawing: "M4 6h16m-6 0V3h-4v3M6 6l1 15h10l1-15M10 10v7m4-7v7";
-                width: root.tool-width;
-                enabled: (root.marks.length > 0 || root.undone-marks.length > 0) && !root.entering-text && !root.mosaic-pending;
-                clicked => { root.clear-marks(); keys.focus(); }
-            }
-            OverlayButton {
-                label: @tr("Save PNG"); drawing: root.save-icon;
-                width: root.tool-width; enabled: !root.mosaic-pending;
-                clicked => { root.commit(CaptureAction.save); }
-            }
-            OverlayButton {
-                label: @tr("Copy"); drawing: root.copy-icon; ink: #6ee7a8;
-                width: root.tool-width; enabled: !root.mosaic-pending;
-                clicked => { root.commit(CaptureAction.copy); }
-            }
-            OverlayButton { label: @tr("Cancel"); drawing: root.cancel-icon; width: root.tool-width; clicked => { root.cancel(); } }
-        }
-    }
 
-    if root.desktop-preview.controls: Rectangle {
-        x: clamp(root.desktop-bounds.right - self.width, root.gap, root.width - self.width - root.gap);
-        y: root.desktop-bounds.bottom + self.height + 2 * root.gap <= root.height
-            ? root.desktop-bounds.bottom + root.gap : max(root.gap, root.desktop-bounds.top - self.height - root.gap);
-        width: 144px; height: 46px; border-radius: 8px; background: #202124;
-        TouchArea { }
-        HorizontalLayout {
-            padding: 8px;
-            OverlayButton {
-                label: @tr("Edit image"); drawing: root.commands[0].drawing; enabled: root.desktop-valid;
-                clicked => { root.confirm-desktop(CaptureAction.edit); }
+        caption-entry := FocusScope {
+            visible: root.owns-selection && root.entering-text && !root.desktop-preview.active;
+            x: clamp(root.left + root.draft-mark.x0 * root.selection-width, root.gap, root.width - self.width - root.gap);
+            y: clamp(root.top + root.draft-mark.y0 * root.selection-height, root.gap, root.height - self.height - root.gap);
+            width: min(260px, root.width - 2 * root.gap);
+            height: 34px;
+            forward-focus: caption-input;
+            capture-key-pressed(event) => {
+                if event.text == Key.Escape {
+                    root.dismiss-caption();
+                    return accept;
+                }
+                reject
             }
-            OverlayButton {
-                label: @tr("Save PNG"); drawing: root.save-icon; enabled: root.desktop-valid;
-                clicked => { root.confirm-desktop(CaptureAction.save); }
+            caption-input := LineEdit {
+                width: parent.width; height: parent.height;
+                text <=> root.draft-text;
+                placeholder-text: @tr("Annotation text");
+                accepted => { root.finish-caption(); }
             }
-            OverlayButton {
-                label: @tr("Copy"); drawing: root.copy-icon; ink: #6ee7a8; enabled: root.desktop-valid;
-                clicked => { root.confirm-desktop(CaptureAction.copy); }
-            }
-            OverlayButton { label: @tr("Cancel"); drawing: root.cancel-icon; clicked => { root.cancel(); } }
         }
-        Rectangle {
-            x: clamp(root.desktop-bounds.left - parent.x, root.gap - parent.x,
-                root.width - parent.x - self.width - root.gap);
-            y: parent.y >= root.gap + self.height + 4px ? -self.height - 4px : parent.height + 4px;
-            width: desktop-size.preferred-width + 14px; height: root.chip-height;
-            border-radius: 5px; background: #202124;
-            desktop-size := Text {
-                text: root.desktop-valid ? "" + root.desktop-preview.pixel-width + " × " + root.desktop-preview.pixel-height
-                    : @tr("Selection is too large");
-                font-size: 12px; color: white;
+        if root.owns-selection && (root.mosaic-pending || root.annotation-error != ""): Rectangle {
+            x: (root.width - self.width) / 2; y: root.gap;
+            width: annotation-status.preferred-width + 20px; height: 28px;
+            background: #202124; border-radius: 6px;
+            annotation-status := Text {
+                text: root.mosaic-pending ? @tr("Applying mosaic…") : root.annotation-error;
+                color: #ffffff; font-size: 12px;
                 horizontal-alignment: center; vertical-alignment: center;
             }
         }
-    }
 
-    caption-entry := FocusScope {
-        visible: root.owns-selection && root.entering-text && !root.desktop-preview.active;
-        x: clamp(root.left + root.draft-mark.x0 * root.selection-width, root.gap, root.width - self.width - root.gap);
-        y: clamp(root.top + root.draft-mark.y0 * root.selection-height, root.gap, root.height - self.height - root.gap);
-        width: min(260px, root.width - 2 * root.gap);
-        height: 34px;
-        forward-focus: caption-input;
-        capture-key-pressed(event) => {
-            if event.text == Key.Escape {
-                root.dismiss-caption();
-                return accept;
-            }
-            reject
-        }
-        caption-input := LineEdit {
-            width: parent.width; height: parent.height;
-            text <=> root.draft-text;
-            placeholder-text: @tr("Annotation text");
-            accepted => { root.finish-caption(); }
-        }
-    }
-    if root.owns-selection && (root.mosaic-pending || root.annotation-error != ""): Rectangle {
-        x: (root.width - self.width) / 2; y: root.gap;
-        width: annotation-status.preferred-width + 20px; height: 28px;
-        background: #202124; border-radius: 6px;
-        annotation-status := Text {
-            text: root.mosaic-pending ? @tr("Applying mosaic…") : root.annotation-error;
-            color: #ffffff; font-size: 12px;
-            horizontal-alignment: center; vertical-alignment: center;
-        }
-    }
-
-    keys := FocusScope {
-        focus-on-click: false;
-        key-pressed(event) => {
-            if event.text == Key.Escape {
-                root.cancel();
-                return accept;
-            }
-            if root.desktop-preview.active && event.text == Key.Return {
-                if root.desktop-valid {
-                    root.confirm-desktop(CaptureAction.copy);
-                }
-                return accept;
-            }
-            if root.ready && event.text == Key.Return {
-                root.commit(CaptureAction.copy);
-                return accept;
-            }
-            if root.ready && !root.mosaic-pending && (event.modifiers.control || event.modifiers.meta) && !event.modifiers.alt {
-                let z = event.text == "z" || event.text == "Z";
-                if z && !event.modifiers.shift && root.marks.length > 0 {
-                    root.undo-mark();
+        keys := FocusScope {
+            focus-on-click: false;
+            key-pressed(event) => {
+                if event.text == Key.Escape {
+                    root.cancel();
                     return accept;
                 }
-                let redo = (z && event.modifiers.shift) || event.text == "y";
-                if redo && root.undone-marks.length > 0 {
-                    root.redo-mark();
+                if root.desktop-preview.active && event.text == Key.Return {
+                    if root.desktop-valid {
+                        root.confirm-desktop(CaptureAction.copy);
+                    }
                     return accept;
                 }
+                if root.ready && event.text == Key.Return {
+                    root.commit(CaptureAction.copy);
+                    return accept;
+                }
+                if root.ready && !root.mosaic-pending && (event.modifiers.control || event.modifiers.meta) && !event.modifiers.alt {
+                    let z = event.text == "z" || event.text == "Z";
+                    if z && !event.modifiers.shift && root.marks.length > 0 {
+                        root.undo-mark();
+                        return accept;
+                    }
+                    let redo = (z && event.modifiers.shift) || event.text == "y";
+                    if redo && root.undone-marks.length > 0 {
+                        root.redo-mark();
+                        return accept;
+                    }
+                }
+                reject
             }
-            reject
         }
     }
 }

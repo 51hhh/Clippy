@@ -237,6 +237,9 @@ Linux 完整门禁回归。
 KDE 的首帧验收要求选区与未打开选屏器时的底图逐像素一致。若首帧仍含选屏窗，比较 Portal 返回时间、
 PipeWire 帧头和输出像素，确认最早可用帧；静止画面和选择器取消均需保持有界等待。
 
+KDE 在连接首帧流前读取 KWin 的窗口关闭特效状态，并维持既有的授权时间戳检查。默认动画、
+双倍动画和无动画分别检查同一块横跨系统选屏器边缘的 PNG。选择器取消应释放会话。
+
 **Out of Scope** 旋转流及 DMA-BUF 格式需另做像素验证。整屏批量直存、多显示器合成及授权记忆
 沿用各自现有计划。
 
@@ -246,6 +249,9 @@ PipeWire 帧头和输出像素，确认最早可用帧；静止画面和选择�
 
 **Requirements** 先对照窗口关闭、PipeWire 帧头和输出像素确定时钟与采集边界。只在能够验证时序的
 交接中使用源时间戳过滤旧帧，继续在复用会话中转换选区像素。窗口、流或缓冲不合规时沿用有界等待和错误反馈。
+
+Portal 框选确认后先提交透明帧，等待 Wayland 的帧回调推进后再销毁覆盖层。确认超时需要结束
+这次交接，释放所持授权流。按现有时序检查录屏和长截图的首帧，覆盖不同的窗口动画速度。
 
 **Acceptance Criteria** 覆盖层显示时更新底层测试窗口，从框选启动录屏后逐像素核对解码第 0 帧。
 同一夹具复测静止桌面、快速确认、取消与普通抓图，确认每次只授权一次。继续执行底层显示契约、直接 Sway、
@@ -788,6 +794,23 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   `kde-virtual-connect-delay250-slow.log`。对应 PNG 为 `kde-virtual-chooser-in-frame.png`、
   `kde-virtual-delay250-default.png`、`kde-virtual-delay250-slow.png`、
   `kde-virtual-recording-first.png` 和 `kde-virtual-recording-second.png`。
+
+#### 阶段 2 · KDE 选屏器与 Wayland 覆盖层交接修复
+
+- 独立 KWin 6.6.7 输出在授权响应后约 206 毫秒结束默认的 `scale` 动画，双倍动画约 396 毫秒。
+  KDE 路径连续两次确认 `activeEffects` 中没有窗口关闭特效，再连接 PipeWire。持续任务接续时先提交透明覆盖层，
+  等合成器处理该帧再销毁覆盖层。采集按销毁时间丢弃旧帧，交接超时会结束任务并释放会话。
+  [KWin Effects 接口](https://github.com/KDE/kwin/blob/v6.6.4/src/org.kde.kwin.Effects.xml#L2-L5)
+- 默认、双倍和关闭动画三组都导出了逐像素一致的 240×150 PNG。每组从第 0 帧起对照 16 帧 VP9，均在颜色误差
+  阈值内，每项操作各授权一次。另从独立 Wayland 客户端读取等像素 PNG，手动长截图追加 48 像素并导出
+  240×198 等像素 PNG，取消后确认原会话关闭。系统选屏器取消后可重新授权。
+- 隔离 Sway 复测了直接冻结和 Portal 两条路径。Portal 的 8 轮录屏均从第 0 帧通过像素对照。隔离 GNOME
+  复测了 v5 路径的两份精确窗口截图。完整 Linux 本地门禁 11 通过、0 失败、0 跳过。Windows GNU Slint QA
+  交叉检查和 macOS 双架构平台层交叉 Clippy 通过。实体 KDE、多屏混合 DPI 和同一 SHA 原生 CI 待验收。
+- QA 二进制 SHA-256 为 `8928dfbb1a6edbaa000e4c4c5bbf9d56c4bee981ceb1b0f9050a3a51677639b5`。
+  证据位于 `target/test-artifacts/slint-stage2-kde/`，包括 `kde-effects-{default,slow}.log`、
+  `kde-boundaries-{default,slow,disabled,cancel}.log`、`kde-boundaries-native-workflow-final.log`、
+  `sway-{portal,direct}-boundaries-final.log`、`gnome-boundaries.log` 和 `ci-local-boundaries.log`。
 
 ### 阶段 3 · X11 输入基线
 

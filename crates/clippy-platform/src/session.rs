@@ -5,10 +5,15 @@ pub fn is_wayland() -> bool {
 }
 
 pub fn is_gnome() -> bool {
-    cfg!(target_os = "linux")
-        && std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|value| {
-            value
-                .split(':')
-                .any(|part| part.eq_ignore_ascii_case("GNOME"))
-        })
+    cfg!(target_os = "linux") && desktop_is("GNOME")
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn is_kde() -> bool {
+    desktop_is("KDE")
+}
+
+fn desktop_is(name: &str) -> bool {
+    std::env::var("XDG_CURRENT_DESKTOP")
+        .is_ok_and(|value| value.split(':').any(|part| part.eq_ignore_ascii_case(name)))
 }

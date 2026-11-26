@@ -36,7 +36,14 @@ use slint::{LogicalPosition, LogicalSize};
 #[cfg(not(target_os = "macos"))]
 use slint::{PhysicalPosition, PhysicalSize};
 use std::{
-    cell::RefCell, fmt::Write as _, fs, io, path::PathBuf, rc::Rc, sync::Arc, thread, time::Instant,
+    cell::RefCell,
+    fmt::Write as _,
+    fs, io,
+    path::PathBuf,
+    rc::Rc,
+    sync::Arc,
+    thread,
+    time::{Duration, Instant},
 };
 
 mod desktop;
@@ -146,11 +153,27 @@ pub(super) type EditedCapture = (Arc<RgbaImage>, ImageProject);
 
 pub(super) struct PendingOutput {
     pub window_id: WindowId,
+    started: Instant,
+    clearing_overlay: Option<View>,
     job: OutputJob,
 }
 
 impl PendingOutput {
+    pub fn is_clearing(&self, started: Instant) -> bool {
+        self.started == started && self.clearing_overlay.is_some()
+    }
+
+    pub fn overlay_cleared(&mut self, started: Instant) {
+        if self.is_clearing(started) {
+            self.clearing_overlay.take();
+        }
+    }
+
     pub fn start(mut self, closed: Instant) -> Result<()> {
+        anyhow::ensure!(
+            self.clearing_overlay.is_none(),
+            "The capture overlay closed before its transparent frame"
+        );
         self.job.region.source.overlay_closed(closed)?;
         self.job.start()?;
         Ok(())
@@ -264,6 +287,7 @@ pub(super) fn present(
     diagnostics: bool,
 ) -> Result<Selection> {
     let single_output = capture.output_count == 1;
+    let portal_stream = capture.source.uses_portal();
     let views: Vec<_> = capture
         .outputs
         .into_iter()
@@ -271,6 +295,7 @@ pub(super) fn present(
         .map(|(index, output)| {
             let wayland = clippy_platform::session::is_wayland();
             let window = CaptureWindow::new()?;
+            window.set_portal_stream(portal_stream);
             let frame = OverlayFrame::from(output);
             let view = View { window, frame };
             let geometry = view.frame.geometry;
@@ -343,6 +368,7 @@ pub(super) fn present(
             let placement_window = view.window.as_weak();
             let mut needs_placement = wayland;
             let mut first_redraw = true;
+            let mut blank_frame_submitted = false;
             view.window
                 .window()
                 .on_winit_window_event(move |window, event| {
@@ -370,13 +396,27 @@ pub(super) fn present(
                             }
                         }
                     }
-                    if diagnostics && first_redraw && matches!(event, WindowEvent::RedrawRequested)
-                    {
-                        first_redraw = false;
-                        eprintln!(
-                            "capture_overlay output={ready_name} elapsed_ms={:.1}",
-                            started.elapsed().as_secs_f64() * 1000.0
-                        );
+                    if matches!(event, WindowEvent::RedrawRequested) {
+                        if diagnostics && first_redraw {
+                            first_redraw = false;
+                            eprintln!(
+                                "capture_overlay output={ready_name} elapsed_ms={:.1}",
+                                started.elapsed().as_secs_f64() * 1000.0
+                            );
+                        }
+                        if portal_stream
+                            && placement_window
+                                .upgrade()
+                                .is_some_and(|overlay| overlay.get_blank())
+                        {
+                            if blank_frame_submitted {
+                                post(Event::CaptureOverlayCleared(started));
+                                return EventResult::PreventDefault;
+                            }
+                            // Wayland 的下一次重绘由本次提交的帧回调推进。
+                            blank_frame_submitted = true;
+                            window.with_winit_window(|native| native.request_redraw());
+                        }
                     }
                     EventResult::Propagate
                 });
@@ -583,12 +623,13 @@ pub(super) fn output(
         }
     };
     let Selection {
-        mut views, source, ..
+        mut views,
+        source,
+        started,
     } = selection;
     let selected = views.swap_remove(index);
     let needs_stream = matches!(destination, Destination::Longshot | Destination::Record);
     let window_id = if needs_stream && source.uses_portal() {
-        // Winit 在下一轮事件循环销毁 Wayland 表面，提前读取会录入选区框。
         Some(
             selected
                 .window
@@ -625,7 +666,6 @@ pub(super) fn output(
             .collect()
     };
     let pixels = selected.frame.pixels.clone();
-    drop(selected);
     views.clear();
     let job = OutputJob {
         region,
@@ -634,8 +674,23 @@ pub(super) fn output(
         destination,
     };
     if let Some(window_id) = window_id {
-        return Ok(Some(PendingOutput { window_id, job }));
+        // 先提交透明画面，避免合成器用带选框的旧画面播放窗口关闭动画。
+        selected.window.set_blank(true);
+        selected
+            .window
+            .window()
+            .with_winit_window(|native| native.request_redraw());
+        slint::Timer::single_shot(Duration::from_secs(1), move || {
+            post(Event::CaptureOverlayClearTimedOut(started));
+        });
+        return Ok(Some(PendingOutput {
+            window_id,
+            started,
+            clearing_overlay: Some(selected),
+            job,
+        }));
     }
+    drop(selected);
     job.start()?;
     Ok(None)
 }
