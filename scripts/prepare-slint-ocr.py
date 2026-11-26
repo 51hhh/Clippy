@@ -130,8 +130,8 @@ def build_macos_ort(cache, arch, bundle):
     build = cache / f"ort-{ORT_SOURCE}-{arch}"
     compiler_flags = []
     if arch == "x86_64":
-        # CMake 探测了这个诊断，但没有传递用于 AVX2 局部 pragma 的宏。
-        flags = f"{os.environ.get('CXXFLAGS', '')} -DHAS_ARRAY_BOUNDS=1".strip()
+        # 部分 AVX2 源未包含配置头，补充定义与生成头文件中的空宏保持一致。
+        flags = f"{os.environ.get('CXXFLAGS', '')} -DHAS_ARRAY_BOUNDS=".strip()
         compiler_flags.append(f"-DCMAKE_CXX_FLAGS={flags}")
     run("cmake", "-S", str(source / "cmake"), "-B", str(build),
         "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_OSX_ARCHITECTURES={arch}",

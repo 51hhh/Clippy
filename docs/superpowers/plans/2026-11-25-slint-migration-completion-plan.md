@@ -1506,6 +1506,13 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   在旧参数下也能编译，原生 AppleClang 的编译结果仍需复验。
 - 用打包脚本的两套 CMake 参数验证了 Intel 继承原 `CXXFLAGS` 并追加该宏、Apple Silicon 沿用原参数，两路
   均提交原来的 11.0 部署目标和源码 ID。编译证据在 `target/test-artifacts/slint-stage5-distribution/intel-clang/`。
+- Intel 原生出包随后在编译 ONNX Runtime 图定义时失败。AppleClang 同时看到命令行定义 `1` 和生成头文件中的
+  空宏定义。固定源码只用 `defined(HAS_ARRAY_BOUNDS)` 检查该宏。Intel 的补充定义需与上游模板的空定义一致，
+  让图定义与 AVX2 编译单元共享同一条件，并保留其他数组越界诊断。
+  [Intel 原生失败日志](https://github.com/51hhh/Clippy/actions/runs/45891508750/job/140155080411)
+- 用固定源码的模板生成实际配置头，旧定义在 Clang 的严格编译中重现重复定义，空定义通过。固定的 MLAS AVX2
+  源编译后目标文件逐字节一致，局部规则之外的实际越界表达式仍编译失败。打包驱动的两种调用继续使用锁定源码和
+  11.0 部署目标。原始记录见 `target/test-artifacts/slint-stage5-ort-intel-macro.hgPiF9/`。
 
 ### 阶段 6 · 截图标注撤销与重做结果
 
