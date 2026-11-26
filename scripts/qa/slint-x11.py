@@ -847,30 +847,56 @@ def run(binary, root):
         click_capture_action(mark_selection(), 2)
         _, (x, y, width, height) = wait_for(lambda: titled_window(EDITOR_TITLE), "editor never opened")
         check_titlebar((x, y, width, height), "editor")
+        copy_x, copy_y = x + width - 253, y + height - 55
+        start_x, start_y = x + width // 3, y + height // 3
+        screen = Gdk.get_default_root_window()
+
+        def copy_button_color():
+            pixel = Gdk.pixbuf_get_from_window(screen, copy_x - 28, copy_y, 1, 1)
+            return pixel.get_pixels()[:3]
+
+        ready_color = copy_button_color()
+
+        def wait_for_editor_idle():
+            # 剪贴板获得图像后，编辑器还要处理完成事件再启用下一次操作。
+            desktop.move(desktop.display, 0, x + width // 2, y + height // 2, 0)
+            desktop.sync(desktop.display, 0)
+            wait_for(lambda: copy_button_color() == ready_color, "editor Copy stayed disabled")
+
+        def editor_shows_rectangle():
+            # 这一小块画布同时覆盖原标注和下面重画的矩形上边。
+            border = Gdk.pixbuf_get_from_window(screen, start_x + 12, start_y - 20, 32, 30)
+            return b"\xff\x3b\x30" in border.get_pixels()
+
+        wait_for(editor_shows_rectangle, "editor did not draw the inherited rectangle")
         set_clipboard("UTF8_STRING", OTHER.encode())
-        desktop.click(x + width - 253, y + height - 55)
+        desktop.click(copy_x, copy_y)
         assert wait_for(edited_clipboard, "editor did not restore the selection markup").get_pixels() == marked_copy.get_pixels()
+        wait_for_editor_idle()
         desktop.click(x + width - 110, y + 80)
-        time.sleep(0.3)
-        desktop.click(x + width - 253, y + height - 55)
+        wait_for(lambda: not editor_shows_rectangle(), "undo did not clear the editor preview")
+        desktop.click(copy_x, copy_y)
 
         def plain_clipboard():
             png = clipboard_png()
             return png and pixbuf_png(png).get_pixels() == plain_pixels
 
         wait_for(plain_clipboard, "editor could not undo the inherited rectangle")
+        wait_for_editor_idle()
         print("PASS selection undo/redo shortcuts and toolbar, matching clipboard/PNG pixels and editable transfer", flush=True)
 
-        desktop.drag(x + width // 3, y + height // 3, x + width * 2 // 3, y + height * 2 // 3)
-        # 一次标注会在工作线程合成，更改入画后才能提交。
-        time.sleep(0.3)
-        desktop.click(x + width - 253, y + height - 55)
+        desktop.drag(start_x, start_y, x + width * 2 // 3, y + height * 2 // 3)
+        # 用已绘制的矩形确认后台渲染结束，再通过启用的复制入口读取结果。
+        wait_for(editor_shows_rectangle, "editor did not draw the new red rectangle")
+        desktop.click(copy_x, copy_y)
         edited_copy = wait_for(edited_clipboard, "editor copy did not contain the red rectangle")
+        wait_for_editor_idle()
         desktop.click(x + width - 155, y + height - 55)
         edited_file = output.with_name("fixture-3.png")
         wait_for(edited_file.is_file, "edited PNG was not committed")
         assert pixbuf_png(edited_file.read_bytes()).get_pixels() == edited_copy.get_pixels()
         assert (edited_copy.get_width(), edited_copy.get_height()) == expected[0]
+        wait_for_editor_idle()
         desktop.click(x + width - 67, y + height - 26)
         pin_id, (pin_x, pin_y, pin_width, pin_height) = wait_for(
             lambda: titled_window(PIN_TITLE), "edited image did not open as a pin",
