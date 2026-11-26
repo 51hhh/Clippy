@@ -30,6 +30,7 @@ impl RecordingFrameSource for IdleVideo {
 }
 
 struct IdlePcm {
+    queue: FixturePcmQueue,
     next: u64,
     count: u64,
     lower_bound: Arc<AtomicU64>,
@@ -43,16 +44,16 @@ impl RecordingAudioSource for IdlePcm {
         &mut self,
         timeout: Duration,
     ) -> Result<Option<CapturedAudioChunk>, Self::Error> {
-        if self.next < self.count {
-            thread::sleep(Duration::from_millis(20));
+        if self.next == self.count {
+            if let Some(finished) = self.finished.take() {
+                let _ = finished.send(());
+            }
+        } else if self.queue.has_room() {
             let value = chunk(self.next, self.next * 100_000_000);
             self.next += 1;
             self.lower_bound
                 .fetch_max(self.next * 100_000_000, Ordering::Release);
             return Ok(Some(value));
-        }
-        if let Some(finished) = self.finished.take() {
-            let _ = finished.send(());
         }
         thread::sleep(timeout);
         Ok(None)
@@ -68,6 +69,8 @@ fn run_idle(id: &str, fps: u32, count: u64, initial_bound: u64) {
     let lower_bound = Arc::new(AtomicU64::new(initial_bound));
     let video_bound = Arc::clone(&lower_bound);
     let audio_bound = Arc::clone(&lower_bound);
+    let queue = FixturePcmQueue::default();
+    let audio_queue = queue.clone();
     let (finished, completion) = mpsc::channel();
     let mut settings = config(id);
     settings.frames_per_second = fps;
@@ -83,6 +86,7 @@ fn run_idle(id: &str, fps: u32, count: u64, initial_bound: u64) {
         },
         move |_| {
             Ok(IdlePcm {
+                queue: audio_queue,
                 next: 0,
                 count,
                 lower_bound: audio_bound,
@@ -91,6 +95,7 @@ fn run_idle(id: &str, fps: u32, count: u64, initial_bound: u64) {
         },
     )
     .unwrap();
+    queue.bind(&session);
     let finished_result = completion.recv_timeout(Duration::from_secs(5));
     let audio_source_disconnected =
         matches!(finished_result, Err(mpsc::RecvTimeoutError::Disconnected));

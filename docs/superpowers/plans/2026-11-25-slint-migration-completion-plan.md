@@ -1276,6 +1276,37 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   原始证据位于 `target/test-artifacts/slint-stage4-windows-manifest/` 的 `manifest-overlap-before.log`、
   `manifest-overlap-verified.log` 和 `manifest-overlap-after.log`。
 
+#### 阶段 4 · 合成录屏音频的送样节奏
+
+**Goal** 让首帧与静止画面回归稳定验证真实的采集、编码和分段提交。
+
+**Requirements** 两个合成源都使用 100 毫秒 PCM 块。旧夹具每 10 或 20 毫秒送入一块，
+写盘停顿期间可能超过一秒队列预算。改为按当前 PCM 队列余量送样，队列满时返回空结果。
+保持原始块数、PTS、五秒等待期限、首帧前的读取计数及 Stop 前的分段和文件校验。
+[首帧音频规格](../specs/2026-10-02-recording-first-frame-audio.md) ·
+[静止帧音频规格](../specs/2026-10-02-recording-av-idle-frontier.md)
+
+**Acceptance Criteria** 在同一录屏编码线程的首次周期清单 `fsync` 前注入 400 毫秒延迟，对照修改前后。
+新版仍完成 20 或 30 个 PCM 块，在 1 FPS 和 10 FPS 校验现有视频帧数、严格分段读取和最终音轨。
+旧的一秒溢出测试、首帧错误和取消场景继续执行。本机完整门禁和 Windows 原生门禁单列。
+
+**Out of Scope** 生产队列容量、媒体时钟、设备采集、编解码与格式。
+
+- Ubuntu 上延后一次实际 `fsync` 后，旧二进制的 28 个相关用例有 3 个失败。首帧完成和准备中控制用例报告
+  `Disconnected`，静止录屏用例明确报告 PCM `Backpressure`。与两次 Windows CI 的失败相符。
+  [Windows 原生检查](https://github.com/51hhh/Clippy/actions/runs/45888608556/job/140145429889) ·
+  [Windows 出包检查](https://github.com/51hhh/Clippy/actions/runs/45891508750/job/140155080516)
+- 同一延迟下，改用队列余量后 28 项全部通过。包含 Windows 播放与音频特性的 Windows GNU 媒体层通过
+  严格 Clippy。隔离 Wine 的 47 项通过，覆盖首帧门控、静止分段、恢复前缀、清单读写及原来的一秒溢出测试。
+  将单次停顿延长到 6.25 秒时，静止录屏测试仍在原五秒期限报超时。
+  原始记录位于 `target/test-artifacts/slint-stage4-windows-manifest/` 的
+  `av-fixtures-linux-{before,after}-delay.log`、`av-fixtures-after-wine.log` 和
+  `av-fixtures-windows-clippy.log`。延长停顿的日志为 `av-fixtures-linux-stall-negative.log`。
+  同 SHA 的 Windows 原生门禁和安装包继续验收。
+- 本机完整门禁首轮 9 项通过、2 项失败。继承的 NTFS3 临时目录在两个旧用例创建符号链接时返回错误 2，
+  独立探针复现相同错误。使用独立 `/tmp` 目录后，源码相同的完整门禁 11 项通过、0 失败、0 跳过。
+  记录为 `ci-local-manifest-pcm.log` 与 `ci-local-manifest-pcm-posix.log`。
+
 #### Linux 音频时间戳提案 · 待实测和审批
 
 - PipeWire 1.6.2 的虚拟系统输出持续播放 620 Hz 时，产品采集路径连上明确目标，首包缺少 SPA 帧头并中止。

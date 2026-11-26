@@ -35,6 +35,7 @@ impl RecordingFrameSource for DelayedVideo {
 
 struct PacedAudio {
     reads: Arc<AtomicUsize>,
+    queue: FixturePcmQueue,
     next: u64,
     finished: Option<mpsc::Sender<()>>,
     dropped: mpsc::Sender<(ThreadId, usize)>,
@@ -48,15 +49,14 @@ impl RecordingAudioSource for PacedAudio {
         timeout: Duration,
     ) -> Result<Option<CapturedAudioChunk>, Self::Error> {
         self.reads.fetch_add(1, Ordering::SeqCst);
-        if self.next < 20 {
-            // 受控加速交付 100 ms PCM；严格序号/PTS，真实队列仍只有一秒，非设备时延测量。
-            thread::sleep(Duration::from_millis(10));
+        if self.next == 20 {
+            if let Some(finished) = self.finished.take() {
+                let _ = finished.send(());
+            }
+        } else if self.queue.has_room() {
             let result = chunk(self.next, 2_000_000_000 + self.next * 100_000_000);
             self.next += 1;
             return Ok(Some(result));
-        }
-        if let Some(finished) = self.finished.take() {
-            let _ = finished.send(());
         }
         thread::sleep(timeout);
         Ok(None)
@@ -90,6 +90,8 @@ fn setup_delayed(directory: &Path, id: &str, failure: Option<&'static str>) -> D
     let video_release = Arc::clone(&released);
     let reads = Arc::new(AtomicUsize::new(0));
     let audio_reads = Arc::clone(&reads);
+    let queue = FixturePcmQueue::default();
+    let audio_queue = queue.clone();
     let (entered, entry) = mpsc::channel();
     let (finished, audio_finished) = mpsc::channel();
     let (dropped, audio_dropped) = mpsc::channel();
@@ -119,6 +121,7 @@ fn setup_delayed(directory: &Path, id: &str, failure: Option<&'static str>) -> D
             let _ = created.send(thread::current().id());
             Ok(PacedAudio {
                 reads: audio_reads,
+                queue: audio_queue,
                 next: 0,
                 finished: Some(finished),
                 dropped,
@@ -126,6 +129,7 @@ fn setup_delayed(directory: &Path, id: &str, failure: Option<&'static str>) -> D
         },
     )
     .unwrap();
+    queue.bind(&session);
     entry.recv_timeout(Duration::from_secs(5)).unwrap();
     let audio_thread = creation.recv_timeout(Duration::from_secs(5)).unwrap();
     (
@@ -165,7 +169,7 @@ fn first_frame_wait_does_not_fill_audio_queue_and_can_complete() {
     assert_eq!(drop_thread, created);
     assert_eq!(early_reads, 0, "首帧未到不应轮询 PCM；提前结束={prematurely_terminated}, audio={early_audio_result:?}, stop={result:?}");
     assert!(!prematurely_terminated);
-    finished_result.unwrap();
+    finished_result.unwrap_or_else(|error| panic!("合成音频未完成送样：{error}; stop={result:?}"));
     let report = result.unwrap();
     assert_eq!(report.video_captured_frames, 20);
     assert_eq!(report.audio_accepted_chunks, 20);

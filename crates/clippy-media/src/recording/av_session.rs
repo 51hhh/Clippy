@@ -529,14 +529,14 @@ mod tests {
     }
 
     use super::*;
-    use crate::recording::audio::{AudioFormat, CapturedAudioChunk};
+    use crate::recording::audio::{AudioFormat, CapturedAudioChunk, MAX_AUDIO_CHUNK_FRAMES};
     use crate::recording::frame::CapturedFrame;
     use serde_json::Value;
     use std::collections::VecDeque;
     use std::error::Error;
     use std::fmt;
     use std::fs;
-    use std::sync::{mpsc, Mutex};
+    use std::sync::{mpsc, Mutex, OnceLock};
     use std::thread;
     use std::time::Duration;
 
@@ -550,6 +550,23 @@ mod tests {
     }
 
     impl Error for FixtureError {}
+
+    #[derive(Clone, Default)]
+    struct FixturePcmQueue(Arc<OnceLock<Arc<AudioPipeline>>>);
+
+    impl FixturePcmQueue {
+        fn bind(&self, session: &AvRecordingSession) {
+            assert!(self.0.set(Arc::clone(&session.audio_pipeline)).is_ok());
+        }
+
+        fn has_room(&self) -> bool {
+            // 合成源不受设备时钟限速。单一生产者只在一秒预算内还有整块空间时送样。
+            self.0.get().is_some_and(|pipeline| {
+                pipeline.stats().unwrap().queued_frames
+                    <= u64::from(AUDIO_SAMPLE_RATE_HZ - MAX_AUDIO_CHUNK_FRAMES)
+            })
+        }
+    }
 
     struct SessionVideoSource {
         frames: VecDeque<CapturedFrame>,
