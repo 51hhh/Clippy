@@ -39,6 +39,17 @@ impl AppPaths {
     }
 }
 
+#[cfg(target_os = "linux")]
+pub(crate) fn local_file_uri(uri: &str) -> anyhow::Result<PathBuf> {
+    let url = url::Url::parse(uri)?;
+    anyhow::ensure!(
+        url.query().is_none() && url.fragment().is_none(),
+        "The file link includes unexpected parameters"
+    );
+    url.to_file_path()
+        .map_err(|()| anyhow::anyhow!("Expected a local file"))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PathError {
     DataDirectoryUnavailable,

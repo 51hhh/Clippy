@@ -17,7 +17,7 @@ raw-window-handle = { version = "0.6", features = ["std"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 arboard = { version = "3", features = ["wayland-data-control"] }
-ashpd = { version = "0.13", features = ["global_shortcuts", "raw_handle", "remote_desktop", "screencast", "screenshot", "wayland"] }
+ashpd = { version = "0.13", features = ["file_chooser", "global_shortcuts", "raw_handle", "remote_desktop", "screencast", "screenshot", "wayland"] }
 enigo = { version = "0.6", default-features = false, features = ["x11rb"] }
 futures-util = { version = "0.3", default-features = false }
 libwayshot-xcap = "0.3"
@@ -38,6 +38,7 @@ zbus = "5"
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 auto-launch = "0.5"
 enigo = { version = "0.6", default-features = false }
+rfd = { version = "0.16", default-features = false }
 xcap = { version = "0.9", features = ["wgc"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

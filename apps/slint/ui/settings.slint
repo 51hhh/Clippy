@@ -24,6 +24,7 @@ export struct TranslationSettings {
 }
 
 export enum ShortcutField { none, clipboard, pin, screenshot }
+export enum FileChoice { screenshot-directory, ocr-manifest, export-archive, import-archive }
 export enum GnomeHelperAction { refresh, install, enable, disable, remove }
 export struct GnomeHelperView {
     title: string, detail: string, action: GnomeHelperAction, action-label: string, removable: bool,
@@ -185,6 +186,7 @@ export component SettingsPane inherits Rectangle {
     in property <bool> autostart-available;
     in property <bool> tmux-available;
     in property <bool> busy;
+    in property <bool> file-dialog-pending;
     in property <[string]> shortcut-defaults;
     in property <bool> wayland-session;
     in property <bool> gnome-session;
@@ -198,6 +200,8 @@ export component SettingsPane inherits Rectangle {
     in-out property <string> panel-shortcut;
     in-out property <string> pin-shortcut;
     in-out property <string> capture-shortcut;
+    in-out property <string> save-directory-draft;
+    in-out property <string> ocr-manifest-draft;
     callback paste-setting(bool);
     callback authorize-paste();
     callback forget-paste();
@@ -210,6 +214,7 @@ export component SettingsPane inherits Rectangle {
     callback store-credentials(int, string, string);
     callback delete-credentials(int);
     callback data-action(int, string);
+    callback choose-path(FileChoice, string);
     private property <int> page;
     private property <bool> desktop-managed-shortcuts: root.wayland-session && !root.gnome-session;
     private property <[string]> pages: ["General", "Screenshot", "Translation", "About"];
@@ -413,23 +418,47 @@ export component SettingsPane inherits Rectangle {
                     SettingDivider { }
                     FieldLabel { text: "Screenshots"; }
                     FieldLabel { text: "Screenshot directory"; }
-                    directory := SettingInput { text: root.general.save-directory; placeholder-text: "System Pictures/Screenshots"; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        SettingInput {
+                            text <=> root.save-directory-draft;
+                            placeholder-text: "System Pictures/Screenshots";
+                            enabled: !root.file-dialog-pending;
+                        }
+                        SurfaceButton {
+                            label: "Browse screenshot directory"; caption: "Browse…";
+                            enabled: !root.file-dialog-pending && !root.save-pending;
+                            clicked => { root.choose-path(FileChoice.screenshot-directory, root.save-directory-draft); }
+                        }
+                    }
                     FieldLabel { text: "Screenshot filename template"; }
                     filename := SettingInput { text: root.general.filename-template; placeholder-text: "{prefix}-{date}-{time}"; }
                     ocr := CheckBox { text: "Enable OCR"; checked: root.general.ocr-enabled; }
                     FieldLabel { text: "Enhanced OCR manifest"; }
-                    manifest := SettingInput { text: root.general.ocr-manifest; placeholder-text: "Optional path to model manifest"; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        SettingInput {
+                            text <=> root.ocr-manifest-draft;
+                            placeholder-text: "Optional path to model manifest";
+                            enabled: !root.file-dialog-pending;
+                        }
+                        SurfaceButton {
+                            label: "Browse OCR manifest"; caption: "Browse…";
+                            enabled: !root.file-dialog-pending && !root.save-pending;
+                            clicked => { root.choose-path(FileChoice.ocr-manifest, root.ocr-manifest-draft); }
+                        }
+                    }
                     Button {
                         text: "Save screenshot settings";
-                        enabled: !root.save-pending;
+                        enabled: !root.save-pending && !root.file-dialog-pending;
                         clicked => {
                             root.recording-shortcut = ShortcutField.none;
                             root.apply-general({
                                 max-history: root.general.max-history, panel-shortcut: root.general.panel-shortcut,
                                 pin-shortcut: root.general.pin-shortcut,
                                 theme: root.general.theme, capture-shortcut: root.capture-shortcut,
-                                save-directory: directory.text, filename-template: filename.text,
-                                ocr-enabled: ocr.checked, ocr-manifest: manifest.text,
+                                save-directory: root.save-directory-draft, filename-template: filename.text,
+                                ocr-enabled: ocr.checked, ocr-manifest: root.ocr-manifest-draft,
                             });
                         }
                     }
@@ -562,11 +591,32 @@ export component SettingsPane inherits Rectangle {
                     SectionRule { }
                     FieldLabel { text: "Data and Backups"; }
                     FieldLabel { text: root.data-status; wrap: word-wrap; }
-                    archive := LineEdit { placeholder-text: "Absolute path to .clippy.zip"; }
+                    archive := LineEdit {
+                        placeholder-text: "Optional absolute .clippy.zip path";
+                        enabled: !root.file-dialog-pending;
+                    }
                     HorizontalLayout {
                         spacing: 8px;
-                        Button { text: "Export archive"; enabled: !root.busy && !archive.text.is-empty; clicked => { root.data-action(1, archive.text); } }
-                        Button { text: "Import archive"; enabled: !root.busy && !archive.text.is-empty; clicked => { root.data-action(2, archive.text); } }
+                        Button {
+                            text: "Export archive"; enabled: !root.busy && !root.file-dialog-pending;
+                            clicked => {
+                                if archive.text.is-empty {
+                                    root.choose-path(FileChoice.export-archive, "");
+                                } else {
+                                    root.data-action(1, archive.text);
+                                }
+                            }
+                        }
+                        Button {
+                            text: "Import archive"; enabled: !root.busy && !root.file-dialog-pending;
+                            clicked => {
+                                if archive.text.is-empty {
+                                    root.choose-path(FileChoice.import-archive, "");
+                                } else {
+                                    root.data-action(2, archive.text);
+                                }
+                            }
+                        }
                     }
                     if root.tmux-available: Button { text: "Capture active tmux pane"; enabled: !root.busy; clicked => { root.data-action(3, ""); } }
                     Button { text: "Diagnostics"; clicked => { root.data-action(4, ""); } }

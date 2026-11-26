@@ -1,5 +1,7 @@
 use super::{post, use_app, App, Event};
-use crate::{AppWindow, ClippyTheme, GeneralSettings, ShortcutField, TranslationSettings};
+use crate::{
+    AppWindow, ClippyTheme, FileChoice, GeneralSettings, ShortcutField, TranslationSettings,
+};
 use anyhow::{ensure, Context, Result};
 use clippy_core::{
     config::{AppConfig, TranslationServiceConfig},
@@ -21,8 +23,9 @@ use slint::{
     },
     ComponentHandle, ModelRc, SharedString, VecModel,
 };
-use std::thread;
+use std::{path::PathBuf, thread};
 
+mod file_dialog;
 #[cfg(target_os = "linux")]
 mod gnome_helper;
 
@@ -37,6 +40,7 @@ const THEMES: [&str; 6] = [
 
 pub(super) enum Message {
     Data(Result<String>),
+    FileChosen(FileChoice, slint::Weak<AppWindow>, Result<Option<PathBuf>>),
     Stats(Result<String>),
     Credentials(Result<String>),
     #[cfg(target_os = "linux")]
@@ -329,6 +333,13 @@ pub(super) fn connect(window: &AppWindow, config: &AppConfig) {
     window.on_data_action(|action, path| {
         use_app(|app| {
             if let Err(error) = app.data_action(action, path.as_str()) {
+                app.status(error.to_string());
+            }
+        })
+    });
+    window.on_choose_path(|kind, path| {
+        use_app(|app| {
+            if let Err(error) = file_dialog::start(app, kind, path.as_str()) {
                 app.status(error.to_string());
             }
         })
@@ -755,6 +766,9 @@ impl App {
 
     pub(super) fn settings_message(&mut self, message: Message) {
         match message {
+            Message::FileChosen(kind, window, result) => {
+                file_dialog::completed(self, kind, window, result);
+            }
             Message::Data(result) => {
                 self.set_busy(false);
                 self.settings_result(result);

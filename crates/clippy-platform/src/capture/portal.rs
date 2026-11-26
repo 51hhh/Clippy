@@ -1,4 +1,5 @@
-use anyhow::{anyhow, ensure, Result};
+use crate::paths::local_file_uri;
+use anyhow::{anyhow, Context, Result};
 use ashpd::desktop::{screenshot::Screenshot, ResponseError};
 use std::path::PathBuf;
 
@@ -14,7 +15,9 @@ pub fn system_screenshot() -> Result<Option<PathBuf>> {
             .modal(false)
             .connection(Some(connection));
         match request.send().await.and_then(|request| request.response()) {
-            Ok(screenshot) => file_path(screenshot.uri().as_str()).map(Some),
+            Ok(screenshot) => local_file_uri(screenshot.uri().as_str())
+                .context("The system screenshot did not return a local file")
+                .map(Some),
             Err(ashpd::Error::Response(ResponseError::Cancelled)) => Ok(None),
             Err(ashpd::Error::Response(ResponseError::Other)) => {
                 Err(anyhow!("The system screenshot did not return an image"))
@@ -24,16 +27,6 @@ pub fn system_screenshot() -> Result<Option<PathBuf>> {
     })
 }
 
-fn file_path(uri: &str) -> Result<PathBuf> {
-    let url = url::Url::parse(uri)?;
-    ensure!(
-        url.query().is_none() && url.fragment().is_none(),
-        "The system screenshot link includes unexpected parameters"
-    );
-    url.to_file_path()
-        .map_err(|()| anyhow!("The system screenshot did not return a local file"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -41,11 +34,11 @@ mod tests {
     #[test]
     fn accepts_only_local_screenshot_files() {
         assert_eq!(
-            file_path("file:///tmp/Screenshot%201.png").unwrap(),
+            local_file_uri("file:///tmp/Screenshot%201.png").unwrap(),
             PathBuf::from("/tmp/Screenshot 1.png")
         );
-        assert!(file_path("file://remote/tmp/screenshot.png").is_err());
-        assert!(file_path("https://example.invalid/screenshot.png").is_err());
-        assert!(file_path("file:///tmp/screenshot.png?mode=remote").is_err());
+        assert!(local_file_uri("file://remote/tmp/screenshot.png").is_err());
+        assert!(local_file_uri("https://example.invalid/screenshot.png").is_err());
+        assert!(local_file_uri("file:///tmp/screenshot.png?mode=remote").is_err());
     }
 }

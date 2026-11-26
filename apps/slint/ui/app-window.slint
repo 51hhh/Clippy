@@ -1,8 +1,8 @@
 import { ClipRow, HistoryPane } from "history.slint";
 import { ClipPreview, HistoryPreviewPane } from "history-preview.slint";
-import { GeneralSettings, GnomeHelperAction, GnomeHelperView, PortalShortcutView, SettingsPane, ShortcutField, TranslationSettings } from "settings.slint";
+import { FileChoice, GeneralSettings, GnomeHelperAction, GnomeHelperView, PortalShortcutView, SettingsPane, ShortcutField, TranslationSettings } from "settings.slint";
 import { ClippyTheme, WindowHeader } from "theme.slint";
-export { GeneralSettings, GnomeHelperAction, GnomeHelperView, PortalShortcutView, TranslationSettings, ShortcutField, ClippyTheme, ClipRow, ClipPreview }
+export { FileChoice, GeneralSettings, GnomeHelperAction, GnomeHelperView, PortalShortcutView, TranslationSettings, ShortcutField, ClippyTheme, ClipRow, ClipPreview }
 export { EditorWindow } from "editor.slint";
 export { PinnedWindow } from "pins.slint";
 export { WorkspaceWindow, WorkspaceRow, WorkspaceGroupRow } from "workspace.slint";
@@ -61,6 +61,9 @@ export component AppWindow inherits Window {
     in-out property <string> panel-shortcut-draft;
     in-out property <string> pin-shortcut-draft;
     in-out property <string> capture-shortcut-draft;
+    in-out property <string> save-directory-draft;
+    in-out property <string> ocr-manifest-draft;
+    in property <bool> file-dialog-pending;
     in property <[string]> shortcut-defaults;
     in property <bool> wayland-session;
     in property <bool> gnome-session;
@@ -110,6 +113,7 @@ export component AppWindow inherits Window {
     callback store-credentials(int, string, string);
     callback delete-credentials(int);
     callback data-action(int, string);
+    callback choose-path(FileChoice, string);
     callback edit-history-image(string);
     callback preview-item(string);
     callback show-preview(bool);
@@ -125,6 +129,8 @@ export component AppWindow inherits Window {
         root.panel-shortcut-draft = root.general-settings.panel-shortcut;
         root.pin-shortcut-draft = root.general-settings.pin-shortcut;
         root.capture-shortcut-draft = root.general-settings.capture-shortcut;
+        root.save-directory-draft = root.general-settings.save-directory;
+        root.ocr-manifest-draft = root.general-settings.ocr-manifest;
     }
 
     title: root.show-settings ? "Clippy Settings" : root.product-name;
@@ -220,6 +226,9 @@ export component AppWindow inherits Window {
             panel-shortcut <=> root.panel-shortcut-draft;
             pin-shortcut <=> root.pin-shortcut-draft;
             capture-shortcut <=> root.capture-shortcut-draft;
+            save-directory-draft <=> root.save-directory-draft;
+            ocr-manifest-draft <=> root.ocr-manifest-draft;
+            file-dialog-pending: root.file-dialog-pending;
             shortcut-defaults: root.shortcut-defaults;
             wayland-session: root.wayland-session;
             gnome-session: root.gnome-session;
@@ -248,6 +257,7 @@ export component AppWindow inherits Window {
             store-credentials(index, key, secret) => { root.store-credentials(index, key, secret); }
             delete-credentials(index) => { root.delete-credentials(index); }
             data-action(action, path) => { root.data-action(action, path); }
+            choose-path(kind, path) => { root.choose-path(kind, path); }
         }
 
         if root.action-status != "": Text {

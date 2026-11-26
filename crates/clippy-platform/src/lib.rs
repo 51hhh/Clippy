@@ -1,5 +1,6 @@
 pub mod capture;
 pub mod clipboard;
+pub mod file_dialog;
 #[cfg(target_os = "linux")]
 pub mod gnome_extension;
 #[cfg(target_os = "linux")]

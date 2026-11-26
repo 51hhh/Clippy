@@ -136,6 +136,7 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
             storage,
             generation: 0,
             busy: false,
+            file_dialog_pending: false,
             #[cfg(target_os = "linux")]
             gnome_helper_busy: false,
             #[cfg(target_os = "linux")]
@@ -287,6 +288,7 @@ struct App {
     storage: StorageRuntime,
     generation: u64,
     busy: bool,
+    file_dialog_pending: bool,
     #[cfg(target_os = "linux")]
     gnome_helper_busy: bool,
     #[cfg(target_os = "linux")]
@@ -594,6 +596,7 @@ impl App {
         window.set_auto_paste(self.config.auto_paste);
         window.set_show_settings(settings);
         window.set_busy(self.busy);
+        window.set_file_dialog_pending(self.file_dialog_pending);
         #[cfg(target_os = "linux")]
         {
             window.set_settings_save_pending(self.gnome_settings_pending.is_some());
@@ -655,6 +658,12 @@ impl App {
         self.preview.select(None);
         self.thumbnails.clear();
         if let Some(window) = self.window.take() {
+            if self.file_dialog_pending {
+                // 选择器准备期间可能仍持有底层窗口，不能依赖销毁来隐藏它。
+                window
+                    .window()
+                    .with_winit_window(|window| window.set_visible(false));
+            }
             let _ = window.hide();
             if self.identity.channel == DistributionChannel::Qa {
                 eprintln!("panel_hidden");

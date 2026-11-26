@@ -17,7 +17,7 @@ GitHub `dev` 仍指向 #27 的合入提交 `abfdeb5`。之前的安装包、三�
 
 | 功能 | 当前 Slint | 收尾内容 |
 | --- | --- | --- |
-| 托盘、快捷键、设置 | 按需窗口、单实例、三类快捷键、六主题、平台权限入口。设置支持录制、即时改键和失败回滚，Portal 管理的键位同步到界面 | 原生托盘、快捷键、系统配置入口和权限态实机验收。补中英文及自动语言，完善 OCR 引擎状态、路径选择、清理与更新入口。 [设置调用](../../../apps/slint/src/app/settings.rs) · [旧设置](../../../apps/legacy-tauri/frontend/settings.html) |
+| 托盘、快捷键、设置 | 按需窗口、单实例、三类快捷键、六主题、平台权限入口。设置支持录制、即时改键、失败回滚和原生文件选择，Portal 管理的键位同步到界面 | 原生托盘、快捷键、系统配置入口和权限态实机验收。补中英文及自动语言，完善 OCR 引擎状态、清理与更新入口。 [设置调用](../../../apps/slint/src/app/settings.rs) · [旧设置](../../../apps/legacy-tauri/frontend/settings.html) |
 | 剪贴板和自动粘贴 | Unicode、HTML、透明 PNG、检索、收藏、删除、敏感项保护。X11 已验证复制和焦点变化。Windows 使用序列号，macOS 使用 `changeCount`，X11 读取 XFixes 事件，应用循环间隔 250 ms | 核对 Wayland 原生应用间的读写和授权恢复。将能观察的变更改为事件唤醒。短时间多次复制、退出数据所有权及焦点失效要在安装包内验证。 [平台剪贴板](../../../crates/clippy-platform/src/clipboard.rs) · [剪贴板工作线程](../../../apps/slint/src/app/clipboard.rs) |
 | 冻结截图 | X11 root、GNOME Mutter 原始帧、其他 Wayland 的 wayshot、Windows xcap/WGC 单帧、macOS xcap/CoreGraphics。选区使用单输出源像素 | 复测 v5 速度与 GNOME 瞬时菜单。补窗口速选、旋转和混合 DPI 验收。跨屏选区和合成是原生计划中的新增目标，先固定输出坐标尺度。保留系统截图导入和延时截图。 [平台采集](../../../crates/clippy-platform/src/capture.rs) · [GNOME v5 合同](../specs/2026-10-23-gnome-capture-fast-path-rollback.md) |
 | 标注、查看器、贴图 | 截图层有五个内联工具。编辑器可做更多标注。查看器支持缩放拖动。贴图、修订、工作区分组和缩略图已接入 | 恢复高频内联笔、文字、马赛克等实际入口与撤销/重做。窗口速选和扫码结果交互按旧操作验证。贴图跨屏缩放、层级和重启位置恢复做原生验证。独立查看器持久化工程按现有修订合同接入。 [截图窗](../../../apps/slint/ui/capture.slint) · [编辑器控制](../../../apps/slint/src/app/editor.rs) · [贴图状态](../../../apps/slint/src/app/pins.rs) |
@@ -541,6 +541,32 @@ Portal 1 提示从桌面设置修改。配置页响应同一会话的键位变�
 用隔离 X11 和 GNOME 实测，Windows/macOS 与非 GNOME Portal 在对应原生桌面验收。
 
 **Out of Scope** 新增全局动作、改变快捷键默认值及替换 v5 截图入口。
+
+#### 阶段 6 · 设置原生文件选择
+
+**Goal** 从设置用系统选择器打开截图目录、OCR 清单和备份。支持没有可用选择器的桌面继续手填路径。
+
+**Requirements** Linux 使用 XDG FileChooser Portal，Windows 和 macOS 使用原生面板。只在用户发起操作时
+启动选择，不新增 GTK 或 WebView 运行依赖。目录和清单回填当前草稿，仍由截图设置的保存按钮提交。归档使用
+原有 `.clippy.zip` 导入导出合同和禁止覆盖规则。取消时保留草稿，关闭设置后忽略旧窗口的选择结果。
+
+**Acceptance Criteria** 从设置实际选择目录和 JSON 文件，核对保存前后配置及截图落盘位置。导出后再导入
+同一份 ZIP，核对数据。测试取消、关窗后迟到响应、重复请求、未安装 Portal 和同名文件。Linux 用真实 Portal
+验证，Windows 和 macOS 另做原生窗口及打包验收。
+
+**Out of Scope** 录屏导出选择器、归档格式和系统持久文件授权机制。
+
+#### 阶段 6 · 归档写入与剪贴板入库
+
+**Goal** 大备份写入期间，剪贴板仍能入库并读取历史。
+
+**Requirements** SQLite 工作线程只取一次归档快照，交给按需启动的单个写入线程。归档格式、敏感项保护、
+摘要校验和原子禁止覆盖规则照旧。正常退出等待已发起的归档结束。失败由原设置入口反馈并允许重试。
+
+**Acceptance Criteria** 在隔离桌面暂停归档写入，另一个应用复制新文本。在恢复写入前核对新文本已进入
+SQLite，恢复后核对 ZIP 可读且仍由原快照生成。验证已存在目标文件保留、失败后重试和正常退出等待收尾。
+
+**Out of Scope** 调整持久化格式、替换 ZIP 实现或降低同步落盘要求。
 
 ## 实施记录
 
@@ -1175,6 +1201,20 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   证据位于 `target/test-artifacts/slint-stage6-portal-shortcuts/`，包括 `portal-v0-final.log`、
   `portal-v1-closed-verified.log`、`portal-v2-full.log`、`kde-provider-probe.log`、`kde-accelerator-probe.log`、
   `gnome-v5-regression.log`、`ci-local.log`、`windows-gnu-qa.log` 和 `macos-platform.log`。
+
+#### 阶段 6 · 设置原生文件选择结果
+
+- Linux 使用 FileChooser Portal，Windows/macOS 用原生面板。截图目录和 OCR 清单回填本次设置草稿，备份
+  路径留空时从导入或导出按钮打开系统选择器。继续接受手填路径与原有 `.clippy.zip` 格式。
+- 隔离 X11 使用实际 GTK Portal 对话框验证窗口归属、取消、重复点击、含空格的目录和清单路径。选路径后配置
+  保持原字节，点保存后写入配置并向新目录产出 PNG。用系统面板导出、导入 ZIP，重新选择同名归档时保留原件。
+- 独立 D-Bus 用延迟响应核对关窗后旧选择不会触发归档，非本地 URI 被拒绝。没有 FileChooser 的独立会话显示
+  错误反馈，手填路径仍成功导出。ELF 依赖检查确认 QA 程序未链接 GTK、WebKit 或 JavaScriptCore。
+- 完整 Linux 门禁 11 项通过、0 失败、0 跳过。Windows GNU 的默认 Slint QA 入口交叉检查与 macOS 双架构
+  平台层严格 Clippy 通过。Wayland、Windows 和 macOS 原生桌面与安装包继续验收。
+- QA 二进制 SHA-256 为 `ff6579e561dd4e0180f5c3c3b87df63a32b1f1f2ba4e5495a2ed8e53446376d9`。
+  证据位于 `target/test-artifacts/slint-stage6-file-dialogs/`，包括 `real-x11.log`、`late-x11.log`、
+  `unavailable-x11.log`、`linux-dependencies.log`、`ci-local.log`、`windows-gnu-qa.log` 和 `macos-platform.log`。
 
 ## Acceptance Criteria
 
