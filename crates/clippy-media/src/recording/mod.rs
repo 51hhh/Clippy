@@ -24,7 +24,10 @@ pub mod pipeline;
 pub mod platform;
 #[cfg(any(
     feature = "recording-playback-gstreamer",
-    all(target_os = "linux", feature = "recording-playback-native-stream")
+    all(
+        any(target_os = "linux", target_os = "windows"),
+        feature = "recording-playback-native-stream"
+    )
 ))]
 pub mod playback;
 pub mod segmenting;

@@ -500,6 +500,19 @@ ScreenCaptureKit 取 `SCStreamFrameInfoDisplayTime`。原生时间缺失或超�
 
 **Out of Scope** 正式播放器切换、macOS 部署目标变更、音频采集时间戳变更。
 
+#### 阶段 4 · Windows 轻量播放器候选
+
+**Goal** Windows 的录屏库能播放自有 VP9/Opus 录像，并用系统默认输出播放声音。
+
+**Requirements** `recording-playback-native-qa` 在 Windows 启用已有的 WebM 解码器、PCM 队列和录屏库控件。通过
+CPAL 的 WASAPI 共享模式打开播放流，沿用 48 kHz 双声道与现有队列上限，由系统完成流级格式转换。保留 QA 对
+指定设备的选择。暂停、定位和关窗时按现有生命周期释放播放流。Windows 的 QA 安装包启用该特性并记录来源。
+
+**Acceptance Criteria** 验证 Windows 含此特性的 Slint 入口和共享媒体层。用同一批无声和有声原件、分段、恢复件
+检查首帧、正反定位、暂停和关窗。记录系统默认输出的可听样本、播放结束和流回收。Windows 原生安装验收单独记录。
+
+**Out of Scope** 正式包默认播放器切换、采集和录制格式改动、macOS 音频设备适配。
+
 #### 阶段 5 · 按需离线识别进程
 
 **Goal** 让 Slint 的全尺寸识字窗和历史预览共用可运行的 PP-OCRv6 small 候选，进程退出后归还模型内存。
@@ -1225,6 +1238,20 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   `stream-4k-app-graph-*.log`、`stream-4k-library-final.log`、`native-stream-media-tests-final.log`、
   `player-stream-clippy-verified.log`、`ci-local-stream-playback-final.log`
   和 `windows-default-stream-playback-final.log`。
+
+### 阶段 4 · Windows 轻量播放器结果
+
+- Windows QA 共用已有的索引解码、PCM 队列和画面。播放时通过 WASAPI 共享模式打开 48 kHz 双声道流。出包步骤
+  以相同特性编译测试和安装包，并在 `QA-BUILD.txt` 记录 `recording-playback=wasapi`。
+- 交叉链接 Windows x64 探针后，在独立 Wine 与 PipeWire 会话中检查真实解码像素和输出。原件、独立分段和恢复件
+  均通过正反定位与自然结束。虚拟默认输出分别收到 1.000、1.020 和 1.400 秒有效信号，测得 441.0、620.4 和
+  619.7 Hz。暂停保持媒体位置并释放流，继续播放建立新流，关窗所用的播放器释放路径移除活动输出。无声段在
+  指定无效设备时仍能正常定位和结束，有声输入会报告设备不可用。
+- Linux 共享媒体播放器测试 392 通过，含该特性的 Windows GNU Slint QA 入口和媒体层通过严格交叉 Clippy。
+  日志在 `target/test-artifacts/slint-stage4-windows-playback/` 的 `wine-player-verified.log`、`wine-controls.log`、
+  `linux-shared-player-tests.log` 和 `windows-player-clippy.log`。原生 Windows 安装和真实输出设备仍需实测。
+- 首次本地门禁在 X11 文本工具的结果复制断言失败。同一应用源码在录屏探针结束后串行重跑，文本用例通过，完整
+  Linux 门禁 11 通过、0 失败、0 跳过。日志为同目录的 `ci-local-windows-player-intel-ort-serial.log`。
 
 #### Linux 音频时间戳提案 · 待实测和审批
 

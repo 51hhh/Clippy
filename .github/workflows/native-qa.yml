@@ -629,13 +629,13 @@ jobs:
 
       - name: Test Slint QA host
         run: >-
-          cargo test --locked -p clippy-platform -p clippy-slint
-          --features qa-build
+          cargo test --locked -p clippy-platform -p clippy-media -p clippy-slint
+          --features clippy-slint/qa-build,clippy-slint/recording-playback-native-qa
 
       - name: Build Slint QA binary
         run: >-
           cargo build --locked --release -p clippy-slint
-          --bin clippy-slint-qa --features qa-build
+          --bin clippy-slint-qa --features qa-build,recording-playback-native-qa
 
       - uses: ./.github/actions/slint-ocr-bundle
 
@@ -673,6 +673,7 @@ jobs:
             --sha $env:GITHUB_SHA `
             --output qa-slint-artifacts/QA-BUILD.txt `
             --field packager=cargo-packager-0.11.8 `
+            --field recording-playback=wasapi `
             --field target=x86_64-pc-windows-msvc
           if ($LASTEXITCODE -ne 0) { throw "QA metadata exited with $LASTEXITCODE" }
           Get-ChildItem qa-slint-artifacts -File | Where-Object Name -ne 'SHA256SUMS.txt' |

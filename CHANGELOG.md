@@ -91,6 +91,8 @@
 
 ### Slint 区域录屏
 
+- Windows QA 安装包启用轻量录屏播放器，用系统默认 WASAPI 输出。隔离 Wine 已验证原件、分段和恢复件的有声
+  播放，以及定位、暂停和关闭后的流回收。Windows 安装和实体设备继续验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 - macOS 12.3 起可用录屏浮窗暂停、继续和停止。ScreenCaptureKit 按本次录制的窗口编号排除浮窗，捕获启动后
   才显示控制按钮。macOS 11 至 12.2 由托盘控制。已通过双架构平台层交叉检查，实机的窗口排除像素和混合 DPI
   待验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）

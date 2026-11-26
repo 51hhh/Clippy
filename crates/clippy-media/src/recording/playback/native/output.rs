@@ -22,11 +22,15 @@ const DEVICE_PROGRESS_TIMEOUT: Duration = Duration::from_secs(5);
 type StereoFrame = [f32; 2];
 
 pub(super) fn open_device(target: Option<&str>) -> Result<Device, String> {
-    let host = cpal::host_from_id(HostId::PulseAudio)
-        .map_err(|error| format!("无法连接 PulseAudio 输出: {error}"))?;
+    #[cfg(target_os = "linux")]
+    let host_id = HostId::PulseAudio;
+    #[cfg(target_os = "windows")]
+    let host_id = HostId::Wasapi;
+    let host = cpal::host_from_id(host_id)
+        .map_err(|error| format!("无法连接 {} 输出: {error}", host_id.name()))?;
     match target {
         Some(target) => host
-            .device_by_id(&DeviceId::new(HostId::PulseAudio, target))
+            .device_by_id(&DeviceId::new(host_id, target))
             .ok_or_else(|| format!("指定的播放设备不可用: {target}")),
         None => host
             .default_output_device()
