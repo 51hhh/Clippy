@@ -871,6 +871,83 @@ mod tests {
 
     #[cfg(feature = "recording-vp9-prototype")]
     #[test]
+    fn vp9_session_commits_static_segments_before_the_next_capture() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        struct StaticGap {
+            frames: Vp9FixtureSource,
+            changed: Arc<AtomicBool>,
+        }
+
+        impl RecordingFrameSource for StaticGap {
+            type Error = Infallible;
+
+            fn capture_next(&mut self) -> Result<CapturedFrame, Self::Error> {
+                self.frames.capture_next()
+            }
+
+            fn capture_next_available(&mut self) -> Result<Option<CapturedFrame>, Self::Error> {
+                match self.frames.sequence {
+                    0 => self.capture_next().map(Some),
+                    1 if self.changed.load(Ordering::Acquire) => {
+                        self.frames.timestamp_ns = 710_000_000;
+                        self.capture_next().map(Some)
+                    }
+                    _ => Ok(None),
+                }
+            }
+
+            fn capture_lower_bound_ns(&mut self) -> Result<Option<u64>, Self::Error> {
+                Ok(Some(if self.frames.sequence == 2 {
+                    920_000_000
+                } else {
+                    670_000_000
+                }))
+            }
+
+            fn control_timestamp_ns(&mut self) -> Result<u64, Self::Error> {
+                Ok(1_000_000_000)
+            }
+        }
+
+        let temporary = tempfile::tempdir().unwrap();
+        let mut configuration = config("session-vp9-static");
+        configuration.width = 64;
+        configuration.height = 48;
+        configuration.encoder = RecordingEncoder::Vp9Prototype;
+        configuration.segment_duration_ns = 200_000_000;
+        let changed = Arc::new(AtomicBool::new(false));
+        let session = DiagnosticRecordingSession::start(
+            temporary.path(),
+            configuration,
+            StaticGap {
+                frames: Vp9FixtureSource {
+                    sequence: 0,
+                    timestamp_ns: 0,
+                },
+                changed: Arc::clone(&changed),
+            },
+        )
+        .unwrap();
+        let directory = session.session_directory().to_path_buf();
+        wait_for_committed_segment(&directory, 1, "webm", &[], ASYNC_TEST_TIMEOUT);
+        assert_eq!(session.pipeline.stats().unwrap().accepted_frames, 1);
+        assert_vp9_probe_when_available(&directory.join("segment-000001.webm"), 2, 200_000_000);
+        changed.store(true, Ordering::Release);
+        wait_for_committed_segment(&directory, 2, "webm", &[], ASYNC_TEST_TIMEOUT);
+        assert_eq!(session.pipeline.stats().unwrap().accepted_frames, 2);
+        let report = session.stop().unwrap();
+        assert_eq!(report.captured_frames, 2);
+        assert_eq!(report.encoded_frames, 10);
+        assert_vp9_probe_when_available(
+            report.final_output_path.as_ref().unwrap(),
+            10,
+            1_000_000_000,
+        );
+    }
+
+    #[cfg(feature = "recording-vp9-prototype")]
+    #[test]
     fn vp9_strong_kill_recovers_committed_prefix_and_discards_open_tail() {
         const CHILD_ENV: &str = "CLIPPY_RECORDING_VP9_CRASH_FIXTURE_CHILD";
         const DIRECTORY_ENV: &str = "CLIPPY_RECORDING_VP9_CRASH_FIXTURE_DIRECTORY";

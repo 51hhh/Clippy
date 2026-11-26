@@ -27,8 +27,7 @@ impl RecordingSessionClock {
         duration_ns(self.origin.elapsed())
     }
 
-    #[cfg(test)]
-    fn timestamp_at(&self, sampled_at: Instant) -> u64 {
+    pub fn timestamp_at(&self, sampled_at: Instant) -> u64 {
         duration_ns(sampled_at.saturating_duration_since(self.origin))
     }
 }

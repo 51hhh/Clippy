@@ -7,8 +7,11 @@ use std::{
         Arc,
     },
     thread::{self, JoinHandle},
+    time::Instant,
 };
 
+#[cfg(any(target_os = "linux", test))]
+mod clock;
 #[cfg(target_os = "linux")]
 pub mod gnome;
 #[cfg(any(target_os = "linux", target_os = "macos", test))]
@@ -148,18 +151,54 @@ impl RegionCancellation {
     }
 }
 
-type Reader<'a> = dyn FnMut() -> Result<RgbaImage> + 'a;
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FrameTime {
+    Native(Instant),
+    Observed(Instant),
+}
 
-type FrameReply = SyncSender<Result<RgbaImage>>;
+impl FrameTime {
+    pub fn instant(self) -> Instant {
+        match self {
+            Self::Native(time) | Self::Observed(time) => time,
+        }
+    }
+}
 
+pub struct RegionFrame {
+    pub pixels: RgbaImage,
+    pub time: FrameTime,
+}
+
+impl RegionFrame {
+    fn observed(pixels: RgbaImage, observed_at: Instant) -> Self {
+        Self {
+            pixels,
+            time: FrameTime::Observed(observed_at),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum FrameDemand {
+    Latest,
+    New,
+}
+
+type Reader<'a> = dyn FnMut(FrameDemand) -> Result<Option<RegionFrame>> + 'a;
+
+struct ReadRequest {
+    demand: FrameDemand,
+    reply: SyncSender<Result<Option<RegionFrame>>>,
+}
 pub struct RegionReader {
-    commands: Option<SyncSender<FrameReply>>,
+    commands: Option<SyncSender<ReadRequest>>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl RegionReader {
     pub fn open(region: Region, cancellation: RegionCancellation) -> Result<Self> {
-        let (commands, requests) = mpsc::sync_channel::<FrameReply>(1);
+        let (commands, requests) = mpsc::sync_channel::<ReadRequest>(1);
         let (ready, started) = mpsc::sync_channel(1);
         let thread = thread::Builder::new()
             .name("clippy-region-source".into())
@@ -167,8 +206,8 @@ impl RegionReader {
                 let mut ready = Some(ready);
                 let result = with_region_reader(region, &cancellation, |read| {
                     ready.take().expect("采集源只打开一次").send(Ok(()))?;
-                    while let Ok(response) = requests.recv() {
-                        if response.send(read()).is_err() {
+                    while let Ok(request) = requests.recv() {
+                        if request.reply.send(read(request.demand)).is_err() {
                             break;
                         }
                     }
@@ -189,11 +228,22 @@ impl RegionReader {
     }
 
     pub fn read(&mut self) -> Result<RgbaImage> {
+        Ok(self
+            .read_with(FrameDemand::Latest)?
+            .expect("取图需要最近画面")
+            .pixels)
+    }
+
+    pub fn read_new(&mut self) -> Result<Option<RegionFrame>> {
+        self.read_with(FrameDemand::New)
+    }
+
+    fn read_with(&mut self, demand: FrameDemand) -> Result<Option<RegionFrame>> {
         let (reply, image) = mpsc::sync_channel(1);
         self.commands
             .as_ref()
             .expect("采集源处于读状态")
-            .send(reply)?;
+            .send(ReadRequest { demand, reply })?;
         image.recv()?
     }
 }
@@ -207,7 +257,7 @@ impl Drop for RegionReader {
     }
 }
 
-pub fn with_region_reader<T>(
+fn with_region_reader<T>(
     region: Region,
     _cancellation: &RegionCancellation,
     consume: impl FnOnce(&mut Reader<'_>) -> Result<T>,
@@ -236,17 +286,24 @@ pub fn with_region_reader<T>(
             let (area, crop, expected_size) =
                 gnome_region(geometry, source_size, [left, top, right, bottom])?;
             return gnome::with_area(output, area, |read| {
-                consume(&mut || {
+                consume(&mut |demand| {
                     let frame = read()?;
+                    if demand == FrameDemand::New && !frame.fresh {
+                        return Ok(None);
+                    }
+                    let pixels = frame.pixels;
                     ensure!(
-                        (frame.width, frame.height) == expected_size,
+                        (pixels.width, pixels.height) == expected_size,
                         "Capture output changed size: expected {}x{}, received {}x{}",
                         expected_size.0,
                         expected_size.1,
-                        frame.width,
-                        frame.height
+                        pixels.width,
+                        pixels.height
                     );
-                    crop_rgba(&frame.rgba, frame.width, frame.height, crop)
+                    Ok(Some(RegionFrame {
+                        pixels: crop_rgba(&pixels.rgba, pixels.width, pixels.height, crop)?,
+                        time: frame.time,
+                    }))
                 })
             });
         }
@@ -263,14 +320,20 @@ pub fn with_region_reader<T>(
     {
         let rectangle = x11_region_rect(geometry, [left, top, right, bottom])?;
         let source = x11::Source::open()?;
-        consume(&mut || source.read(rectangle))
+        consume(&mut |_| {
+            let pixels = source.read(rectangle)?;
+            Ok(Some(RegionFrame::observed(pixels, Instant::now())))
+        })
     }
     #[cfg(target_os = "windows")]
     {
         let monitor = resolve_native_monitor(&output, geometry)?;
         let pixels = pixel_rect(source_size.0, source_size.1, [left, top, right, bottom])?;
         let mut source = monitor.wgc_region_reader(source_size, pixels)?;
-        consume(&mut || source.read().map_err(Into::into))
+        consume(&mut |_| {
+            let pixels = source.read()?;
+            Ok(Some(RegionFrame::observed(pixels, Instant::now())))
+        })
     }
     #[cfg(target_os = "macos")]
     {
@@ -278,15 +341,20 @@ pub fn with_region_reader<T>(
         let bounds = [left, top, right, bottom];
         if macos::stream_supported() {
             let mut source = macos::ScreenStream::open(monitor.id()?, source_size, bounds)?;
-            return consume(&mut || source.read());
+            return consume(&mut |_| {
+                let pixels = source.read()?;
+                Ok(Some(RegionFrame::observed(pixels, Instant::now())))
+            });
         }
-        consume(&mut || {
+        consume(&mut |_| {
             let image = monitor.capture_image()?;
+            let time = Instant::now();
             ensure!(
                 image.dimensions() == source_size,
                 "Capture output changed size"
             );
-            crop_rgba(image.as_raw(), source_size.0, source_size.1, bounds)
+            let pixels = crop_rgba(image.as_raw(), source_size.0, source_size.1, bounds)?;
+            Ok(Some(RegionFrame::observed(pixels, time)))
         })
     }
 }

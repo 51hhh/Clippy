@@ -1,9 +1,10 @@
 use super::{
+    clock::NativeClock,
     latest::LatestFrames,
     pipewire_frame::{
         enum_format_pod, init_pipewire, parse_video_format, request_frame_header, ScreenBuffer,
     },
-    FrozenPixels,
+    FrameDemand, FrameTime, FrozenPixels, RegionFrame,
 };
 use anyhow::{anyhow, ensure, Context, Result};
 use image::RgbaImage;
@@ -45,10 +46,17 @@ enum Command {
 }
 
 pub(super) struct ScreenCastStream {
-    frames: Arc<LatestFrames<FrozenPixels>>,
+    frames: Arc<LatestFrames<SharedFrame>>,
     control: pw::channel::Sender<Command>,
     worker: Option<JoinHandle<()>>,
     seen: u64,
+}
+
+#[derive(Clone)]
+struct SharedFrame {
+    pixels: FrozenPixels,
+    time: FrameTime,
+    pts: Option<i64>,
 }
 
 impl ScreenCastStream {
@@ -107,12 +115,26 @@ impl ScreenCastStream {
     }
 
     pub fn read(&mut self) -> Result<RgbaImage> {
+        Ok(self
+            .read_region(FrameDemand::Latest)?
+            .expect("读取最近共享画面")
+            .pixels)
+    }
+
+    pub fn read_region(&mut self, demand: FrameDemand) -> Result<Option<RegionFrame>> {
         let (sequence, frame) = self.frames.wait(self.seen, UPDATE_WAIT)?;
-        let rgba = frame.rgba.to_vec();
+        if demand == FrameDemand::New && sequence == self.seen {
+            self.frames.check_active()?;
+            return Ok(None);
+        }
+        let rgba = frame.pixels.rgba.to_vec();
         self.frames.check_active()?;
         self.seen = sequence;
-        Ok(RgbaImage::from_raw(frame.width, frame.height, rgba)
-            .expect("PipeWire 已转换为紧排 RGBA"))
+        Ok(Some(RegionFrame {
+            pixels: RgbaImage::from_raw(frame.pixels.width, frame.pixels.height, rgba)
+                .expect("PipeWire 已转换为紧排 RGBA"),
+            time: frame.time,
+        }))
     }
 
     pub fn check_active(&self) -> Result<()> {
@@ -121,8 +143,9 @@ impl ScreenCastStream {
 
     pub fn matches_view(&mut self, expected: &RgbaImage) -> Result<bool> {
         let (sequence, frame) = self.frames.wait(self.seen, UPDATE_WAIT)?;
-        let matches = (frame.width, frame.height) == expected.dimensions()
-            && frame.rgba.as_ref() == expected.as_raw();
+        let pixels = frame.pixels;
+        let matches = (pixels.width, pixels.height) == expected.dimensions()
+            && pixels.rgba.as_ref() == expected.as_raw();
         self.frames.check_active()?;
         self.seen = sequence;
         Ok(matches)
@@ -143,11 +166,12 @@ fn run(
     node: u32,
     source_size: (u32, u32),
     mode: StreamMode,
-    frames: Arc<LatestFrames<FrozenPixels>>,
+    frames: Arc<LatestFrames<SharedFrame>>,
     ready: FirstFrame,
     commands: pw::channel::Receiver<Command>,
 ) -> Result<()> {
     init_pipewire();
+    let clock = NativeClock::monotonic()?;
     let mainloop = MainLoopRc::new(None)?;
     let context = pw::context::ContextRc::new(&mainloop, None)?;
     let core = context
@@ -165,7 +189,7 @@ fn run(
             }
             _ => None,
         }),
-        last_frame_time: Cell::new(None),
+        clock,
     });
     let core_publisher = publish.clone();
     let _core_listener = core
@@ -191,7 +215,6 @@ fn run(
         .add_local_listener_with_user_data(StreamInput {
             publish: publish.clone(),
             format: None,
-            request_header: matches!(mode, StreamMode::Freeze(_) | StreamMode::RegionAfter(..)),
         })
         .state_changed(|_, input, previous, state| match state {
             StreamState::Error(error) => input
@@ -214,9 +237,7 @@ fn run(
                 match param
                     .map(|value| {
                         let format = video_format(value, input.publish.source_size)?;
-                        if input.request_header {
-                            request_frame_header(stream)?;
-                        }
+                        request_frame_header(stream)?;
                         Ok(format)
                     })
                     .transpose()
@@ -256,17 +277,16 @@ fn run(
 struct StreamInput {
     publish: Rc<Publisher>,
     format: Option<VideoInfoRaw>,
-    request_header: bool,
 }
 
 struct Publisher {
     mainloop: MainLoopRc,
-    frames: Arc<LatestFrames<FrozenPixels>>,
+    frames: Arc<LatestFrames<SharedFrame>>,
     ready: FirstFrame,
     source_size: (u32, u32),
     mode: Cell<StreamMode>,
     fresh_from: Cell<Option<i64>>,
-    last_frame_time: Cell<Option<i64>>,
+    clock: NativeClock,
 }
 
 impl Publisher {
@@ -280,9 +300,7 @@ impl Publisher {
         let reusable = matches!(
             self.mode.get(),
             StreamMode::Region(current) | StreamMode::RegionAfter(current, _) if current == bounds
-        ) && fresh_from
-            .zip(self.last_frame_time.get())
-            .is_some_and(|(after, pts)| pts >= after);
+        );
         if fresh_from.is_none() {
             while stream.dequeue_buffer().is_some() {}
         }
@@ -290,9 +308,12 @@ impl Publisher {
         self.fresh_from.set(fresh_from);
         // 静态画面可能只在控制窗消失时提交一帧，复用已验证时间的同选区新帧。
         if reusable {
-            if let Ok((_, frame)) = self.frames.wait(0, Duration::ZERO) {
-                let _ = ready.send(Ok(frame));
-                return;
+            if let (Some(after), Ok((_, frame))) = (fresh_from, self.frames.wait(0, Duration::ZERO))
+            {
+                if frame.pts.is_some_and(|pts| pts >= after) {
+                    let _ = ready.send(Ok(frame.pixels));
+                    return;
+                }
             }
         }
         self.ready.replace(Some(ready));
@@ -319,8 +340,9 @@ impl Publisher {
         let mut latest = None;
         while let Some(mut buffer) = ScreenBuffer::dequeue(stream) {
             if buffer.has_frame()? {
-                let frame_time = if let Some(fresh_from) = self.fresh_from.get() {
-                    let header = buffer.header().context(
+                let header = buffer.header();
+                if let Some(fresh_from) = self.fresh_from.get() {
+                    let header = header.context(
                         "The screen sharing service did not provide a video frame timestamp",
                     )?;
                     ensure!(
@@ -328,19 +350,22 @@ impl Publisher {
                         "The screen sharing service did not provide a usable presentation timestamp"
                     );
                     // 授权返回或覆盖层关闭后仍可能收到关闭前采集的画面。
-                    if header.pts < fresh_from
-                        || header.flags & spa::sys::SPA_META_HEADER_FLAG_CORRUPTED != 0
-                    {
+                    if header.pts < fresh_from {
                         continue;
                     }
-                    Some(header.pts)
-                } else {
-                    None
-                };
-                latest = Some((buffer, frame_time));
+                }
+                if header.is_some_and(|header| {
+                    header.flags & spa::sys::SPA_META_HEADER_FLAG_CORRUPTED != 0
+                }) {
+                    continue;
+                }
+                latest = Some((buffer, header.map(|header| header.pts)));
             }
         }
-        if let Some((mut buffer, frame_time)) = latest {
+        if let Some((mut buffer, pts)) = latest {
+            let time = self
+                .clock
+                .timestamp(pts.and_then(|pts| pts.try_into().ok()), Instant::now());
             let frame = buffer.region(format, bounds)?;
             drop(buffer);
             let frame = FrozenPixels {
@@ -352,8 +377,11 @@ impl Publisher {
                 // 快速重启可能打断 wlr 仍在进行的帧请求，框选期间只停止转换。
                 self.mode.set(StreamMode::AwaitingSelection);
             } else {
-                self.last_frame_time.set(frame_time);
-                self.frames.publish(Ok(Some(frame.clone())));
+                self.frames.publish(Ok(Some(SharedFrame {
+                    pixels: frame.clone(),
+                    time,
+                    pts,
+                })));
             }
             if let Some(sender) = self.ready.borrow_mut().take() {
                 let _ = sender.send(Ok(frame));

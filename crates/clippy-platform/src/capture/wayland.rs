@@ -4,11 +4,11 @@ use super::{
     validate_outputs,
     wayland_outputs::Registry,
     CaptureSource, DesktopRect, FrozenCapture, FrozenOutput, FrozenPixels, Reader,
-    RegionCancellation,
+    RegionCancellation, RegionFrame,
 };
 use anyhow::{bail, ensure, Context, Result};
 use libwayshot_xcap::{output::OutputInfo, WayshotConnection};
-use std::sync::mpsc;
+use std::{sync::mpsc, time::Instant};
 use wayland_client::protocol::wl_output::Transform;
 
 pub(super) fn freeze() -> Result<Vec<FrozenOutput>> {
@@ -197,7 +197,7 @@ impl PortalHandoff {
         capture
             .portal
             .resume_region(&capture.stream, pixels, self.fresh_from, cancellation)?;
-        consume(&mut || capture.stream.read())
+        consume(&mut |demand| capture.stream.read_region(demand))
     }
 }
 
@@ -275,20 +275,22 @@ pub(super) fn with_region<T>(
                 StreamMode::Region(pixels),
                 cancellation,
             )?;
-            return consume(&mut || stream.read());
+            return consume(&mut |demand| stream.read_region(demand));
         }
     }
     cancellation.check_active()?;
     ensure!(direct, "This desktop requires a screen sharing session");
     let connection = WayshotConnection::new().context("Cannot read Wayland outputs")?;
     let output = selected_output(&connection, name, geometry)?;
-    consume(&mut || {
+    consume(&mut |_| {
         let frame = native_frame(&connection, output)?;
+        let observed = Instant::now();
         ensure!(
             (frame.width, frame.height) == source_size,
             "Capture output changed size"
         );
         let [left, top, right, bottom] = bounds;
-        frame.crop(left, top, right, bottom)
+        let pixels = frame.crop(left, top, right, bottom)?;
+        Ok(Some(RegionFrame::observed(pixels, observed)))
     })
 }

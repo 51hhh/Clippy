@@ -323,6 +323,19 @@ xdg-foreign parent，不保存恢复令牌。释放旧读取器后才启动组�
 
 **Out of Scope** 更换 WebM、编码格式与既有音画同步门槛。真实设备和四架构发布包继续按阶段验收。
 
+#### 阶段 4 · 原生视频帧和静止分段
+
+**Goal** 把 PipeWire 视频源的有效 PTS 送到共享录屏时钟，静止时继续写入可独立恢复的 VP9 分段。
+
+**Requirements** 原生时间与 Rust 单调时钟一次校准。同步抓取和缺少原生 PTS 的帧保留取帧观测时刻。
+继续使用同一读取器输出最新画面，静止时只交付已确认的采集时间下界，由已有 CFR 编码器重复之前的画面。
+已推进的下界和继续录制边界之前的迟到帧丢弃。真实帧、下界和停止保持入队顺序，沿用现有三帧、PCM 和包预算。
+
+**Acceptance Criteria** 固定画面跨过至少一个分段周期后，在停止前取得可解码分段。更新画面并暂停/继续，核对
+源时间、输出时序和颜色，复测 Sway 授权框选后的第一帧和隔离 GNOME 的区域录屏。X11 现有回归继续通过。
+
+**Out of Scope** Windows WGC 和 macOS ScreenCaptureKit 的时钟适配随后接入同一帧约定。媒体容器与音频设备合同保持。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -547,6 +560,17 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
 - 同一 QA 二进制在隔离 GNOME 使用 Shell 停止共享处理函数触发实际撤权。Portal 发出 Closed，原画布
   可逐像素导出，没有滚轮调用，授权入口可重新打开。日志见
   `target/test-artifacts/slint-stage3-wayland/gnome-system-revoke-final.log`。
+
+### 阶段 4 · Linux 原生帧时钟与静止分段
+
+- GNOME 与标准 Wayland Portal 的区域录屏把有效 PipeWire 帧 PTS 投影到共享会话时钟。静止时沿用最近画面，
+  由编码器按固定帧率推进分段。恢复时过滤暂停期间采集的旧画面。
+- 隔离 GNOME 的 60 秒分段在停止前生成了可解码的 900 帧文件。整段接受 5 张源画面并输出 920 帧，
+  暂停时显示过的像素未进入成片，恢复后的更新已录入。隔离 Sway 的 8 轮均只授权一次，首帧和后续画面的
+  像素对照通过。VP9 合成测试验证了下一个源帧到达前已有可独立解码的分段。
+- 完整 Linux 本地主机门禁 11 项通过、0 失败、0 跳过。日志见 `target/test-artifacts/slint-stage4-media/`
+  的 `ci-local-recording-clock.log`、`gnome-recording-clock-ready.log`、`sway-recording-clock.log` 和
+  `vp9-static-segment-fixed.log`。原生 Windows/macOS 视频时钟和真实音源长时同步继续验收。
 
 ### 阶段 4 · GStreamer 回放基线
 

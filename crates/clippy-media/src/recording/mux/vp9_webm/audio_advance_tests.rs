@@ -12,7 +12,7 @@ fn audio_advance_keeps_native_replacement_in_the_same_slot() {
         .push_rgba(&solid_rgba(2, 2, [0, 0, 0]), 0, &mut emit)
         .unwrap();
     encoder
-        .advance_for_audio(50_000_000, 50_000_000, &mut emit)
+        .advance_confirmed(50_000_000, 50_000_000, &mut emit)
         .unwrap();
     assert_eq!(encoder.submitted_frames, 0);
     encoder
@@ -20,7 +20,7 @@ fn audio_advance_keeps_native_replacement_in_the_same_slot() {
         .unwrap();
     assert_eq!(encoder.pending.as_ref().unwrap().image.y, [235; 4]);
     encoder
-        .advance_for_audio(100_000_000, 150_000_000, &mut emit)
+        .advance_confirmed(100_000_000, 150_000_000, &mut emit)
         .unwrap();
     encoder
         .push_rgba(&solid_rgba(2, 2, [255, 0, 0]), 150_000_000, &mut emit)
@@ -42,7 +42,7 @@ fn audio_advance_respects_future_video_bound_and_preserves_native_pts() {
         .push_rgba(&solid_rgba(2, 2, [0, 0, 0]), 0, &mut emit)
         .unwrap();
     encoder
-        .advance_for_audio(900_000_000, 500_000_000, &mut emit)
+        .advance_confirmed(900_000_000, 500_000_000, &mut emit)
         .unwrap();
     assert_eq!(encoder.submitted_frames, 5);
     assert_eq!(encoder.pending.as_ref().unwrap().slot, 5);
@@ -76,7 +76,7 @@ fn exact_finish_after_audio_advance_does_not_encode_an_extra_placeholder() {
         .push_rgba(&solid_rgba(2, 2, [0, 0, 0]), 0, &mut emit)
         .unwrap();
     encoder
-        .advance_for_audio(1_900_000_000, u64::MAX, &mut emit)
+        .advance_confirmed(1_900_000_000, u64::MAX, &mut emit)
         .unwrap();
     assert_eq!(encoder.pending.as_ref().unwrap().slot, 2);
     assert_eq!(encoder.finish(2_000_000_000, &mut emit).unwrap(), 2);
@@ -95,7 +95,7 @@ fn exact_boundary_after_audio_advance_accepts_the_real_next_frame() {
         .push_rgba(&solid_rgba(2, 2, [0, 0, 0]), 0, &mut emit)
         .unwrap();
     encoder
-        .advance_for_audio(1_900_000_000, 2_000_000_000, &mut emit)
+        .advance_confirmed(1_900_000_000, 2_000_000_000, &mut emit)
         .unwrap();
     encoder.flush_until(2_000_000_000, &mut emit).unwrap();
     assert_eq!(encoder.submitted_frames, 2);

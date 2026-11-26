@@ -48,13 +48,6 @@ pub enum PushOutcome {
 #[derive(Debug)]
 pub enum PipelineDrain {
     Frame(QueuedFrame),
-    Finished { duration_ns: u64 },
-}
-
-#[cfg(feature = "recording-opus-webm")]
-#[derive(Debug)]
-pub enum AvPipelineDrain {
-    Frame(QueuedFrame),
     CaptureLowerBound { presentation_at_ns: u64 },
     Finished { duration_ns: u64 },
 }
@@ -88,7 +81,6 @@ struct PipelineState {
     dropped_by_backpressure: u64,
     terminal: PipelineTerminal,
     capture_lower_bound: Option<(u64, u64)>,
-    #[cfg(feature = "recording-opus-webm")]
     delivered_lower_bound_ns: Option<u64>,
 }
 
@@ -191,16 +183,16 @@ impl RecordingPipeline {
         Ok(())
     }
 
-    #[cfg(feature = "recording-opus-webm")]
-    pub fn pop_wait_av(&self) -> Result<AvPipelineDrain, PipelineError> {
+    /// 已接受的真实帧优先，空队列才交付已确认的时间下界。
+    pub fn pop_wait(&self) -> Result<PipelineDrain, PipelineError> {
         let mut state = self.state.lock().map_err(|_| PipelineError::Poisoned)?;
         loop {
             if let Some(frame) = pop_frame(&mut state) {
-                return Ok(AvPipelineDrain::Frame(frame));
+                return Ok(PipelineDrain::Frame(frame));
             }
             match state.terminal {
                 PipelineTerminal::Finished { duration_ns } => {
-                    return Ok(AvPipelineDrain::Finished { duration_ns });
+                    return Ok(PipelineDrain::Finished { duration_ns });
                 }
                 PipelineTerminal::Aborted => return Err(PipelineError::Aborted),
                 PipelineTerminal::Open => {}
@@ -211,35 +203,13 @@ impl RecordingPipeline {
                     .is_none_or(|last| presentation_at_ns > last)
                 {
                     state.delivered_lower_bound_ns = Some(presentation_at_ns);
-                    return Ok(AvPipelineDrain::CaptureLowerBound { presentation_at_ns });
+                    return Ok(PipelineDrain::CaptureLowerBound { presentation_at_ns });
                 }
             }
             state = self
                 .ready
                 .wait(state)
                 .map_err(|_| PipelineError::Poisoned)?;
-        }
-    }
-
-    /// 等待下一帧或会话封尾。已经入队的帧始终先于结束/中止状态交给消费者。
-    pub fn pop_wait(&self) -> Result<PipelineDrain, PipelineError> {
-        let mut state = self.state.lock().map_err(|_| PipelineError::Poisoned)?;
-        loop {
-            if let Some(frame) = pop_frame(&mut state) {
-                return Ok(PipelineDrain::Frame(frame));
-            }
-            match state.terminal {
-                PipelineTerminal::Open => {
-                    state = self
-                        .ready
-                        .wait(state)
-                        .map_err(|_| PipelineError::Poisoned)?;
-                }
-                PipelineTerminal::Finished { duration_ns } => {
-                    return Ok(PipelineDrain::Finished { duration_ns });
-                }
-                PipelineTerminal::Aborted => return Err(PipelineError::Aborted),
-            }
         }
     }
 

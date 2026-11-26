@@ -8,15 +8,12 @@ use clippy_core::image_output::{expand_user_path, unique_image_id};
 ))]
 use clippy_media::recording::av_session::{AvRecordingConfig, AvRecordingSession};
 use clippy_media::recording::{
-    clock::RecordingSessionClock,
-    frame::CapturedFrame,
     manifest::{self, RecordingLibraryItem, ResolvedRecordingArtifact},
     recover_interrupted_sessions,
     segmenting::{RecordingEncoder, DEFAULT_SEGMENT_DURATION_NS},
     session::{DiagnosticRecordingConfig, DiagnosticRecordingSession},
-    worker::RecordingFrameSource,
 };
-use clippy_platform::capture::{Region, RegionCancellation, RegionReader};
+use clippy_platform::capture::{Region, RegionCancellation};
 use image::RgbaImage;
 use slint::{CloseRequestResponse, ComponentHandle, Model, ModelRc, SharedString, Timer, VecModel};
 use std::{
@@ -35,6 +32,7 @@ use std::{
 };
 
 mod control;
+mod source;
 
 #[derive(Clone, Copy)]
 pub(super) enum Control {
@@ -166,35 +164,6 @@ impl Drop for Recordings {
     }
 }
 
-struct Source {
-    clock: RecordingSessionClock,
-    region: RegionReader,
-    sequence: u64,
-}
-
-impl RecordingFrameSource for Source {
-    type Error = io::Error;
-
-    fn capture_next(&mut self) -> io::Result<CapturedFrame> {
-        let image = self.region.read().map_err(io::Error::other)?;
-        let (width, height) = image.dimensions();
-        let sequence = self.sequence;
-        self.sequence += 1;
-        Ok(CapturedFrame {
-            sequence,
-            captured_at_ns: self.clock.now_ns(),
-            width,
-            height,
-            stride: width * 4,
-            rgba: image.into_raw().into_boxed_slice(),
-        })
-    }
-
-    fn control_timestamp_ns(&mut self) -> io::Result<u64> {
-        Ok(self.clock.now_ns())
-    }
-}
-
 enum Session {
     Video(DiagnosticRecordingSession),
     #[cfg(all(
@@ -213,13 +182,7 @@ impl Session {
         cancellation: RegionCancellation,
     ) -> Result<Self> {
         let video = move |clock| {
-            let region =
-                RegionReader::open(region, cancellation).map_err(|error| format!("{error:#}"))?;
-            Ok(Source {
-                clock,
-                region,
-                sequence: 0,
-            })
+            source::Source::open(clock, region, cancellation).map_err(|error| format!("{error:#}"))
         };
         match track {
             AudioTrack::Silent => Ok(Self::Video(DiagnosticRecordingSession::start_with_factory(

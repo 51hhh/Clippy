@@ -46,6 +46,10 @@ pub trait RecordingSegmentWriter: Send + 'static {
 
     fn push_rgba(&mut self, rgba: &[u8], presentation_at_ns: u64) -> Result<(), Self::Error>;
 
+    fn advance_idle(&mut self, _presentation_at_ns: u64) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
     fn finish_with_stats(
         self,
         duration_ns: u64,
@@ -180,6 +184,9 @@ where
                     .map_err(EncoderWorkerError::Mux)?;
                 input_frames = input_frames.saturating_add(1);
             }
+            PipelineDrain::CaptureLowerBound { presentation_at_ns } => writer
+                .advance_idle(presentation_at_ns)
+                .map_err(EncoderWorkerError::Mux)?,
             PipelineDrain::Finished { duration_ns } => {
                 let output = writer
                     .finish_with_stats(duration_ns)

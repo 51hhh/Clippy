@@ -20,6 +20,9 @@ use thiserror::Error;
 pub const DEFAULT_SEGMENT_DURATION_NS: u64 = 60_000_000_000;
 const MAX_SEGMENT_DURATION_NS: u64 = 120_000_000_000;
 
+#[cfg(feature = "recording-vp9-prototype")]
+type Vp9PacketOutput<'a> = dyn FnMut(&[u8], u64, bool) -> Result<(), Vp9WebmError> + 'a;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecordingEncoder {
     MjpegDiagnostic {
@@ -314,11 +317,10 @@ impl SegmentedRecordingWriter {
     }
 
     #[cfg(feature = "recording-vp9-prototype")]
-    fn push_vp9_packetized(
+    fn write_vp9<T>(
         &mut self,
-        rgba: &[u8],
-        presentation_at_ns: u64,
-    ) -> Result<(), SegmentedRecordingError> {
+        encode: impl FnOnce(&mut Vp9PacketEncoder, &mut Vp9PacketOutput<'_>) -> Result<T, Vp9WebmError>,
+    ) -> Result<T, SegmentedRecordingError> {
         let state = self
             .vp9
             .as_mut()
@@ -332,9 +334,8 @@ impl SegmentedRecordingWriter {
             .as_mut()
             .ok_or(SegmentedRecordingError::InvalidTimeline)?;
         let segment_base = state.segment_base_timestamp_ns;
-        state.encoder.push_rgba(
-            rgba,
-            presentation_at_ns,
+        Ok(encode(
+            &mut state.encoder,
             &mut |data, timestamp_ns, is_keyframe| {
                 let local_timestamp = timestamp_ns
                     .checked_sub(segment_base)
@@ -342,74 +343,26 @@ impl SegmentedRecordingWriter {
                 final_mux.add_frame(data, timestamp_ns, is_keyframe)?;
                 segment_mux.add_frame(data, local_timestamp, is_keyframe)
             },
-        )?;
-        Ok(())
-    }
-
-    #[cfg(feature = "recording-vp9-prototype")]
-    fn flush_vp9_until(&mut self, presentation_at_ns: u64) -> Result<(), SegmentedRecordingError> {
-        let state = self
-            .vp9
-            .as_mut()
-            .ok_or(SegmentedRecordingError::InvalidTimeline)?;
-        let segment_mux = match self.mux.as_mut() {
-            Some(ActiveMux::Vp9(mux)) => mux,
-            _ => return Err(SegmentedRecordingError::InvalidTimeline),
-        };
-        let final_mux = state
-            .final_mux
-            .as_mut()
-            .ok_or(SegmentedRecordingError::InvalidTimeline)?;
-        let segment_base = state.segment_base_timestamp_ns;
-        state.encoder.flush_until(
-            presentation_at_ns,
-            &mut |data, timestamp_ns, is_keyframe| {
-                let local_timestamp = timestamp_ns
-                    .checked_sub(segment_base)
-                    .ok_or(Vp9WebmError::InvalidTimestamp)?;
-                final_mux.add_frame(data, timestamp_ns, is_keyframe)?;
-                segment_mux.add_frame(data, local_timestamp, is_keyframe)
-            },
-        )?;
-        Ok(())
-    }
-
-    #[cfg(feature = "recording-vp9-prototype")]
-    fn finish_vp9_packets(&mut self, duration_ns: u64) -> Result<u64, SegmentedRecordingError> {
-        let state = self
-            .vp9
-            .as_mut()
-            .ok_or(SegmentedRecordingError::InvalidTimeline)?;
-        let segment_mux = match self.mux.as_mut() {
-            Some(ActiveMux::Vp9(mux)) => mux,
-            _ => return Err(SegmentedRecordingError::InvalidTimeline),
-        };
-        let final_mux = state
-            .final_mux
-            .as_mut()
-            .ok_or(SegmentedRecordingError::InvalidTimeline)?;
-        let segment_base = state.segment_base_timestamp_ns;
-        let frame_count =
-            state
-                .encoder
-                .finish(duration_ns, &mut |data, timestamp_ns, is_keyframe| {
-                    let local_timestamp = timestamp_ns
-                        .checked_sub(segment_base)
-                        .ok_or(Vp9WebmError::InvalidTimestamp)?;
-                    final_mux.add_frame(data, timestamp_ns, is_keyframe)?;
-                    segment_mux.add_frame(data, local_timestamp, is_keyframe)
-                })?;
-        Ok(frame_count)
+        )?)
     }
 
     fn rotate_at(&mut self, presentation_at_ns: u64) -> Result<(), SegmentedRecordingError> {
+        #[cfg(feature = "recording-vp9-prototype")]
+        if matches!(self.encoder, RecordingEncoder::Vp9Prototype) {
+            self.write_vp9(|encoder, mut output| {
+                encoder.flush_until(presentation_at_ns, &mut output)
+            })?;
+        }
+        self.complete_rotation(presentation_at_ns)
+    }
+
+    fn complete_rotation(
+        &mut self,
+        presentation_at_ns: u64,
+    ) -> Result<(), SegmentedRecordingError> {
         let duration_ns = presentation_at_ns
             .checked_sub(self.segment_started_at_ns)
             .ok_or(SegmentedRecordingError::InvalidTimeline)?;
-        #[cfg(feature = "recording-vp9-prototype")]
-        if matches!(self.encoder, RecordingEncoder::Vp9Prototype) {
-            self.flush_vp9_until(presentation_at_ns)?;
-        }
         let dropped_frames = self.pipeline.stats()?.dropped_by_backpressure;
         self.commit_current(duration_ns, dropped_frames)?;
 
@@ -496,11 +449,36 @@ impl RecordingSegmentWriter for SegmentedRecordingWriter {
             }
             #[cfg(feature = "recording-vp9-prototype")]
             RecordingEncoder::Vp9Prototype => {
-                self.push_vp9_packetized(rgba, presentation_at_ns)?;
+                self.write_vp9(|encoder, mut output| {
+                    encoder.push_rgba(rgba, presentation_at_ns, &mut output)
+                })?;
             }
         }
         self.segment_has_frame = true;
         Ok(())
+    }
+
+    #[cfg(feature = "recording-vp9-prototype")]
+    fn advance_idle(&mut self, presentation_at_ns: u64) -> Result<(), Self::Error> {
+        if self.vp9.is_none() || !self.segment_has_frame {
+            return Ok(());
+        }
+        loop {
+            let encoder = &self.vp9.as_ref().expect("VP9 分段已初始化").encoder;
+            let next = encoder.next_timestamp_ns()?;
+            if next >= encoder.cfr_timestamp_at(presentation_at_ns)? {
+                return Ok(());
+            }
+            let end = encoder.next_frame_end_ns()?;
+            if next.saturating_sub(self.segment_started_at_ns) >= self.segment_duration_ns {
+                // 已到旧分段末尾，下一帧继续复用保留的画面。
+                self.complete_rotation(next)?;
+            }
+            self.write_vp9(|encoder, mut output| {
+                encoder.advance_confirmed(end, presentation_at_ns, &mut output)
+            })?;
+            self.segment_has_frame = true;
+        }
     }
 
     fn finish_with_stats(
@@ -509,7 +487,7 @@ impl RecordingSegmentWriter for SegmentedRecordingWriter {
     ) -> Result<SegmentWriterOutput<Self::Writer>, Self::Error> {
         #[cfg(feature = "recording-vp9-prototype")]
         let vp9_frame_count = if matches!(self.encoder, RecordingEncoder::Vp9Prototype) {
-            Some(self.finish_vp9_packets(duration_ns)?)
+            Some(self.write_vp9(|encoder, mut output| encoder.finish(duration_ns, &mut output))?)
         } else {
             None
         };

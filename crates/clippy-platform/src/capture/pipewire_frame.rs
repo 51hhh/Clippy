@@ -79,6 +79,10 @@ impl<'a> ScreenBuffer<'a> {
         decode_frame(self.plane()?, info, Some(bounds))
     }
 
+    pub fn frame(&mut self, info: VideoInfoRaw) -> Result<PipeWireRgbaFrame> {
+        decode_frame(self.plane()?, info, None)
+    }
+
     fn buffer(&self) -> Result<&spa::sys::spa_buffer> {
         let raw = unsafe { self.raw.as_ref().buffer.as_ref() };
         raw.context("ScreenCast buffer has no SPA data")

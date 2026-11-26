@@ -710,7 +710,7 @@ impl SegmentedAvRecordingWriter {
         );
         let mut interleave_error = None;
         let mut emitted_video = false;
-        let result = video_encoder.advance_for_audio(
+        let result = video_encoder.advance_confirmed(
             audio_timestamp_ns,
             future_video_timestamp_ns,
             &mut |data, timestamp_ns, keyframe| {

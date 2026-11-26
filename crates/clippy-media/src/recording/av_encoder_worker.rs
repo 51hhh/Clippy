@@ -11,7 +11,7 @@ use super::av_segmenting::{
 use super::av_timeline::{
     AudioEpochOutcome, AvFinishReport, AvTimelineCoordinator, AvTimelineError,
 };
-use super::pipeline::{AvPipelineDrain, PipelineError, QueuedFrame, RecordingPipeline};
+use super::pipeline::{PipelineDrain, PipelineError, QueuedFrame, RecordingPipeline};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TryRecvError};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -54,7 +54,7 @@ pub struct AvEncoderReport {
     pub finish: AvFinishReport,
 }
 
-type VideoBridgeEvent = Result<AvPipelineDrain, PipelineError>;
+type VideoBridgeEvent = Result<PipelineDrain, PipelineError>;
 type AudioBridgeEvent = Result<AudioPipelineDrain, AudioPipelineError>;
 
 pub struct AvEncoderWorker {
@@ -156,8 +156,8 @@ fn run(
 
 fn bridge_video(pipeline: Arc<RecordingPipeline>, events: SyncSender<VideoBridgeEvent>) {
     loop {
-        let event = pipeline.pop_wait_av();
-        let terminal = matches!(event, Err(_) | Ok(AvPipelineDrain::Finished { .. }));
+        let event = pipeline.pop_wait();
+        let terminal = matches!(event, Err(_) | Ok(PipelineDrain::Finished { .. }));
         if events.send(event).is_err() || terminal {
             return;
         }
@@ -443,14 +443,14 @@ fn apply_video_event(
     lower_bound_ns: &mut Option<u64>,
 ) -> Result<(), AvEncoderWorkerError> {
     match event? {
-        AvPipelineDrain::Frame(frame) => *head = Some(frame),
-        AvPipelineDrain::CaptureLowerBound { presentation_at_ns } => {
+        PipelineDrain::Frame(frame) => *head = Some(frame),
+        PipelineDrain::CaptureLowerBound { presentation_at_ns } => {
             if lower_bound_ns.is_some_and(|last| presentation_at_ns < last) {
                 return Err(PipelineError::FrameBeforeLowerBound.into());
             }
             *lower_bound_ns = Some(presentation_at_ns);
         }
-        AvPipelineDrain::Finished {
+        PipelineDrain::Finished {
             duration_ns: finished,
         } => *duration_ns = Some(finished),
     }

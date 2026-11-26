@@ -57,9 +57,8 @@ fn pause_ignores_old_frames_and_preserves_resumed_lower_bound() {
     assert_eq!(pipeline.stats().unwrap().dropped_by_backpressure, 0);
 }
 
-#[cfg(feature = "recording-opus-webm")]
 #[test]
-fn av_drain_coalesces_bound_and_keeps_frames_and_terminal_first() {
+fn drain_coalesces_bound_and_keeps_frames_and_terminal_first() {
     let pipeline = RecordingPipeline::default();
     for sequence in 0..3 {
         pipeline.push(frame(sequence, 100 + sequence, 1)).unwrap();
@@ -72,22 +71,22 @@ fn av_drain_coalesces_bound_and_keeps_frames_and_terminal_first() {
         FRAME_QUEUE_CAPACITY
     );
     for expected in 0..3 {
-        let AvPipelineDrain::Frame(value) = pipeline.pop_wait_av().unwrap() else {
+        let PipelineDrain::Frame(value) = pipeline.pop_wait().unwrap() else {
             panic!("先排真实帧");
         };
         assert_eq!(value.frame.sequence, expected);
     }
     assert!(matches!(
-        pipeline.pop_wait_av().unwrap(),
-        AvPipelineDrain::CaptureLowerBound {
+        pipeline.pop_wait().unwrap(),
+        PipelineDrain::CaptureLowerBound {
             presentation_at_ns: 9_899
         }
     ));
     pipeline.publish_capture_lower_bound(10_000).unwrap();
     assert_eq!(pipeline.finish(10_000).unwrap(), 9_900);
     assert!(matches!(
-        pipeline.pop_wait_av().unwrap(),
-        AvPipelineDrain::Finished { duration_ns: 9_900 }
+        pipeline.pop_wait().unwrap(),
+        PipelineDrain::Finished { duration_ns: 9_900 }
     ));
 }
 
@@ -100,8 +99,8 @@ fn av_waiter_wakes_for_bound_then_abort_without_phantom_frames() {
     let other = std::sync::Arc::clone(&pipeline);
     let (sent, received) = std::sync::mpsc::channel();
     let waiter = std::thread::spawn(move || {
-        sent.send(other.pop_wait_av()).unwrap();
-        other.pop_wait_av()
+        sent.send(other.pop_wait()).unwrap();
+        other.pop_wait()
     });
     pipeline.publish_capture_lower_bound(500).unwrap();
     assert!(matches!(
@@ -109,7 +108,7 @@ fn av_waiter_wakes_for_bound_then_abort_without_phantom_frames() {
             .recv_timeout(std::time::Duration::from_secs(5))
             .unwrap()
             .unwrap(),
-        AvPipelineDrain::CaptureLowerBound {
+        PipelineDrain::CaptureLowerBound {
             presentation_at_ns: 400
         }
     ));

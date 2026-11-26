@@ -905,6 +905,7 @@ mod tests {
         loop {
             match pipeline.pop_wait().unwrap() {
                 PipelineDrain::Frame(_) => {}
+                PipelineDrain::CaptureLowerBound { .. } => panic!("测试源不发布下界"),
                 PipelineDrain::Finished {
                     duration_ns: terminal_duration,
                 } => {
@@ -1063,6 +1064,7 @@ mod tests {
         loop {
             match pipeline.pop_wait().unwrap() {
                 PipelineDrain::Frame(_) => {}
+                PipelineDrain::CaptureLowerBound { .. } => panic!("测试源不发布下界"),
                 PipelineDrain::Finished {
                     duration_ns: terminal_duration,
                 } => {

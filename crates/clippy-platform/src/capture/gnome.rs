@@ -2,7 +2,7 @@
 //!
 //! 调用者在捕获线程执行，D-Bus 连接的生命周期覆盖首帧与 Stop。
 use super::pipewire_frame::{
-    enum_format_pod, frame_from_buffer, init_pipewire, parse_video_format,
+    enum_format_pod, init_pipewire, parse_video_format, request_frame_header, ScreenBuffer,
 };
 use anyhow::{anyhow, bail, Context, Result};
 use futures_util::stream::StreamExt;
@@ -14,10 +14,10 @@ use spa::pod::Pod;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use zbus::zvariant::{OwnedObjectPath, Value};
 
-use super::{DesktopRect as Rect, FrozenPixels as ScreencastFrame};
+use super::{clock::NativeClock, DesktopRect as Rect, FrameTime, FrozenPixels as ScreencastFrame};
 
 const SCREEN_CAST_NAME: &str = "org.gnome.Mutter.ScreenCast";
 const SCREEN_CAST_PATH: &str = "/org/gnome/Mutter/ScreenCast";
@@ -98,8 +98,12 @@ fn capture_off_runtime(sources: &[ScreencastSource]) -> Result<Vec<Result<Screen
         runtime: &runtime,
         session,
     };
-    let frames = pull_first_frames(&session.session.nodes)?;
-    Ok(frames)
+    with_frame_reader(&session.session.nodes, None, |read| {
+        Ok(read()?
+            .into_iter()
+            .map(|frame| frame.map(|frame| frame.pixels))
+            .collect())
+    })
 }
 
 /// 一个活着的录制会话。`_connection` 只为"别断开"而存在——Mutter 在创建会话的那条连接
@@ -265,17 +269,21 @@ async fn with_timeout<T>(
 }
 
 /// 每块屏取第一帧。所有 node 共用一个 main loop，帧之间天然并行。
-type FrameBatch = Vec<Result<ScreencastFrame>>;
+type FrameBatch = Vec<Result<AreaFrame>>;
 
-fn pull_first_frames(nodes: &[StreamNode]) -> Result<FrameBatch> {
-    with_frame_reader(nodes, false, |read| read())
+#[derive(Clone)]
+pub(super) struct AreaFrame {
+    pub pixels: ScreencastFrame,
+    pub time: FrameTime,
+    pub fresh: bool,
 }
 
 pub(super) fn with_area<T>(
     name: String,
     rectangle: Rect,
-    use_stream: impl FnOnce(&mut dyn FnMut() -> Result<ScreencastFrame>) -> Result<T>,
+    use_stream: impl FnOnce(&mut dyn FnMut() -> Result<AreaFrame>) -> Result<T>,
 ) -> Result<T> {
+    let clock = NativeClock::monotonic()?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
@@ -286,14 +294,14 @@ pub(super) fn with_area<T>(
             rect: rectangle,
         }]))?,
     };
-    with_frame_reader(&session.session.nodes, true, |read| {
+    with_frame_reader(&session.session.nodes, Some(clock), |read| {
         use_stream(&mut || read()?.pop().expect("会话只订阅一个目标画面"))
     })
 }
 
 fn with_frame_reader<T>(
     nodes: &[StreamNode],
-    reuse_still_frames: bool,
+    clock: Option<NativeClock>,
     use_stream: impl FnOnce(&mut dyn FnMut() -> Result<FrameBatch>) -> Result<T>,
 ) -> Result<T> {
     init_pipewire();
@@ -307,6 +315,7 @@ fn with_frame_reader<T>(
     ));
     let remaining = Rc::new(std::cell::Cell::new(nodes.len()));
     let format = enum_format_pod()?;
+    let reuse_still_frames = clock.is_some();
 
     // **声明顺序决定析构顺序**：listener 必须先于 stream 析构（它的 Drop 要把 hook 从
     // stream 的链表里摘掉，stream 先被 destroy 掉就是 use-after-free）。局部变量按声明
@@ -339,17 +348,22 @@ fn with_frame_reader<T>(
                     data.finish(Err(anyhow!("PipeWire 流报错：{message}")));
                 }
             })
-            .param_changed(|_, data, id, param| {
+            .param_changed(move |stream, data, id, param| {
                 let Some(param) = param else { return };
                 if id != spa::param::ParamType::Format.as_raw() {
                     return;
                 }
-                match parse_video_format(param) {
+                match parse_video_format(param).and_then(|format| {
+                    if clock.is_some() {
+                        request_frame_header(stream)?;
+                    }
+                    Ok(format)
+                }) {
                     Ok(info) => data.format = Some(info),
                     Err(error) => data.finish(Err(error)),
                 }
             })
-            .process(|stream, data| {
+            .process(move |stream, data| {
                 if data.completed() {
                     return;
                 }
@@ -358,13 +372,37 @@ fn with_frame_reader<T>(
                 };
                 // 只取第一帧就退出，所以不必排空队列：这条路的调用方是"按下快捷键的
                 // 那一刻"，多等一帧只是让画面更旧。
-                let Some(mut buffer) = stream.dequeue_buffer() else {
+                let Some(mut buffer) = ScreenBuffer::dequeue(stream) else {
                     return;
                 };
-                let result = frame_from_buffer(&mut buffer, info).map(|frame| ScreencastFrame {
-                    width: frame.width,
-                    height: frame.height,
-                    rgba: frame.rgba,
+                let observed = Instant::now();
+                let time = if let Some(clock) = clock {
+                    match buffer.has_frame() {
+                        Ok(true) => {}
+                        Ok(false) => return,
+                        Err(error) => return data.finish(Err(error)),
+                    }
+                    let header = buffer.header();
+                    if header.is_some_and(|header| {
+                        header.flags & spa::sys::SPA_META_HEADER_FLAG_CORRUPTED != 0
+                    }) {
+                        return;
+                    }
+                    clock.timestamp(
+                        header.and_then(|header| header.pts.try_into().ok()),
+                        observed,
+                    )
+                } else {
+                    FrameTime::Observed(observed)
+                };
+                let result = buffer.frame(info).map(|frame| AreaFrame {
+                    pixels: ScreencastFrame {
+                        width: frame.width,
+                        height: frame.height,
+                        rgba: frame.rgba,
+                    },
+                    time,
+                    fresh: true,
                 });
                 data.finish(result);
             })
@@ -451,8 +489,8 @@ fn with_frame_reader<T>(
 
 #[derive(Default)]
 struct Slot {
-    frame: Option<Result<ScreencastFrame>>,
-    last: Option<ScreencastFrame>,
+    frame: Option<Result<AreaFrame>>,
+    last: Option<AreaFrame>,
 }
 
 impl Slot {
@@ -461,7 +499,7 @@ impl Slot {
         reuse_still_frames: bool,
         state: StreamState,
         timeout: Duration,
-    ) -> Result<ScreencastFrame> {
+    ) -> Result<AreaFrame> {
         let frame = self.frame.take();
         match (state, frame) {
             (_, Some(Err(error))) => {
@@ -484,6 +522,10 @@ impl Slot {
                     .flatten();
                 still
                     .cloned()
+                    .map(|frame| AreaFrame {
+                        fresh: false,
+                        ..frame
+                    })
                     .with_context(|| format!("在 {} ms 内没有送出画面", timeout.as_millis()))
             }
         }
@@ -505,7 +547,7 @@ impl StreamUserData {
     }
 
     /// 记下这块屏的结果；全部有结果就退出 main loop。
-    fn finish(&mut self, result: Result<ScreencastFrame>) {
+    fn finish(&mut self, result: Result<AreaFrame>) {
         if self.completed() {
             return;
         }
@@ -535,15 +577,23 @@ mod tests {
         assert!(read(&mut slot, StreamState::Streaming).is_err());
         for red in [1, 2] {
             let rgba: Arc<[u8]> = Arc::from([red, 0, 0, 255]);
-            slot.frame = Some(Ok(ScreencastFrame {
-                width: 1,
-                height: 1,
-                rgba: rgba.clone(),
+            let time = FrameTime::Native(Instant::now());
+            slot.frame = Some(Ok(AreaFrame {
+                pixels: ScreencastFrame {
+                    width: 1,
+                    height: 1,
+                    rgba: rgba.clone(),
+                },
+                time,
+                fresh: true,
             }));
             let first = read(&mut slot, StreamState::Streaming).unwrap();
             let still = read(&mut slot, StreamState::Streaming).unwrap();
-            assert!(Arc::ptr_eq(&first.rgba, &rgba));
-            assert!(Arc::ptr_eq(&still.rgba, &rgba));
+            assert!(Arc::ptr_eq(&first.pixels.rgba, &rgba));
+            assert!(Arc::ptr_eq(&still.pixels.rgba, &rgba));
+            assert!(first.fresh);
+            assert!(!still.fresh);
+            assert_eq!(first.time, still.time);
         }
         assert!(read(&mut slot, StreamState::Unconnected).is_err());
         assert!(read(&mut slot, StreamState::Streaming).is_err());

@@ -272,8 +272,8 @@ impl Vp9PacketEncoder {
         self.flush_pending_until(exclusive_slot, emit).map(drop)
     }
 
-    /// 音频推进所需的 CFR slot 只在真实视频下界已证明安全时编码，保留下一 slot 图像。
-    pub fn advance_for_audio<F>(
+    /// 只编码真实视频下界之前已确认的 CFR slot，保留下一 slot 图像。
+    pub fn advance_confirmed<F>(
         &mut self,
         audio_timestamp_ns: u64,
         future_video_timestamp_ns: u64,
@@ -309,7 +309,6 @@ impl Vp9PacketEncoder {
         self.timestamp_for_frame(self.encoded_frames)
     }
 
-    #[cfg(feature = "recording-opus-webm")]
     pub fn next_frame_end_ns(&self) -> Result<u64, Vp9WebmError> {
         self.timestamp_for_frame(
             self.encoded_frames
