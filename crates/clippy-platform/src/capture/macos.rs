@@ -1,6 +1,8 @@
 use super::{
+    clock::{ticks_to_ns, NativeClock},
     latest::LatestFrames,
     macos_frame::{bgra_span, bgra_to_rgba, region_layout},
+    FrameDemand, FrameTime, RegionFrame,
 };
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use block2::RcBlock;
@@ -17,7 +19,7 @@ use objc2_core_foundation::{CGPoint, CGRect, CGSize};
 use objc2_core_graphics::{
     CGDisplayBounds, CGDisplayIsActive, CGDisplayPixelsHigh, CGDisplayPixelsWide, CGDisplayRotation,
 };
-use objc2_core_media::{CMSampleBuffer, CMTime};
+use objc2_core_media::{CMClock, CMSampleBuffer, CMTime, CMTimeFlags};
 use objc2_core_video::{
     kCVPixelFormatType_32BGRA, CVPixelBufferGetHeight, CVPixelBufferGetIOSurface,
     CVPixelBufferGetPixelFormatType, CVPixelBufferGetWidth, CVPixelBufferIsPlanar,
@@ -54,15 +56,15 @@ pub(super) fn stream_supported() -> bool {
     })
 }
 
-fn frame_status_key() -> Result<&'static NSString> {
+fn frame_key(name: &CStr) -> Result<&'static NSString> {
     // 框架对象由 Objective-C 运行时登记，进程内保持加载才能保证类和常量有效。
     static FRAMEWORK: OnceLock<Result<Library, libloading::Error>> = OnceLock::new();
     let library = FRAMEWORK
         .get_or_init(|| unsafe { Library::new(FRAMEWORK_PATH) })
         .as_ref()
         .map_err(|error| anyhow!("Loading ScreenCaptureKit: {error}"))?;
-    let symbol = unsafe { library.get::<*const *const NSString>(b"SCStreamFrameInfoStatus\0")? };
-    unsafe { (**symbol).as_ref() }.context("Missing ScreenCaptureKit frame status key")
+    let symbol = unsafe { library.get::<*const *const NSString>(name.to_bytes_with_nul())? };
+    unsafe { (**symbol).as_ref() }.with_context(|| format!("Missing ScreenCaptureKit key {name:?}"))
 }
 
 fn class(name: &CStr) -> Result<&'static AnyClass> {
@@ -99,9 +101,16 @@ extern_protocol!(
 );
 
 struct FrameOutputState {
-    frames: Arc<LatestFrames<Arc<SurfaceLease>>>,
+    frames: Arc<LatestFrames<Arc<CapturedSurface>>>,
     size: (u32, u32),
     status_key: &'static NSString,
+    display_time_key: Option<&'static NSString>,
+    clock: NativeClock,
+}
+
+struct CapturedSurface {
+    surface: SurfaceLease,
+    time: FrameTime,
 }
 
 define_class!(
@@ -135,11 +144,20 @@ unsafe impl NSObjectProtocol for FrameOutput {}
 
 impl FrameOutputState {
     fn capture(&self, sample: &CMSampleBuffer) {
-        match sample_status(sample, self.status_key) {
+        let observed = Instant::now();
+        let Some(info) = sample_info(sample) else {
+            return;
+        };
+        match frame_number(&info, self.status_key).map(|status| status.integerValue()) {
             Some(COMPLETE | STARTED) => {
                 if let Some(buffer) = unsafe { sample.image_buffer() } {
+                    let native_ns = self
+                        .display_time_key
+                        .and_then(|key| frame_number(&info, key))
+                        .and_then(|time| display_time_ns(time.unsignedLongLongValue()));
+                    let time = self.clock.timestamp(native_ns, observed);
                     let frame = SurfaceLease::new(&buffer, self.size)
-                        .map(|surface| Some(Arc::new(surface)))
+                        .map(|surface| Some(Arc::new(CapturedSurface { surface, time })))
                         .map_err(|error| error.to_string());
                     self.frames.publish(frame);
                 }
@@ -153,13 +171,34 @@ impl FrameOutputState {
     }
 }
 
-fn sample_status(sample: &CMSampleBuffer, key: &NSString) -> Option<isize> {
+type FrameInfo = NSDictionary<NSString, AnyObject>;
+
+fn sample_info(sample: &CMSampleBuffer) -> Option<Retained<FrameInfo>> {
     let attachments = unsafe { sample.sample_attachments_array(false)? };
-    // CoreMedia 的附件是可桥接的 CFArray/CFDictionary，状态键对应一个 NSNumber。
-    let array: &NSArray<NSDictionary<NSString, AnyObject>> =
-        unsafe { &*ptr::from_ref(&*attachments).cast() };
-    let status = array.firstObject()?.objectForKey(key)?;
-    Some(status.downcast::<NSNumber>().ok()?.integerValue())
+    // CoreMedia 的附件是可桥接的 CFArray/CFDictionary。
+    let array: &NSArray<FrameInfo> = unsafe { &*ptr::from_ref(&*attachments).cast() };
+    array.firstObject()
+}
+
+fn frame_number(info: &FrameInfo, key: &NSString) -> Option<Retained<NSNumber>> {
+    info.objectForKey(key)?.downcast().ok()
+}
+
+fn display_time_ns(mach_ticks: u64) -> Option<u64> {
+    host_time_ns(unsafe { CMClock::make_host_time_from_system_units(mach_ticks) })
+}
+
+fn host_time_ns(time: CMTime) -> Option<u64> {
+    if !time.flags.contains(CMTimeFlags::Valid)
+        || time.flags.intersects(CMTimeFlags::ImpliedValueFlagsMask)
+        || time.epoch != 0
+    {
+        return None;
+    }
+    ticks_to_ns(
+        u64::try_from(time.value).ok()?,
+        u64::try_from(time.timescale).ok()?,
+    )
 }
 
 struct SurfaceLease(Retained<IOSurface>);
@@ -247,7 +286,7 @@ pub(super) struct ScreenStream {
     stream: Retained<NSObject>,
     output: Retained<FrameOutput>,
     _queue: DispatchRetained<DispatchQueue>,
-    frames: Arc<LatestFrames<Arc<SurfaceLease>>>,
+    frames: Arc<LatestFrames<Arc<CapturedSurface>>>,
     id: u32,
     display: DisplayState,
     size: (u32, u32),
@@ -260,7 +299,8 @@ impl ScreenStream {
     }
 
     fn connect(id: u32, source: (u32, u32), bounds: [f32; 4]) -> Result<Self> {
-        let status_key = frame_status_key()?;
+        let status_key = frame_key(c"SCStreamFrameInfoStatus")?;
+        let display_time_key = frame_key(c"SCStreamFrameInfoDisplayTime").ok();
         let deadline = Instant::now() + FIRST_FRAME_TIMEOUT;
         let display = DisplayState::current(id);
         let logical = display.bounds.size;
@@ -288,11 +328,17 @@ impl ScreenStream {
         }
 
         let size = region.pixels;
+        let host_clock = unsafe { CMClock::host_time_clock() };
+        let clock = NativeClock::correlate(|| {
+            host_time_ns(unsafe { host_clock.time() }).context("Invalid Core Media host clock")
+        })?;
         let frames = Arc::new(LatestFrames::new());
         let output = FrameOutput::alloc().set_ivars(FrameOutputState {
             frames: Arc::clone(&frames),
             size,
             status_key,
+            display_time_key,
+            clock,
         });
         let output: Retained<FrameOutput> = unsafe { msg_send![super(output), init] };
         let queue = DispatchQueue::new("com.clippy.slint.screen-stream", DispatchQueueAttr::SERIAL);
@@ -328,13 +374,20 @@ impl ScreenStream {
         Ok(source)
     }
 
-    pub fn read(&mut self) -> Result<RgbaImage> {
+    pub fn read(&mut self, demand: FrameDemand) -> Result<Option<RegionFrame>> {
         self.check_display()?;
-        let (sequence, surface) = self.frames.wait(self.seen, FRAME_WAIT)?;
-        let result = surface.read(self.size)?;
+        let (sequence, frame) = self.frames.wait(self.seen, FRAME_WAIT)?;
+        if demand == FrameDemand::New && sequence == self.seen {
+            self.frames.check_active()?;
+            return Ok(None);
+        }
+        let pixels = frame.surface.read(self.size)?;
         self.frames.check_active()?;
         self.seen = sequence;
-        Ok(result)
+        Ok(Some(RegionFrame {
+            pixels,
+            time: frame.time,
+        }))
     }
 
     fn check_display(&self) -> Result<()> {
@@ -439,7 +492,9 @@ mod tests {
     #[test]
     fn screen_capture_kit_registers_its_runtime_types_without_starting_capture() {
         if stream_supported() {
-            assert!(!frame_status_key().unwrap().to_string().is_empty());
+            for key in [c"SCStreamFrameInfoStatus", c"SCStreamFrameInfoDisplayTime"] {
+                assert!(!frame_key(key).unwrap().to_string().is_empty());
+            }
             for name in [
                 c"SCShareableContent",
                 c"SCContentFilter",
@@ -450,6 +505,28 @@ mod tests {
             }
             let _ = FrameOutput::class();
         }
+    }
+
+    #[test]
+    fn frame_display_time_converts_host_clock_units() {
+        let host_sample = unsafe { CMClock::host_time_clock().time() };
+        let ticks = unsafe { CMClock::convert_host_time_to_system_units(host_sample) };
+        let host_ns = host_time_ns(host_sample).unwrap();
+        assert!(display_time_ns(ticks).unwrap().abs_diff(host_ns) < 1_000);
+        assert_eq!(
+            host_time_ns(CMTime {
+                value: -1,
+                ..host_sample
+            }),
+            None
+        );
+        assert_eq!(
+            host_time_ns(CMTime {
+                flags: CMTimeFlags::Valid | CMTimeFlags::Indefinite,
+                ..host_sample
+            }),
+            None
+        );
     }
 
     #[test]

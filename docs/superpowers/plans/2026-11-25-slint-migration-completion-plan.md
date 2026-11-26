@@ -336,6 +336,22 @@ xdg-foreign parent，不保存恢复令牌。释放旧读取器后才启动组�
 
 **Out of Scope** Windows WGC 和 macOS ScreenCaptureKit 的时钟适配随后接入同一帧约定。媒体容器与音频设备合同保持。
 
+#### 阶段 4 · Windows 和 macOS 原生帧时钟
+
+**Goal** 将 WGC 和 ScreenCaptureKit 的区域帧时间送入同一录屏时钟，复用静止推进和续录边界。
+
+**Requirements** 在启动持续源前分别校准 QPC 与 Core Media 主机时钟。WGC 取 `SystemRelativeTime`，
+ScreenCaptureKit 取 `SCStreamFrameInfoDisplayTime`。原生时间缺失或超出本地有效区间时采用回调观测值。
+录屏只取新帧，长截图仍能读最近画面。保留 macOS 11.0 部署目标和较旧系统的 CoreGraphics 读帧。
+[WGC 视频帧时间](https://learn.microsoft.com/en-us/uwp/api/windows.graphics.capture.direct3d11captureframe.systemrelativetime)
+· [ScreenCaptureKit 帧信息](https://developer.apple.com/documentation/screencapturekit/scstreamframeinfo/displaytime)
+· [Core Media 主机时钟](https://developer.apple.com/documentation/coremedia/cmclockgethosttimeclock%28%29)
+
+**Acceptance Criteria** 检查 QPC 和 Core Media 单位换算、时间范围及现有 Linux 门禁，验证 Windows Slint
+入口和两个 macOS 架构的平台层。目标系统补静止分段、恢复前旧像素拒绝、原生时钟和真实有声音画对照。
+
+**Out of Scope** 音源选择、录制浮窗排除与播放器保持本阶段的独立验收。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -580,6 +596,16 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
 - 测试使用静音音频接收器。从运行时原型到原生应用还需补开发依赖与三平台随包插件，真实音频设备、
   同步、恢复合并产物和播放器候选对照继续验证。日志见
   `target/test-artifacts/slint-stage4-media/playback-gstreamer-matrix.log`。
+
+### 阶段 4 · Windows 和 macOS 原生帧时钟接入
+
+- WGC 把合成器的 QPC 帧时间和回调观测时间随区域像素交付。ScreenCaptureKit 通过 Core Media 把窗口服务器
+  的 Mach 显示时间转到主机单调时钟。录屏按新帧更新，长截图仍能读取最后画面。
+- Windows GNU 的平台层、独立 xcap WGC 和关闭默认录屏编解码的 Slint QA 入口交叉检查通过，
+  平台测试二进制已构建。隔离 Wine 在启动时无法写入服务套接字，测试未运行。macOS 两个架构的
+  平台层 `--all-targets` 交叉 clippy 通过，目标为 11.0。
+- 完整 Linux 门禁 11 项通过、0 失败、0 跳过，xcap 固定源码校验通过。原生采集、真实音源
+  和同一提交三平台原生 CI 继续验收。日志见 `target/test-artifacts/slint-stage4-native-clock/`。
 
 ## Acceptance Criteria
 

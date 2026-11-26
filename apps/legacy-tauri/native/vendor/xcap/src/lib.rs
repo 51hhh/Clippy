@@ -28,7 +28,7 @@ pub use image;
 pub use error::{XCapError, XCapResult};
 pub use monitor::Monitor;
 #[cfg(all(target_os = "windows", feature = "wgc"))]
-pub use platform::wgc_region_reader::WgcRegionReader;
+pub use platform::wgc_region_reader::{WgcRegionFrame, WgcRegionReader};
 pub use window::Window;
 
 pub use video_recorder::Frame;

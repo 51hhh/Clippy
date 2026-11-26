@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use image::RgbaImage;
 use scopeguard::{ScopeGuard, guard};
@@ -38,12 +41,23 @@ const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(3);
 const FRAME_UPDATE_WAIT: Duration = Duration::from_millis(16);
 type NativeFrame = ScopeGuard<Direct3D11CaptureFrame, fn(Direct3D11CaptureFrame)>;
 
+struct ReceivedFrame {
+    frame: NativeFrame,
+    observed_at: Instant,
+}
+
+pub struct WgcRegionFrame {
+    pub pixels: RgbaImage,
+    pub system_time_100ns: Option<i64>,
+    pub observed_at: Instant,
+}
+
 /// A monitor-local region read from one Windows Graphics Capture session.
 pub struct WgcRegionReader {
     _monitor_closed: MonitorClosed,
     runtime: WgcRuntime,
-    pending: Arc<FrameSlot<NativeFrame>>,
-    last: Option<RgbaImage>,
+    pending: Arc<FrameSlot<ReceivedFrame>>,
+    last: Option<WgcRegionFrame>,
     device: ID3D11Device,
     context: ID3D11DeviceContext,
     pixels: [u32; 4],
@@ -79,7 +93,10 @@ impl WgcRegionReader {
                         .ok_or_else(|| XCapError::new("WGC frame pool is unavailable"))
                         .and_then(|pool| next_frame(pool, source_size));
                     match result {
-                        Ok(Some(frame)) => pending.publish(frame),
+                        Ok(Some(frame)) => pending.publish(ReceivedFrame {
+                            frame,
+                            observed_at: Instant::now(),
+                        }),
                         Ok(None) => {}
                         Err(error) => pending.close(error.to_string()),
                     }
@@ -105,14 +122,28 @@ impl WgcRegionReader {
     }
 
     pub fn read(&mut self) -> XCapResult<RgbaImage> {
+        self.read_sample(false)
+            .map(|sample| sample.expect("WGC 最新帧读取保留静止画面").pixels.clone())
+    }
+
+    pub fn read_sample(&mut self, new_only: bool) -> XCapResult<Option<&WgcRegionFrame>> {
         let timeout = if self.last.is_some() {
             FRAME_UPDATE_WAIT
         } else {
             FIRST_FRAME_TIMEOUT
         };
-        if let Some(frame) = self.pending.take(timeout).map_err(XCapError::new)? {
+        let update = self.pending.take(timeout).map_err(XCapError::new)?;
+        let fresh = update.is_some();
+        if let Some(ReceivedFrame { frame, observed_at }) = update {
+            let system_time_100ns = frame.SystemRelativeTime().ok().map(|span| span.Duration);
             match self.read_pixels(&frame) {
-                Ok(image) => self.last = Some(image),
+                Ok(pixels) => {
+                    self.last = Some(WgcRegionFrame {
+                        pixels,
+                        system_time_100ns,
+                        observed_at,
+                    });
+                }
                 Err(error) => {
                     self.last = None;
                     self.pending.close(error.to_string());
@@ -121,9 +152,11 @@ impl WgcRegionReader {
             }
         }
         self.pending.check_open().map_err(XCapError::new)?;
-        self.last
-            .clone()
-            .ok_or_else(|| XCapError::new("Timed out waiting for the first WGC frame"))
+        let last = self
+            .last
+            .as_ref()
+            .ok_or_else(|| XCapError::new("Timed out waiting for the first WGC frame"))?;
+        Ok((fresh || !new_only).then_some(last))
     }
 
     fn read_pixels(&self, frame: &Direct3D11CaptureFrame) -> XCapResult<RgbaImage> {
@@ -158,7 +191,7 @@ struct MonitorClosed {
 impl MonitorClosed {
     fn register(
         item: &GraphicsCaptureItem,
-        pending: &Arc<FrameSlot<NativeFrame>>,
+        pending: &Arc<FrameSlot<ReceivedFrame>>,
     ) -> XCapResult<Self> {
         let pending = pending.clone();
         let token = item.Closed(

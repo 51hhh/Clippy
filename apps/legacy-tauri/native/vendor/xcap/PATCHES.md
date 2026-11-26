@@ -55,6 +55,9 @@ Windows 独立 vendor 测试需显式过滤 platform::wgc_runtime::tests，不�
 独占 D3D11 immediate context，回调只更新一帧原生表面，读者选中后才通过已有的 GPU 区域拷贝读回
 RGBA。RGBA 转换直接接收读回的缓冲。关闭或尺寸变化会清空待取帧并唤醒读者。
 
+`read_sample` 同时交付 WGC 原生帧时间与回调观测时间。录屏可只取更新，普通读取仍能获得最近画面。
+两种调用共用现有的一帧待处理空间和同一份区域读回缓存。
+
 新旧 WGC 调用共用帧池初始化回滚与关闭状态。Slint 会话请求隐藏光标，legacy `VideoRecorder`
 依原合同请求包含光标。新增入口和修改文件的实际字节由 `verify-xcap-patch.mjs` 校验。
 需求 `SLINT-MIGRATION-CLOSURE-01`。

@@ -48,6 +48,8 @@
 
 ### Slint 区域录屏
 
+- Windows WGC 和 macOS ScreenCaptureKit 的原生帧时间接入录屏时间线。静止时沿用最新画面推进恢复分段。
+  已交叉检查，目标系统的原生采集、暂停和带音轨长录仍待验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 - Linux Wayland 录屏沿用 PipeWire 的采集时间。静止画面无需重复拷贝像素也能按时写出恢复分段，
   暂停时的画面不会混入续录。隔离 GNOME 和 Sway 已验证，实机有声长录与其他平台时钟待验收。
   （需求 `SLINT-MIGRATION-CLOSURE-01`）

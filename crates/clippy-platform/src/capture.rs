@@ -10,7 +10,7 @@ use std::{
     time::Instant,
 };
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 mod clock;
 #[cfg(target_os = "linux")]
 pub mod gnome;
@@ -171,6 +171,7 @@ pub struct RegionFrame {
 }
 
 impl RegionFrame {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     fn observed(pixels: RgbaImage, observed_at: Instant) -> Self {
         Self {
             pixels,
@@ -329,10 +330,15 @@ fn with_region_reader<T>(
     {
         let monitor = resolve_native_monitor(&output, geometry)?;
         let pixels = pixel_rect(source_size.0, source_size.1, [left, top, right, bottom])?;
+        let clock = clock::NativeClock::performance_counter()?;
         let mut source = monitor.wgc_region_reader(source_size, pixels)?;
-        consume(&mut |_| {
-            let pixels = source.read()?;
-            Ok(Some(RegionFrame::observed(pixels, Instant::now())))
+        consume(&mut |demand| {
+            Ok(source
+                .read_sample(demand == FrameDemand::New)?
+                .map(|frame| RegionFrame {
+                    pixels: frame.pixels.clone(),
+                    time: clock.windows_frame_time(frame.system_time_100ns, frame.observed_at),
+                }))
         })
     }
     #[cfg(target_os = "macos")]
@@ -341,10 +347,7 @@ fn with_region_reader<T>(
         let bounds = [left, top, right, bottom];
         if macos::stream_supported() {
             let mut source = macos::ScreenStream::open(monitor.id()?, source_size, bounds)?;
-            return consume(&mut |_| {
-                let pixels = source.read()?;
-                Ok(Some(RegionFrame::observed(pixels, Instant::now())))
-            });
+            return consume(&mut |demand| source.read(demand));
         }
         consume(&mut |_| {
             let image = monitor.capture_image()?;

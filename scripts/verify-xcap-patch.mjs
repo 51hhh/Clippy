@@ -18,7 +18,7 @@ const recorder = readFileSync(
 const patches = readFileSync(join(vendorRoot, "PATCHES.md"), "utf8");
 
 const patchedFiles = {
-  "src/lib.rs": "c37c4c32227d679c66262e97801164ec462e8c3be004badb38193449c8c0a367",
+  "src/lib.rs": "0eebde4a80996983830289f22d427cf37db88070949a3d3143b56c3aace319c4",
   "src/windows/wgc_video_recorder.rs":
     "549b0b847d116984d7ebcfc71fb555d754753d5b578aae80353f386793ef5c81",
   "src/windows/mod.rs":
@@ -26,7 +26,7 @@ const patchedFiles = {
   "src/windows/wgc_frame_slot.rs":
     "b9856b154564f5a825808076c056d28def32c428960189dcbde49956a9ffa3d5",
   "src/windows/wgc_region_reader.rs":
-    "5f4447f10a9fb1ccb79f8dda49883bfd05c3c31868039d46789472a2c211532b",
+    "acad132b6f6313c98530c6e84856594d22e55055bc56aac6c15fa8951f3469f2",
   "src/windows/registry_build.rs":
     "ca8d56329161c39d46c7a0756f7ce060f999a4d95e5ce436012afdd8b2b7bc6f",
   "src/windows/wgc_init.rs":
