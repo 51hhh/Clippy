@@ -29,6 +29,12 @@ resources = [
   { src = "../legacy-tauri/native/third-party-licenses/opusic-sys-0.7.5-libopus-1.6.1-BSD-3-Clause.txt", target = "licenses/opusic-sys-0.7.5-libopus-1.6.1-BSD-3-Clause.txt" },
   { src = "../legacy-tauri/native/third-party-licenses/recording-opus-webm-NOTICE.md", target = "licenses/recording-opus-webm-NOTICE.md" },
   { src = "../legacy-tauri/native/third-party-licenses/recording-vp9-prototype-NOTICE.md", target = "licenses/recording-vp9-prototype-NOTICE.md" },
+  { src = "../legacy-tauri/native/third-party-licenses/rubato-5.0.0-LICENSE-MIT.txt", target = "licenses/rubato-5.0.0-LICENSE-MIT.txt" },
+  { src = "../legacy-tauri/native/third-party-licenses/rubato-5.0.0-LICENSE-APACHE.txt", target = "licenses/rubato-5.0.0-LICENSE-APACHE.txt" },
+  { src = "../legacy-tauri/native/third-party-licenses/audioadapter-family-5.0.0-5.2.0-LICENSE-MIT.txt", target = "licenses/audioadapter-family-5.0.0-5.2.0-LICENSE-MIT.txt" },
+  { src = "../legacy-tauri/native/third-party-licenses/audio-codec-algorithms-0.8.1-LICENSE-0BSD.txt", target = "licenses/audio-codec-algorithms-0.8.1-LICENSE-0BSD.txt" },
+  { src = "../legacy-tauri/native/third-party-licenses/visibility-0.1.1-LICENSE-MIT.txt", target = "licenses/visibility-0.1.1-LICENSE-MIT.txt" },
+  { src = "../legacy-tauri/native/third-party-licenses/windowfunctions-0.1.1-LICENSE-MIT.txt", target = "licenses/windowfunctions-0.1.1-LICENSE-MIT.txt" },
 ]
 
 [deb]

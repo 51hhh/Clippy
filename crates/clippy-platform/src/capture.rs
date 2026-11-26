@@ -134,12 +134,26 @@ impl std::error::Error for ScreenSharingCancelled {}
 pub struct RegionCancellation {
     #[cfg(target_os = "linux")]
     signal: tokio::sync::watch::Sender<bool>,
+    #[cfg(all(target_os = "macos", feature = "macos-recording-audio"))]
+    signal: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl RegionCancellation {
     pub fn cancel(&self) {
         #[cfg(target_os = "linux")]
         self.signal.send_replace(true);
+        #[cfg(all(target_os = "macos", feature = "macos-recording-audio"))]
+        self.signal
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    #[cfg(all(target_os = "macos", feature = "macos-recording-audio"))]
+    fn check_recording_start(&self) -> Result<()> {
+        ensure!(
+            !self.signal.load(std::sync::atomic::Ordering::Acquire),
+            "Recording cancelled"
+        );
+        Ok(())
     }
 
     #[cfg(target_os = "linux")]

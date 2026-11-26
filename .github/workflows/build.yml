@@ -168,9 +168,9 @@ jobs:
       - name: Shared native A/V tests
         run: cargo test --locked -p clippy-media --features recording-opus-webm,recording-windows-audio,recording-macos-audio,recording-macos-resampling -- --test-threads=1
 
-      - name: macOS Core Media audio buffer test
+      - name: macOS native recording audio tests
         if: runner.os == 'macOS'
-        run: cargo test --locked -p clippy-platform --features macos-recording-audio capture::macos::audio::tests
+        run: cargo test --locked -p clippy-platform --features macos-recording-audio capture::macos::audio
 
       - name: Windows WGC capture tests
         if: runner.os == 'Windows'

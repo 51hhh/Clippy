@@ -22,7 +22,7 @@ GitHub `dev` 仍指向 #27 的合入提交 `abfdeb5`。之前的安装包、三�
 | 冻结截图 | X11 root、GNOME Mutter 原始帧、其他 Wayland 的 wayshot、Windows xcap/WGC 单帧、macOS xcap/CoreGraphics。选区使用单输出源像素 | 复测 v5 速度与 GNOME 瞬时菜单。补窗口速选、旋转和混合 DPI 验收。跨屏选区和合成是原生计划中的新增目标，先固定输出坐标尺度。保留系统截图导入和延时截图。 [平台采集](../../../crates/clippy-platform/src/capture.rs) · [GNOME v5 合同](../specs/2026-10-23-gnome-capture-fast-path-rollback.md) |
 | 标注、查看器、贴图 | 截图层有五个内联工具。编辑器可做更多标注。查看器支持缩放拖动。贴图、修订、工作区分组和缩略图已接入 | 恢复高频内联笔、文字、马赛克等实际入口与撤销/重做。窗口速选和扫码结果交互按旧操作验证。贴图跨屏缩放、层级和重启位置恢复做原生验证。独立查看器持久化工程按现有修订合同接入。 [截图窗](../../../apps/slint/ui/capture.slint) · [编辑器控制](../../../apps/slint/src/app/editor.rs) · [贴图状态](../../../apps/slint/src/app/pins.rs) |
 | 长截图 | 手动追加、撤销、拼接、取消已验证，完成后进入编辑器 | 接自动滚动、到边界判停、目标丢失撤销输入，以及完成后快捷复制、保存、贴图。复用旧版自动输入与共享拼接算法。 [现有控制器](../../../apps/slint/src/app/longshot.rs) · [旧版自动滚动](../../../apps/legacy-tauri/native/src/capture/longshot/auto_scroll.rs) |
-| 区域录屏与回放 | VP9/WebM、暂停/继续、恢复与导出已接入。X11 有安全摆位浮窗。Wayland、WGC、ScreenCaptureKit 已接入原生帧时间。Slint Linux/Windows 支持选择系统音源或麦克风，macOS 13 起可选系统声。GStreamer 与轻量播放器已通过 Linux 隔离桌面的短片回归 | 根据长时同步、三平台设备与安装包验证确定正式回放与朗读后端。补跨平台浮窗排除、双源混音和 macOS 麦克风。设备移除和长时录音继续按平台验收。 [录屏入口](../../../apps/slint/src/app/recording.rs) · [媒体模块](../../../crates/clippy-media/src/recording/mod.rs) |
+| 区域录屏与回放 | VP9/WebM、暂停/继续、恢复与导出已接入。X11 有安全摆位浮窗。Wayland、WGC、ScreenCaptureKit 已接入原生帧时间。Slint Linux/Windows 支持选择系统音源或麦克风，macOS 13 起可选系统声，15 起可选默认或指定麦克风。GStreamer 与轻量播放器已通过 Linux 隔离桌面的短片回归 | 根据长时同步、三平台设备与安装包验证确定正式回放与朗读后端。补跨平台浮窗排除和双源混音。macOS 麦克风的系统授权、设备移除和长时录音继续按平台验收。 [录屏入口](../../../apps/slint/src/app/recording.rs) · [媒体模块](../../../crates/clippy-media/src/recording/mod.rs) |
 | OCR、扫码、图片翻译 | Tesseract TSV 有行框、置信度及段落。配置可用时调用旧增强引擎。打开图像文字窗后可选行、选段及翻译，合适的译文已有覆盖层，长译文留在侧栏 | 打包可分发的离线引擎、补可靠多栏/暗色/旋转排版。统一结果缓存和坐标，补快捷入口和多段按需翻译。扫码从结果文本扩展到共享模型已经提供的位置与逐项操作时，复用真实字段。 [OCR 接口](../../../crates/clippy-vision/src/lib.rs) · [译文回填](../../../apps/slint/src/app/vision.rs#L342) |
 | 预览、工具与归档 | 图片、有限 HTML/Markdown、编解码工具、翻译历史、手动 tmux 捕获、统计、归档导入导出 | 复验旧版实际使用的代码高亮、复杂表格、链接和译文管理。按对照结果补齐入口。归档沿用现有校验合同和 SQLite schema。 [预览解析](../../../apps/slint/src/app/preview_document.rs) · [工具窗口](../../../apps/slint/src/app/tools.rs) · [归档入口](../../../apps/slint/src/app/settings.rs#L509) |
 | 安装、更新与数据 | semver 分流已实现。Slint 有 QA 身份、安装器及草稿发版。首次正式启动会备份配置和数据库，Linux 早期已验证解包运行和备份恢复 | 真实安装器原位升级、旧 updater 取包验签、正式签名/公证策略、失败回滚以及新版自主更新。核对 QA 与生产身份、实际最低系统版本和无 WebView。 [升级备份](../../../apps/slint/src/app/upgrade.rs) · [发行草稿](../../../.github/workflows/release.yml#L813) |
@@ -402,6 +402,25 @@ ScreenCaptureKit 取 `SCStreamFrameInfoDisplayTime`。原生时间缺失或超�
 默认新版构建继续只依赖实际使用的媒体能力。
 
 **Out of Scope** 抽离阶段保留现有用户入口。macOS 15 权限、设备选择、双源混音和长录作为后续接线与实机验收项。
+
+#### 阶段 4 · Slint macOS 麦克风
+
+**Goal** macOS 15 起在录屏库选择默认或指定麦克风，通过 ScreenCaptureKit 独立音频输出写入现有 VP9/Opus WebM。
+
+**Requirements** 后台枚举只读设备目录。确认录制后、创建录屏会话前请求麦克风权限，等待中可取消。捕获开始时
+固定实际麦克风，录制中设备断开即结束，已提交分段可恢复。继续保留 macOS 13/14 系统声和正式包 11.0 部署目标。
+核对流配置 selector，打包用途说明、主应用的 Audio Input entitlement 与重采样许可。共用主机时钟、八包队列与 Rubato 合同。以原生 PTS 的相对采样位置
+判定连续性，以换算后的主机时间锚定新连续段。停录封尾，暂停丢弃滤波状态与旧缓冲。
+[麦克风权限](https://developer.apple.com/documentation/avfoundation/requesting-authorization-to-capture-and-save-media) ·
+[设备 ID](https://developer.apple.com/documentation/screencapturekit/scstreamconfiguration/microphonecapturedeviceid) ·
+[Audio Input entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.device.audio-input) ·
+[重采样合同](../specs/2026-09-23-recording-macos-resampler.md)
+
+**Acceptance Criteria** 验证运行时音源选项、设备目录刷新、录制前权限和取消、Core Media 原生 PCM 格式、非整数
+包时长的连续性、实际时间空洞、重叠、暂停、继续与停止尾部。原生 CI 执行平台测试。Intel 和 Apple Silicon 实机覆盖
+内建/外接设备、不同原生采样率、权限拒绝后重试、设备消失、暂停恢复、短录音和 30 分钟音画时钟。
+
+**Out of Scope** 双源混音、旧系统麦克风、持久化设备偏好与录制中切换设备。
 
 #### 阶段 4 · GStreamer 库内播放候选
 
@@ -998,6 +1017,21 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   日志见 `target/test-artifacts/slint-stage4-macos-audio/microphone-resampler-shared.log` 和
   `microphone-resampler-shared-clippy.log`。新版 Linux 完整门禁 11 通过、0 失败、0 跳过，见
   `ci-local-shared-resampler.log`。
+
+### 阶段 4 · Slint macOS 麦克风接入结果
+
+- macOS 15 起录屏库可选择默认或指定麦克风。枚举仅在录屏库打开或刷新时后台运行。选择固定后按设备 ID
+  捕获，设备不可用或录制中断开时返回错误。Job 在创建新录屏会话前确认权限，停止或退出可以取消等待。
+- 回调使用独立的麦克风输出，将 Core Media 原生 PTS 换算到与视频共用的主机时间。在媒体 worker 用相对
+  源采样位置判断连续性，处理真正的间隔。48 kHz PCM 直接提交，其他支持的采样率复用 Rubato。暂停丢弃
+  已排队数据和滤波状态，正常停录排空原生回调，再封尾并提交最后一块。
+- Linux 完整门禁 11 通过、0 失败、0 跳过，定向合同 17 项通过。macOS Intel 和 Apple Silicon 平台/媒体
+  层以 11.0 目标通过交叉 Clippy。Apple Silicon 对象的 `LC_BUILD_VERSION` 记录 11.0，无新增设备常量的强
+  导入。签名 hook 用替身命令验证只在 DMG 组装前给主应用加 Audio Input 权限，两套包许可校验通过。
+- 本地证据位于 `target/test-artifacts/slint-stage4-macos-audio/`，包括 `slint-microphone-contracts.log`、
+  `ci-local-slint-microphone.log`、`slint-microphone-*-apple-darwin.log`、`slint-microphone-mach-o-imports.txt`
+  和 `slint-microphone-package-hook.log`。同一 SHA 原生 CI、实际 DMG 和 macOS 15+ 的权限、设备拔出及
+  30 分钟同步继续验收。
 
 ### 阶段 4 · GStreamer 库内回放结果
 

@@ -8,9 +8,11 @@ publish = false
 
 [features]
 macos-recording-audio = [
+    "dep:objc2-av-foundation",
     "dep:objc2-core-audio-types",
     "objc2-core-media/CMFormatDescription",
     "objc2-core-media/objc2-core-audio-types",
+    "objc2-foundation/NSBundle",
 ]
 
 [dependencies]
@@ -56,6 +58,7 @@ objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = [
     "NSPasteboard", "NSResponder", "NSRunningApplication", "NSView", "NSWindow", "NSWorkspace", "std",
 ] }
+objc2-av-foundation = { version = "=0.3.2", default-features = false, features = ["AVCaptureDevice", "AVMediaFormat", "block2"], optional = true }
 objc2-core-audio-types = { version = "0.3", default-features = false, features = ["CoreAudioBaseTypes"], optional = true }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["CFCGTypes", "objc2"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = [

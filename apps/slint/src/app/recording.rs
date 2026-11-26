@@ -53,10 +53,7 @@ pub(super) enum Message {
     Begin(Region, (u32, u32), AudioTrack),
     HideControl,
     Control(Control),
-    #[cfg(all(
-        feature = "native-recording-audio",
-        any(target_os = "linux", target_os = "windows")
-    ))]
+    #[cfg(feature = "native-recording-audio")]
     AudioDevices(Result<Vec<clippy_media::recording::audio_devices::NativeRecordingAudioDevice>>),
     List(u64, Result<Vec<RecordingLibraryItem>>),
     Preview(String),
@@ -154,7 +151,7 @@ impl Session {
         track: AudioTrack,
         cancellation: RegionCancellation,
     ) -> Result<Self> {
-        let video = |region| {
+        let video = |region, cancellation| {
             move |clock| {
                 source::Source::open(clock, region, cancellation)
                     .map_err(|error| format!("{error:#}"))
@@ -164,10 +161,12 @@ impl Session {
             AudioTrack::Silent => Ok(Self::Video(DiagnosticRecordingSession::start_with_factory(
                 base,
                 config,
-                video(region),
+                video(region, cancellation),
             )?)),
             #[cfg(feature = "native-recording-audio")]
             track => {
+                #[cfg(target_os = "macos")]
+                track.prepare(&cancellation)?;
                 let plan = track.into_plan(&region);
                 let config = AvRecordingConfig {
                     session_id: config.session_id,
@@ -184,7 +183,7 @@ impl Session {
                 Ok(Self::WithAudio(AvRecordingSession::start_with_factories(
                     base,
                     config,
-                    video(region),
+                    video(region, cancellation),
                     |clock| plan.connect(clock).map_err(|error| error.to_string()),
                 )?))
             }
@@ -619,10 +618,7 @@ impl App {
             Message::HideControl => {
                 self.recordings.control.take();
             }
-            #[cfg(all(
-                feature = "native-recording-audio",
-                any(target_os = "linux", target_os = "windows")
-            ))]
+            #[cfg(feature = "native-recording-audio")]
             Message::AudioDevices(devices) => {
                 self.recordings.remember_audio();
                 self.recordings.audio.updated(devices);

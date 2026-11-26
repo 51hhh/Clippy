@@ -741,7 +741,12 @@ jobs:
           esac
           echo "SLINT_RELEASE_SIGNING=$SIGNING" >> "$GITHUB_ENV"
           node scripts/slint-release.mjs prepare "$GITHUB_REF_NAME" "$SLINT_PLATFORM" "$GITHUB_SHA" "$SIGNING"
-          cargo-packager --config target/packager/Packager.slint-release.toml --formats "$SLINT_PACKAGE_FORMATS"
+          if [ "$RUNNER_OS" = macOS ]; then
+            bash scripts/package-slint-macos.sh target/packager/Packager.slint-release.toml \
+              target/packager/slint-release/Clippy.app
+          else
+            cargo-packager --config target/packager/Packager.slint-release.toml --formats "$SLINT_PACKAGE_FORMATS"
+          fi
 
       - name: Verify package identity and declared runtime
         if: runner.os != 'Windows'
@@ -782,7 +787,15 @@ jobs:
             [ "$(plutil -extract CFBundleIdentifier raw -o - "$APP/Contents/Info.plist")" = com.clippy.desktop ]
             [ "$(plutil -extract LSMinimumSystemVersion raw -o - "$APP/Contents/Info.plist")" = "11.0" ]
             [ -n "$(plutil -extract NSScreenCaptureUsageDescription raw -o - "$APP/Contents/Info.plist")" ]
+            [ -n "$(plutil -extract NSMicrophoneUsageDescription raw -o - "$APP/Contents/Info.plist")" ]
+            codesign --display --entitlements - "$APP" > slint-macos-entitlements.plist
+            [ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' slint-macos-entitlements.plist)" = true ]
             otool -L "$APP/Contents/MacOS/clippy-app" > slint-macos-libraries.txt
+            nm -u "$APP/Contents/MacOS/clippy-app" > slint-macos-imports.txt
+            if grep -q '_AVCaptureDeviceTypeMicrophone$' slint-macos-imports.txt; then
+              echo '::error::The microphone device type must be resolved at runtime'
+              exit 1
+            fi
             if grep -Fq 'ScreenCaptureKit.framework/' slint-macos-libraries.txt; then
               echo '::error::ScreenCaptureKit must load only when requested on supported macOS versions'
               exit 1

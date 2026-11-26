@@ -4,5 +4,7 @@
 <dict>
   <key>NSScreenCaptureUsageDescription</key>
   <string>Clippy captures the screen when you take a screenshot, create a scrolling screenshot, or record a selected region.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Clippy records microphone audio when you select a microphone for a screen recording.</string>
 </dict>
 </plist>

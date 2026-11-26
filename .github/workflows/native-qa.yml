@@ -755,9 +755,8 @@ jobs:
       - name: Build Slint macOS QA bundles
         run: |
           rm -rf target/packager/slint-qa
-          cargo-packager \
-            --config apps/slint/Packager.qa.toml \
-            --formats app,dmg
+          bash scripts/package-slint-macos.sh apps/slint/Packager.qa.toml \
+            'target/packager/slint-qa/Clippy Slint QA.app'
 
       - name: Verify and prepare Slint macOS QA artifact
         env:
@@ -776,11 +775,19 @@ jobs:
           [ "$(plutil -extract CFBundleIdentifier raw -o - "$INFO_PLIST")" = "com.clippy.qa.slint" ]
           [ "$(plutil -extract LSMinimumSystemVersion raw -o - "$INFO_PLIST")" = "12.3" ]
           [ -n "$(plutil -extract NSScreenCaptureUsageDescription raw -o - "$INFO_PLIST")" ]
+          [ -n "$(plutil -extract NSMicrophoneUsageDescription raw -o - "$INFO_PLIST")" ]
+          codesign --display --entitlements - "$APP" > slint-macos-entitlements.plist
+          [ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' slint-macos-entitlements.plist)" = true ]
           EXECUTABLE_NAME=$(plutil -extract CFBundleExecutable raw -o - "$INFO_PLIST")
           [ "$EXECUTABLE_NAME" = "clippy-slint-qa" ]
           EXECUTABLE="$APP/Contents/MacOS/$EXECUTABLE_NAME"
           [ -x "$EXECUTABLE" ]
           lipo -archs "$EXECUTABLE" | tr ' ' '\n' | grep -qx "$EXPECTED_ARCH"
+          nm -u "$EXECUTABLE" > slint-macos-imports.txt
+          if grep -q '_AVCaptureDeviceTypeMicrophone$' slint-macos-imports.txt; then
+            echo '::error::The microphone device type must be resolved at runtime'
+            exit 1
+          fi
           OCR="$APP/Contents/Resources/ocr"
           codesign --verify --strict "$OCR/clippy-ocr-worker"
           codesign --verify --strict "$OCR/libonnxruntime.dylib"

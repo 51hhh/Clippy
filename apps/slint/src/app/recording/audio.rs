@@ -1,14 +1,8 @@
-#[cfg(all(
-    feature = "native-recording-audio",
-    any(target_os = "linux", target_os = "windows")
-))]
+#[cfg(feature = "native-recording-audio")]
 use super::{send, Message};
 use crate::{locale::tr, RecordingLibrary};
 use anyhow::{Context, Result};
-#[cfg(all(
-    feature = "native-recording-audio",
-    any(target_os = "linux", target_os = "windows")
-))]
+#[cfg(feature = "native-recording-audio")]
 use clippy_media::recording::audio_devices::{
     NativeRecordingAudioDevice, RecordingAudioDeviceKind,
 };
@@ -18,7 +12,8 @@ use clippy_media::recording::platform::linux_audio::{
 };
 #[cfg(all(feature = "native-recording-audio", target_os = "macos"))]
 use clippy_media::recording::platform::macos_audio::{
-    system_audio_available, MacSystemAudioPlan as SourcePlan,
+    enumerate_recording_audio_devices, microphone_available, request_microphone_permission,
+    system_audio_available, MacAudioPlan as SourcePlan,
 };
 #[cfg(all(feature = "native-recording-audio", target_os = "windows"))]
 use clippy_media::recording::platform::windows_audio::{
@@ -26,6 +21,8 @@ use clippy_media::recording::platform::windows_audio::{
 };
 #[cfg(feature = "native-recording-audio")]
 use clippy_platform::capture::Region;
+#[cfg(all(feature = "native-recording-audio", target_os = "macos"))]
+use clippy_platform::capture::{macos_audio::AudioInput, RegionCancellation};
 use slint::{ModelRc, VecModel};
 use std::io;
 
@@ -39,19 +36,26 @@ pub(in crate::app) enum AudioTrack {
         any(target_os = "linux", target_os = "windows")
     ))]
     System(Option<String>),
-    #[cfg(all(
-        feature = "native-recording-audio",
-        any(target_os = "linux", target_os = "windows")
-    ))]
+    #[cfg(feature = "native-recording-audio")]
     Microphone(Option<String>),
 }
 
 impl AudioTrack {
+    #[cfg(all(feature = "native-recording-audio", target_os = "macos"))]
+    pub(super) fn prepare(&self, cancellation: &RegionCancellation) -> Result<()> {
+        if matches!(self, Self::Microphone(_)) {
+            request_microphone_permission(cancellation)?;
+        }
+        Ok(())
+    }
+
     #[cfg(feature = "native-recording-audio")]
     pub(super) fn into_plan(self, _region: &Region) -> SourcePlan {
         match self {
             #[cfg(target_os = "macos")]
-            Self::MacSystem => SourcePlan::for_region(_region),
+            Self::MacSystem => SourcePlan::for_region(_region, AudioInput::System),
+            #[cfg(target_os = "macos")]
+            Self::Microphone(id) => SourcePlan::for_region(_region, AudioInput::Microphone(id)),
             #[cfg(target_os = "linux")]
             Self::System(id) => SourcePlan::system_audio(id),
             #[cfg(target_os = "windows")]
@@ -81,10 +85,7 @@ pub(super) struct AudioOptions {
     choices: Vec<Choice>,
     selection: AudioTrack,
     status: &'static str,
-    #[cfg(all(
-        feature = "native-recording-audio",
-        any(target_os = "linux", target_os = "windows")
-    ))]
+    #[cfg(feature = "native-recording-audio")]
     refreshing: bool,
 }
 
@@ -94,10 +95,7 @@ impl Default for AudioOptions {
             choices: default_choices(),
             selection: AudioTrack::Silent,
             status: "",
-            #[cfg(all(
-                feature = "native-recording-audio",
-                any(target_os = "linux", target_os = "windows")
-            ))]
+            #[cfg(feature = "native-recording-audio")]
             refreshing: false,
         }
     }
@@ -151,10 +149,11 @@ impl AudioOptions {
     }
 
     pub(super) fn refresh(&mut self) -> io::Result<()> {
-        #[cfg(all(
-            feature = "native-recording-audio",
-            any(target_os = "linux", target_os = "windows")
-        ))]
+        #[cfg(all(feature = "native-recording-audio", target_os = "macos"))]
+        if !microphone_available() {
+            return Ok(());
+        }
+        #[cfg(feature = "native-recording-audio")]
         if !self.refreshing {
             std::thread::Builder::new()
                 .name("clippy-recording-devices".into())
@@ -168,10 +167,7 @@ impl AudioOptions {
         Ok(())
     }
 
-    #[cfg(all(
-        feature = "native-recording-audio",
-        any(target_os = "linux", target_os = "windows")
-    ))]
+    #[cfg(feature = "native-recording-audio")]
     pub(super) fn updated(&mut self, devices: Result<Vec<NativeRecordingAudioDevice>>) {
         self.refreshing = false;
         match devices {
@@ -192,6 +188,12 @@ fn default_choices() -> Vec<Choice> {
     let mut choices = vec![Choice::new(AudioTrack::Silent, "No audio")];
     if system_audio_available() {
         choices.push(Choice::new(AudioTrack::MacSystem, "Default system audio"));
+    }
+    if microphone_available() {
+        choices.push(Choice::new(
+            AudioTrack::Microphone(None),
+            "Default microphone",
+        ));
     }
     choices
 }
@@ -218,15 +220,13 @@ fn default_choices() -> Vec<Choice> {
     }
 }
 
-#[cfg(all(
-    feature = "native-recording-audio",
-    any(target_os = "linux", target_os = "windows")
-))]
+#[cfg(feature = "native-recording-audio")]
 fn catalog_choices(devices: Vec<NativeRecordingAudioDevice>) -> Vec<Choice> {
     use std::collections::HashSet;
 
     let mut choices = default_choices();
     for (kind, heading) in [
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
         (RecordingAudioDeviceKind::SystemAudio, "System audio"),
         (RecordingAudioDeviceKind::Microphone, "Microphone"),
     ] {
@@ -267,12 +267,15 @@ fn catalog_choices(devices: Vec<NativeRecordingAudioDevice>) -> Vec<Choice> {
                 suffix += 1;
             }
             let track = match kind {
+                #[cfg(any(target_os = "linux", target_os = "windows"))]
                 RecordingAudioDeviceKind::SystemAudio => {
                     AudioTrack::System(Some(device.native_id.clone()))
                 }
                 RecordingAudioDeviceKind::Microphone => {
                     AudioTrack::Microphone(Some(device.native_id.clone()))
                 }
+                #[cfg(target_os = "macos")]
+                RecordingAudioDeviceKind::SystemAudio => unreachable!("macOS 仅枚举麦克风"),
             };
             choices.push(Choice::new(track, format!("{heading} · {label}")));
         }
@@ -294,19 +297,21 @@ mod tests {
 
     #[cfg(all(feature = "native-recording-audio", target_os = "macos"))]
     #[test]
-    fn macos_system_audio_choice_follows_the_runtime() {
+    fn macos_audio_choices_follow_the_runtime() {
         let mut options = AudioOptions::default();
         options.remember(tr("Default system audio"));
         assert_eq!(
             matches!(options.selected(), Ok(AudioTrack::MacSystem)),
             system_audio_available()
         );
+        options.remember(tr("Default microphone"));
+        assert_eq!(
+            matches!(options.selected(), Ok(AudioTrack::Microphone(None))),
+            microphone_available()
+        );
     }
 
-    #[cfg(all(
-        feature = "native-recording-audio",
-        any(target_os = "linux", target_os = "windows")
-    ))]
+    #[cfg(feature = "native-recording-audio")]
     #[test]
     fn refresh_keeps_device_identity_and_rejects_a_removed_selection() {
         let device = |id: &str| NativeRecordingAudioDevice {
@@ -317,8 +322,9 @@ mod tests {
         };
         let mut options = AudioOptions::default();
         options.updated(Ok(vec![device("private-b"), device("private-a")]));
-        assert_eq!(options.choices[3].label, "Microphone · Desk microphone");
-        assert_eq!(options.choices[4].label, "Microphone · Desk microphone (2)");
+        let devices = &options.choices[options.choices.len() - 2..];
+        assert_eq!(devices[0].label, "Microphone · Desk microphone");
+        assert_eq!(devices[1].label, "Microphone · Desk microphone (2)");
         options.remember("Microphone · Desk microphone (2)");
         options.updated(Ok(vec![device("private-b")]));
         assert!(
@@ -326,6 +332,10 @@ mod tests {
         );
         options.updated(Ok(vec![device("private-a")]));
         assert!(options.selected().is_err());
+        #[cfg(target_os = "macos")]
+        if !microphone_available() {
+            return;
+        }
         options.remember("Default microphone");
         assert!(matches!(
             options.selected(),

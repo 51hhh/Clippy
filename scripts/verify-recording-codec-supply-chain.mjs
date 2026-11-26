@@ -269,10 +269,16 @@ const licenseFiles = [
 ];
 const resources = JSON.parse(readFileSync(join(tauriRoot, "tauri.conf.json"), "utf8")).bundle
   .resources;
+const slintPackagers = ["Packager.qa.toml", "Packager.toml"].map((file) =>
+  readFileSync(join(root, "apps/slint", file), "utf8"),
+);
 for (const file of licenseFiles) {
   readFileSync(join(tauriRoot, "third-party-licenses", file));
   if (!Object.hasOwn(resources, `third-party-licenses/${file}`)) {
     throw new Error(`Tauri bundle is missing the recording codec license resource: ${file}`);
+  }
+  if (slintPackagers.some((config) => !config.includes(`target = "licenses/${file}"`))) {
+    throw new Error(`Slint bundle is missing the recording codec license resource: ${file}`);
   }
 }
 
