@@ -1375,6 +1375,27 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
 - 源码证据见 `target/test-artifacts/slint-stage5-distribution/ort-macos-recovery/` 的
   `source-probe.log` 和 `source-submodule-final.log`。共享 CPU 库的依赖也已在 Linux 完成 CMake
   配置，见 `configure-linux.log`。DMG 签名、最低系统运行及干净安装离线识字继续验收。
+- `55e4397` 的 Apple Silicon runner 成功从该源码打包，检查了最低部署版本、签名和包内 OCR worker 烟测，
+  已上传 QA DMG。Intel 在同一份源码的 AVX2 编译报错。 [Apple Silicon QA](https://github.com/51hhh/Clippy/actions/runs/45882017894/job/140123407606)
+
+#### 阶段 5 · macOS Intel OCR 编译修复
+
+**Goal** 用固定的 ONNX Runtime 源码在 Intel runner 生成随包识字库。
+
+**Requirements** 固定源码在 MLAS AVX2 写了 `if constexpr` 恒假分支的 Clang 局部诊断规则。CMake 探测
+`-Warray-bounds` 后未把 `HAS_ARRAY_BOUNDS` 传给编译器。仅为 macOS Intel 配置该宏，沿用 11.0 部署目标和
+固定源码提交。保留其他数组越界诊断。 [原生编译日志](https://github.com/51hhh/Clippy/actions/runs/45882017894/job/140123408075)
+
+**Acceptance Criteria** 核对宏只启用上游的局部 pragma。原生 Intel 构建产出 DMG，检查架构、最低版本和签名，
+用包内 worker、模型及运行库完成识字烟测。
+
+**Out of Scope** 更新 ONNX Runtime 版本、替换源码、关闭全局警告和提高 macOS 最低版本。
+
+- 本机 Clang 21 用固定源码和 MLAS 构建参数分别编译了宏启用前后的 AVX2 文件，目标文件逐字节一致。
+  预处理结果确认宏启用了上游局部 pragma，同一编译单元在 pragma 之外的确切越界仍为错误。Linux Clang 21
+  在旧参数下也能编译，原生 AppleClang 的编译结果仍需复验。
+- 用打包脚本的两套 CMake 参数验证了 Intel 继承原 `CXXFLAGS` 并追加该宏、Apple Silicon 沿用原参数，两路
+  均提交原来的 11.0 部署目标和源码 ID。编译证据在 `target/test-artifacts/slint-stage5-distribution/intel-clang/`。
 
 ### 阶段 6 · 截图标注撤销与重做结果
 

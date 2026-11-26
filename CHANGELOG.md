@@ -86,6 +86,8 @@
   字符的元数据可生成许可清单，Windows 安装包待重新出包验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 - macOS OCR 包改用可访问的公共镜像拉取已固定的 ONNX Runtime 发行提交。已核对源码与子模块，Intel 和
   Apple Silicon 的安装包继续按原部署目标验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
+- 修复 macOS Intel 的离线 OCR 构建，启用上游在 MLAS AVX2 恒假分支中的局部 Clang 诊断规则。已核对构建参数
+  和目标文件，Intel 原生出包仍待复验。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 
 ### Slint 区域录屏
 
