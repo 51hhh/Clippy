@@ -695,7 +695,8 @@ jobs:
     if: inputs.backend == 'slint' || inputs.backend == 'all'
     name: Slint QA Bundle (macOS ${{ matrix.label }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 85
+    # Intel 冷构建在原时限内尚未完成随包 ORT 的源码编译。
+    timeout-minutes: ${{ matrix.asset_arch == 'x64' && 120 || 85 }}
     strategy:
       fail-fast: false
       matrix:

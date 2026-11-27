@@ -632,7 +632,7 @@ jobs:
     name: Slint Release Package (${{ matrix.platform }})
     needs: [check-version, release-preflight]
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 85
+    timeout-minutes: ${{ matrix.platform == 'macos-x64' && 120 || 85 }}
     permissions:
       contents: read
       artifact-metadata: write

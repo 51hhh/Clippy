@@ -793,6 +793,18 @@ SQLite 查询，不改变文件命名、数据库或归档格式。文件发布�
 
 **Out of Scope** 新工程文件格式、在 PNG 中写回原图、迁移 renderer v1 标注坐标以及修改 Winit。
 
+### 阶段 7 · macOS Intel 冷构建时限
+
+**Goal** 让 Intel 安装包在无原生构建缓存时完成随包离线 OCR 的编译、烟测和签名校验。
+
+**Requirements** Intel 的 QA 和正式出包各留 120 分钟，其他架构沿用现有时限。继续使用固定的 ONNX Runtime
+源码、原生架构、现有部署目标与验收命令。作业由测试标签或正式流程按各自已有规则触发。
+
+**Acceptance Criteria** 检查两套工作流的矩阵及版本分流。在 GitHub Intel runner 实际生成 QA DMG、验证
+OCR worker 和动态库架构与最低版本，并保留构建及烟测日志。正式包验证仍按发行门禁执行。
+
+**Out of Scope** 更换 ORT 版本、裁减算子、关闭测试、放宽部署目标和改变签名策略。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -1842,6 +1854,14 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   合成 PNG 和重开 RGBA 摘要，以及 `gtk-picker-final.log`、`gnome-picker-final.log`。完整 Linux 门禁
   11 通过、0 失败、0 跳过，见 `full-ci/run.log`。门禁验证了目录写入失败不登记修订，存储不可用不留下半成品。
   Windows 和 macOS 安装包的文件拖入、选择器及重开待验收。
+
+### 阶段 7 · macOS Intel 冷构建时限结果
+
+- Intel QA 作业约 85 分钟后被取消。前 49 分钟完成环境准备、宿主测试和应用构建。后续编译随包 ONNX Runtime，
+  结束时 CMake 报告 81%，仍在编译 CPU provider。同一轮 Linux x64、Windows x64 和 macOS Apple Silicon
+  已生成 QA 包。 [Intel 作业](https://github.com/51hhh/Clippy/actions/runs/45903965404/job/140196168460)
+- QA 和正式 Slint 工作流只将 Intel 的总时限设为 120 分钟。两套 YAML 的实际矩阵及版本测试已核对。
+  Linux 完整门禁 11 通过、0 失败、0 跳过。新的 Intel 冷构建仍需通过原生出包和 OCR 烟测。
 
 ## Acceptance Criteria
 
