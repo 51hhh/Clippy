@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Clippy
+Comment=Native clipboard history, screen capture and pinned workspace
+Exec=clippy-app
+Icon=clippy-app
+Type=Application
+Categories=Utility;
+StartupWMClass=com.clippy.app
+Terminal=false
+NoDisplay=true

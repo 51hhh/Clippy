@@ -829,6 +829,19 @@ OCR worker 和动态库架构与最低版本，并保留构建及烟测日志。
 
 **Out of Scope** 更换 ORT 版本、裁减算子、关闭测试、放宽部署目标和改变签名策略。
 
+#### 阶段 7 · Linux deb 桌面入口连续性
+
+**Goal** 从稳定版 v0.1.21 覆盖安装后，原有桌面快捷方式和收藏仍能启动 Clippy。需求 `SLINT-MIGRATION-CLOSURE-01`。
+
+**Requirements** Slint 正式 deb 提供原有 `com.clippy.app.desktop` 和 `Clippy.desktop`。应用列表只显示一个
+Clippy。入口使用已安装的 `clippy-app` 和旧版窗口类。解包后的旧包可按两个 ID 查找，新包基线只可按
+`clippy-app.desktop` 查找，且未提供旧窗口类。
+
+**Acceptance Criteria** 用实际 deb 和隔离的桌面数据目录查询三个 ID，核对一个可见入口、启动目标和窗口类。
+正式出包检查 deb 内的三个入口文件。
+
+**Out of Scope** AppImage 桌面集成、升级签名和其他平台的桌面入口。
+
 ## 实施记录
 
 ### 阶段 0 · Linux 基线
@@ -2148,6 +2161,16 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   已生成 QA 包。 [Intel 作业](https://github.com/51hhh/Clippy/actions/runs/45903965404/job/140196168460)
 - QA 和正式 Slint 工作流只将 Intel 的总时限设为 120 分钟。两套 YAML 的实际矩阵及版本测试已核对。
   Linux 完整门禁 11 通过、0 失败、0 跳过。新的 Intel 冷构建仍需通过原生出包和 OCR 烟测。
+
+#### 阶段 7 · Linux deb 启动项验证
+
+- 从正式 v0.1.21 deb 和早期 `475c62c` 正式 Slint deb 解包，使用隔离的 GIO 桌面数据目录查询。
+  旧包的 `com.clippy.app.desktop` 可见，`Clippy.desktop` 可解析且不出现在应用列表。新包基线的两个 ID
+  均无法解析，唯一可见入口 `clippy-app.desktop` 没有原来的窗口类。
+- 用同一个 `475c62c` 应用二进制和更新后的正式打包配置重新生成 deb。对比包内主程序逐字节一致。
+  三个入口均解析到 `clippy-app`，窗口类为 `com.clippy.app`。仅旧版原有主入口在应用列表可见。Release 的
+  Linux 打包门禁也对三个入口做内容检查。证据位于 `target/test-artifacts/slint-stage7-apt-upgrade.nKX884XM/`。
+- 完整 Linux 本地门禁 11 项通过、0 失败、0 跳过，见 `ci-local-desktop-id.log`。GNOME 实机的收藏点击待复测。
 
 ## Acceptance Criteria
 

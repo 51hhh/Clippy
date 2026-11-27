@@ -769,6 +769,11 @@ jobs:
             payload=$(mktemp -d)
             trap 'rm -rf -- "$payload"' EXIT
             dpkg-deb -x "$DEB" "$payload/deb"
+            applications="$payload/deb/usr/share/applications"
+            cmp apps/legacy-tauri/native/package-assets/com.clippy.app.desktop "$applications/com.clippy.app.desktop"
+            for launcher in Clippy.desktop clippy-app.desktop; do
+              cmp apps/slint/package-assets/desktop/Clippy.desktop "$applications/$launcher"
+            done
             unsquashfs -o "$VALID_OFFSET" -d "$payload/appimage" "$APPIMAGE" usr/lib/clippy-app/ocr
             for format in deb appimage; do
               OCR="$payload/$format/usr/lib/clippy-app/ocr"
