@@ -929,6 +929,28 @@ GTK 在源窗口隐藏后读取 13×11 RGBA 逐字节一致。延后提交期间
   `final-foreground/application-wayland.log`、`final-foreground/portal-profile.log`、`final-portal/run.log` 和
   `final-ci/run.log`。
 
+#### 阶段 1 · 剪贴板不可用时的敏感历史清理
+
+**Goal** 在系统剪贴板不可用期间，按原有期限清理未收藏的敏感历史。
+
+**Requirements** 剪贴板读取正常时，先完成当前快照的入库判断，再执行过期清理。打开剪贴板失败时同样检查
+清理期限。继续用 SQLite 事务同时清理条目与 FTS，检查周期为 30 秒，敏感条目的保留期为 300 秒。
+
+**Acceptance Criteria** 在没有 XWayland 和剪贴板授权的 GNOME 会话，复现启动时过期条目仍被保留的问题。
+修复后验证启动已过期和运行中到期的两条合成历史均从主表与搜索索引清理，收藏和普通历史仍可搜索。
+用可用的剪贴板复核当前内容已存在时的去重及过期顺序。
+
+**Out of Scope** 剪贴板授权、复制入口和存储期限的调整。
+
+- 修复前，隔离 GNOME 50.1 禁用 XWayland 且没有剪贴板授权。重启后已过期合成记录仍在主表。
+  修复后启动即从主表和 FTS 清理第一条，运行中到期的第二条约 30.1 秒后清理。普通条目与收藏的敏感条目仍可搜索。
+- 用同一 QA 二进制在隔离 X11 验证系统剪贴板持有已登记内容时，原记录先完成去重和续期，保留相同 ID、
+  敏感标记和唯一 FTS 项。纯 Wayland 前台复制也以真实输入复测了 Unicode、HTML、透明 PNG、失焦和截图。
+  QA 二进制 SHA-256 为 `a27bf9062d21f302d0b79c477df4051008e5cfe52133e7603341fc5c427c7bdd`。
+- 完整本地门禁 11 通过、0 失败、0 跳过。证据在 `target/test-artifacts/slint-stage1-sensitive-expiry.JniHEJ/`，
+  包括 `before-repro/run.log`、`after-wayland/run.log`、`after-x11/run.log`、`after-foreground/run.log`
+  和 `ci-local.log`。Windows 和 macOS 继续原生验收。
+
 ### 阶段 1 · 剪贴板系统通知
 
 **Goal** 缩短 Windows 和 X11 从用户复制到历史入库的等待，减少没有剪贴板变化时的线程唤醒。

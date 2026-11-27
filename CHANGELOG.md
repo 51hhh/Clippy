@@ -236,6 +236,8 @@
 
 ### Slint 托盘、剪贴板和快速截图
 
+- 修复系统剪贴板不可用时未收藏的敏感历史无法过期的问题。启动时和运行中均按原有期限清理。
+  已在隔离 GNOME Wayland 与 X11 验证，Windows 和 macOS 继续验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 - 在没有 XWayland 和 data-control 的 GNOME Wayland 上，即使拒绝 Portal 授权，也可从聚焦的 Clippy 窗口
   复制历史文本、HTML、透明图片、截图和查看器输出。隔离 GNOME 已验证像素和切换焦点后的剪贴板保留，
   实体安装包待验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）

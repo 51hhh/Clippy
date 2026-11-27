@@ -304,6 +304,7 @@ fn watch(
                             clipboard.insert(system)
                         }
                         Err(error) => {
+                            expire_sensitive_history(&storage, &mut expire);
                             #[cfg(target_os = "linux")]
                             if let Some(ticket) = ticket {
                                 foreground_copy(
@@ -420,14 +421,18 @@ fn watch(
                 }
             }
         }
-        if Instant::now() >= expire {
-            if let Ok(removed) = query(&storage, |database| database.purge_expired_sensitive(300)) {
-                if !removed.is_empty() {
-                    post(Event::HistoryChanged);
-                }
+        expire_sensitive_history(&storage, &mut expire);
+    }
+}
+
+fn expire_sensitive_history(storage: &StorageClient, deadline: &mut Instant) {
+    if Instant::now() >= *deadline {
+        if let Ok(removed) = query(storage, |database| database.purge_expired_sensitive(300)) {
+            if !removed.is_empty() {
+                post(Event::HistoryChanged);
             }
-            expire = Instant::now() + EXPIRE_INTERVAL;
         }
+        *deadline = Instant::now() + EXPIRE_INTERVAL;
     }
 }
 
