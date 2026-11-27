@@ -1,8 +1,17 @@
-use super::{wayland::trigger, Action, Bindings, Dispatch, PlatformIdentity, Report, Status};
-use crate::gnome_settings::run as gsettings;
+use super::{
+    wayland::trigger, Action, Activation, Bindings, Dispatch, PlatformIdentity, Report, Status,
+};
+use crate::{
+    gnome_extension::{self, CaptureShortcuts},
+    gnome_settings::run as gsettings,
+};
 use anyhow::{bail, ensure, Result};
 use global_hotkey::hotkey::HotKey;
-use std::sync::mpsc::Receiver;
+use std::{
+    sync::mpsc::{Receiver, SyncSender},
+    time::Duration,
+};
+use zbus::blocking::Connection;
 
 const SCHEMA: &str = "org.gnome.settings-daemon.plugins.media-keys";
 const LIST: &str = "custom-keybindings";
@@ -22,20 +31,55 @@ pub(super) struct Update {
     pub completed: Box<dyn FnOnce(Result<()>) + Send>,
 }
 
-struct Endpoint(Dispatch);
+pub(super) enum Command {
+    Update(Update),
+    ShellHelperReady,
+    Stop,
+}
+
+struct Endpoint {
+    dispatch: Dispatch,
+    service: String,
+    commands: SyncSender<Command>,
+}
 
 #[zbus::interface(name = "com.clippy.app")]
 impl Endpoint {
     fn toggle(&self) {
-        (self.0)(Action::Open);
+        (self.dispatch)(Activation::Open);
     }
 
     fn pin(&self) {
-        (self.0)(Action::Pin);
+        (self.dispatch)(Activation::Pin);
     }
 
     fn capture(&self) -> bool {
-        (self.0)(Action::Capture);
+        (self.dispatch)(Activation::Capture(None));
+        true
+    }
+
+    fn shell_helper_ready(&self, token: &str) -> bool {
+        gnome_extension::capture_token_matches(token)
+            && self.commands.try_send(Command::ShellHelperReady).is_ok()
+    }
+
+    fn capture_from_shell(
+        &self,
+        token: &str,
+        serial: u32,
+        #[zbus(connection)] bus: &zbus::Connection,
+    ) -> bool {
+        if serial == 0 || !gnome_extension::capture_token_matches(token) {
+            return false;
+        }
+        let bus = Connection::from(bus.clone());
+        let service = self.service.clone();
+        let token = token.to_owned();
+        (self.dispatch)(Activation::Capture(Some(Box::new(move || {
+            if let Err(error) = gnome_extension::finish_capture(&bus, &service, &token, serial) {
+                eprintln!("GNOME screenshot handoff: {error}");
+            }
+        }))));
         true
     }
 }
@@ -45,17 +89,28 @@ pub(super) fn run(
     bindings: &[(Action, HotKey)],
     dispatch: Dispatch,
     report: &Report,
-    updates: Receiver<Update>,
+    endpoint_commands: SyncSender<Command>,
+    commands: Receiver<Command>,
 ) -> Result<()> {
     let service = format!("{}.Shortcuts", identity.application_id);
     let bus = zbus::blocking::connection::Builder::session()?
+        .method_timeout(Duration::from_millis(1200))
         .name(service.as_str())?
-        .serve_at("/com/clippy/app", Endpoint(dispatch))?
+        .serve_at(
+            "/com/clippy/app",
+            Endpoint {
+                dispatch,
+                service: service.clone(),
+                commands: endpoint_commands,
+            },
+        )?
         .build()?;
     let namespace = identity.shortcut_namespace.replace('.', "-");
     let requested = |binding: (Action, HotKey)| Requested::new(binding, &service, &namespace);
+    let mut has_capture = false;
     for &binding in bindings {
         let result = requested(binding).and_then(|target| replace(&[target], false, || Ok(())));
+        has_capture |= binding.0 == Action::Capture && result.is_ok();
         if let Err(error) = result {
             report(Status::Message(format!(
                 "{} shortcut: {error}",
@@ -63,22 +118,83 @@ pub(super) fn run(
             )));
         }
     }
-    for update in updates {
-        let result = (|| {
-            let proxy = zbus::blocking::fdo::DBusProxy::new(&bus)?;
-            ensure!(
-                proxy.name_has_owner(MEDIA_KEYS.try_into()?)?,
-                "GNOME media keys service is unavailable"
-            );
-            let targets = update
-                .bindings
-                .0
-                .map(requested)
-                .into_iter()
-                .collect::<Result<Vec<_>>>()?;
-            replace(&targets, true, update.persist)
-        })();
-        (update.completed)(result);
+    if has_capture {
+        claim_current(&bus, &service, report);
+    }
+    while let Ok(command) = commands.recv() {
+        match command {
+            Command::Update(update) => {
+                let result = (|| {
+                    let proxy = zbus::blocking::fdo::DBusProxy::new(&bus)?;
+                    ensure!(
+                        proxy.name_has_owner(MEDIA_KEYS.try_into()?)?,
+                        "GNOME media keys service is unavailable"
+                    );
+                    let targets = update
+                        .bindings
+                        .0
+                        .map(requested)
+                        .into_iter()
+                        .collect::<Result<Vec<_>>>()?;
+                    let helper = CaptureShortcuts::detect(&bus, &service)?;
+                    save_bindings(&targets, helper.as_ref(), has_capture, update.persist)
+                })();
+                has_capture |= result.is_ok();
+                (update.completed)(result);
+            }
+            Command::ShellHelperReady if has_capture => claim_current(&bus, &service, report),
+            Command::ShellHelperReady => {}
+            Command::Stop => break,
+        }
+    }
+    if has_capture {
+        if let Some(helper) = CaptureShortcuts::detect(&bus, &service)? {
+            helper.release()?;
+        }
+    }
+    Ok(())
+}
+
+fn claim_current(bus: &Connection, service: &str, report: &Report) {
+    let result = CaptureShortcuts::detect(bus, service).and_then(|helper| {
+        if let Some(helper) = helper {
+            helper.claim()?;
+        }
+        Ok(())
+    });
+    if let Err(error) = result {
+        report(Status::Message(format!("Screenshot shortcut: {error}")));
+    }
+}
+
+fn save_bindings(
+    targets: &[Requested],
+    helper: Option<&CaptureShortcuts<'_>>,
+    had_capture: bool,
+    persist: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    let Some(helper) = helper else {
+        return replace(targets, true, persist);
+    };
+    helper.release()?;
+    let result = replace(targets, true, || {
+        helper.claim()?;
+        if let Err(error) = persist() {
+            // 先还原 helper 暂停的条目，再由原有事务恢复 dconf。
+            if let Err(restore) = helper.release() {
+                bail!("{error}. Could not release the new GNOME shortcut: {restore}");
+            }
+            return Err(error);
+        }
+        Ok(())
+    });
+    if let Err(error) = result {
+        if had_capture {
+            if let Err(restore) = helper.claim() {
+                bail!("{error}. Could not restore the GNOME Shell shortcut: {restore}");
+            }
+        }
+        return Err(error);
     }
     Ok(())
 }

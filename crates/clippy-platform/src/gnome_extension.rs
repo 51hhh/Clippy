@@ -28,6 +28,7 @@ const SHELL_PATH: &str = "/org/gnome/Shell";
 const EXTENSIONS_INTERFACE: &str = "org.gnome.Shell.Extensions";
 const HELPER_PATH: &str = "/org/gnome/Shell/Extensions/ClippyWindows";
 const HELPER_INTERFACE: &str = "org.gnome.Shell.Extensions.ClippyWindows";
+const CAPTURE_API_VERSION: u32 = 1;
 const SCHEMA: &str = "org.gnome.shell";
 const ENABLED: &str = "enabled-extensions";
 const DISABLED: &str = "disabled-extensions";
@@ -99,6 +100,7 @@ struct Snapshot {
     bundle: Bundle,
     registration: Option<Registration>,
     running: Option<u32>,
+    capture_ready: bool,
     compatible: bool,
     user_extensions: bool,
     enabled: bool,
@@ -197,10 +199,13 @@ impl Shell {
             .next()
             .expect("split has at least one entry");
         let bundle = bundle_at(&self.directory)?;
+        let running = self.running_version()?;
         Ok(Snapshot {
             bundle,
             registration,
-            running: self.running_version()?,
+            running,
+            capture_ready: running == Some(VERSION)
+                && helper_version(&self.bus, "GetCaptureApiVersion")? == Some(CAPTURE_API_VERSION),
             compatible: embedded()
                 .shell_versions
                 .iter()
@@ -245,7 +250,8 @@ impl Shell {
                         .as_ref()
                         .and_then(|entry| entry.version)
                         != Some(version)
-                        || snapshot.running.is_some_and(|running| running != version) =>
+                        || snapshot.running.is_some_and(|running| running != version)
+                        || (snapshot.running.is_some() && !snapshot.capture_ready) =>
                 {
                     State::AwaitingLogin
                 }
@@ -272,25 +278,7 @@ impl Shell {
     }
 
     fn running_version(&self) -> Result<Option<u32>> {
-        match self.bus.call_method(
-            Some(SHELL_BUS),
-            HELPER_PATH,
-            Some(HELPER_INTERFACE),
-            "GetVersion",
-            &(),
-        ) {
-            Ok(reply) => Ok(Some(reply.body().deserialize()?)),
-            Err(zbus::Error::MethodError(name, _, _))
-                if matches!(
-                    name.as_str(),
-                    "org.freedesktop.DBus.Error.UnknownMethod"
-                        | "org.freedesktop.DBus.Error.UnknownObject"
-                ) =>
-            {
-                Ok(None)
-            }
-            Err(error) => Err(error.into()),
-        }
+        helper_version(&self.bus, "GetVersion")
     }
 
     fn set_enabled(&self, enabled: bool, registered: bool) -> Result<()> {
@@ -556,6 +544,105 @@ pub(crate) fn windows() -> Result<Vec<ShellWindow>> {
 
 fn connect(timeout: Duration) -> Result<Connection> {
     Ok(Builder::session()?.method_timeout(timeout).build()?)
+}
+
+fn helper_version(bus: &Connection, method: &str) -> Result<Option<u32>> {
+    match bus.call_method(
+        Some(SHELL_BUS),
+        HELPER_PATH,
+        Some(HELPER_INTERFACE),
+        method,
+        &(),
+    ) {
+        Ok(reply) => Ok(Some(reply.body().deserialize()?)),
+        Err(zbus::Error::MethodError(name, _, _))
+            if matches!(
+                name.as_str(),
+                "org.freedesktop.DBus.Error.UnknownMethod"
+                    | "org.freedesktop.DBus.Error.UnknownObject"
+                    | "org.freedesktop.DBus.Error.ServiceUnknown"
+                    | "org.freedesktop.DBus.Error.NameHasNoOwner"
+            ) =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub(crate) fn capture_token_matches(token: &str) -> bool {
+    directory()
+        .and_then(|directory| read_token(&directory))
+        .is_ok_and(|stored| stored.as_deref() == Some(token))
+}
+
+pub(crate) struct CaptureShortcuts<'a> {
+    bus: &'a Connection,
+    service: &'a str,
+    token: String,
+}
+
+impl<'a> CaptureShortcuts<'a> {
+    pub(crate) fn detect(bus: &'a Connection, service: &'a str) -> Result<Option<Self>> {
+        let Some(token) = read_token(&directory()?)? else {
+            return Ok(None);
+        };
+        Ok(
+            (helper_version(bus, "GetCaptureApiVersion")? == Some(CAPTURE_API_VERSION)).then_some(
+                Self {
+                    bus,
+                    service,
+                    token,
+                },
+            ),
+        )
+    }
+
+    pub(crate) fn claim(&self) -> Result<()> {
+        let registered: bool = self
+            .bus
+            .call_method(
+                Some(SHELL_BUS),
+                HELPER_PATH,
+                Some(HELPER_INTERFACE),
+                "ClaimCaptureShortcut",
+                &(&self.token, self.service),
+            )?
+            .body()
+            .deserialize()?;
+        ensure!(
+            registered,
+            "GNOME Shell could not register the screenshot shortcut"
+        );
+        Ok(())
+    }
+
+    pub(crate) fn release(&self) -> Result<()> {
+        self.bus.call_method(
+            Some(SHELL_BUS),
+            HELPER_PATH,
+            Some(HELPER_INTERFACE),
+            "ReleaseCaptureShortcut",
+            &(&self.token, self.service),
+        )?;
+        Ok(())
+    }
+}
+
+pub(crate) fn finish_capture(
+    bus: &Connection,
+    service: &str,
+    token: &str,
+    serial: u32,
+) -> Result<()> {
+    // 冻结完成后通知 Shell 释放原来的弹窗，普通桌面截图不经过这条消息。
+    let message = zbus::Message::method_call(HELPER_PATH, "FinishCapture")?
+        .destination(SHELL_BUS)?
+        .interface(HELPER_INTERFACE)?
+        .with_flags(zbus::message::Flags::NoReplyExpected)?
+        .build(&(token, service, serial))?;
+    bus.send(&message)?;
+    Ok(())
 }
 
 fn window_reply(connection: &Connection, token: &str) -> Result<Vec<ShellWindow>> {

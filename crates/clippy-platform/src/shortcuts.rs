@@ -13,7 +13,25 @@ pub enum Action {
     Capture,
 }
 
-type Dispatch = Arc<dyn Fn(Action) + Send + Sync>;
+pub type CaptureHandoff = Box<dyn FnOnce() + Send>;
+
+pub enum Activation {
+    Open,
+    Pin,
+    Capture(Option<CaptureHandoff>),
+}
+
+impl From<Action> for Activation {
+    fn from(action: Action) -> Self {
+        match action {
+            Action::Open => Self::Open,
+            Action::Pin => Self::Pin,
+            Action::Capture => Self::Capture(None),
+        }
+    }
+}
+
+type Dispatch = Arc<dyn Fn(Activation) + Send + Sync>;
 type Report = Arc<dyn Fn(Status) + Send + Sync>;
 
 pub enum Status {
@@ -74,7 +92,7 @@ impl Shortcuts {
         panel: &str,
         pin: &str,
         capture: &str,
-        dispatch: impl Fn(Action) + Send + Sync + 'static,
+        dispatch: impl Fn(Activation) + Send + Sync + 'static,
         report: impl Fn(Status) + Send + Sync + 'static,
     ) -> Result<Self> {
         let report: Report = Arc::new(report);
@@ -141,7 +159,7 @@ impl Shortcuts {
                     .iter()
                     .find_map(|(action, key)| (key.id() == event.id()).then_some(*action));
                 if let Some(action) = action {
-                    dispatch(action);
+                    dispatch(action.into());
                 }
             }
         }));
@@ -263,7 +281,7 @@ mod wayland {
     type Configure = Box<dyn FnOnce(Result<()>) + Send>;
 
     pub(super) struct Worker {
-        gnome_updates: Option<mpsc::SyncSender<gnome::Update>>,
+        gnome_commands: Option<mpsc::SyncSender<gnome::Command>>,
         portal_configuration: Option<tokio::sync::mpsc::Sender<Configure>>,
         stop: Option<oneshot::Sender<()>>,
         thread: Option<thread::JoinHandle<()>>,
@@ -277,14 +295,15 @@ mod wayland {
             report: Report,
         ) -> std::io::Result<Self> {
             let gnome = crate::session::is_gnome();
-            let (send_update, updates) = mpsc::sync_channel(1);
+            let (send_command, commands) = mpsc::sync_channel(2);
+            let endpoint = send_command.clone();
             let (configure, configuration) = tokio::sync::mpsc::channel(1);
             let (stop, stopped) = oneshot::channel();
             let thread = thread::Builder::new()
                 .name("clippy-shortcuts".into())
                 .spawn(move || {
                     let result = if gnome {
-                        gnome::run(identity, &bindings, dispatch, &report, updates)
+                        gnome::run(identity, &bindings, dispatch, &report, endpoint, commands)
                     } else {
                         tokio::runtime::Builder::new_current_thread()
                             .enable_all()
@@ -311,7 +330,7 @@ mod wayland {
                     }
                 })?;
             Ok(Self {
-                gnome_updates: gnome.then_some(send_update),
+                gnome_commands: gnome.then_some(send_command),
                 portal_configuration: (!gnome).then_some(configure),
                 stop: Some(stop),
                 thread: Some(thread),
@@ -319,10 +338,10 @@ mod wayland {
         }
 
         pub(super) fn update_gnome(&self, update: gnome::Update) -> Result<()> {
-            self.gnome_updates
+            self.gnome_commands
                 .as_ref()
                 .expect("调用方使用 GNOME 快捷键后端")
-                .try_send(update)
+                .try_send(gnome::Command::Update(update))
                 .map_err(|_| anyhow::anyhow!("GNOME global shortcuts are unavailable"))
         }
 
@@ -337,7 +356,9 @@ mod wayland {
 
     impl Drop for Worker {
         fn drop(&mut self) {
-            drop(self.gnome_updates.take());
+            if let Some(commands) = self.gnome_commands.take() {
+                let _ = commands.send(gnome::Command::Stop);
+            }
             if let Some(stop) = self.stop.take() {
                 let _ = stop.send(());
             }
@@ -465,7 +486,7 @@ mod wayland {
                                 id == event.shortcut_id()
                                     && accepted.iter().any(|key| key.id() == id)
                             }) {
-                                dispatch(*action);
+                                dispatch((*action).into());
                             }
                         }
                     }

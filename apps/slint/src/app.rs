@@ -13,7 +13,7 @@ use clippy_platform::{
     paste::{capture_target, Target},
     paths::AppPaths,
     private_files::{commit_private_replacement, restrict_directory, write_private},
-    shortcuts::{Action, Shortcuts, Status as ShortcutStatus},
+    shortcuts::{Activation, CaptureHandoff, Shortcuts, Status as ShortcutStatus},
 };
 use clippy_storage::{ClipListRequest, StorageError, StorageRuntime};
 use slint::{
@@ -224,7 +224,7 @@ fn load_config(paths: &AppPaths, identity: &DeploymentIdentity) -> Result<AppCon
 enum Event {
     Open(bool),
     ChoosePng,
-    GlobalShortcut(Action),
+    GlobalShortcut(Activation),
     Hide,
     HistoryChanged,
     History(u64, Result<Vec<ClipItem>, StorageError>),
@@ -352,8 +352,8 @@ impl App {
                 }) =>
             {
                 match action {
-                    Action::Open => self.handle(Event::Open(false)),
-                    Action::Pin => {
+                    Activation::Open => self.handle(Event::Open(false)),
+                    Activation::Pin => {
                         if let Some(window) = self.window.as_ref().filter(|window| {
                             !window.get_show_settings() && !window.get_loading_history()
                         }) {
@@ -362,7 +362,7 @@ impl App {
                             }
                         }
                     }
-                    Action::Capture => self.handle(Event::CaptureStart),
+                    Activation::Capture(handoff) => self.start_capture_with_handoff(handoff),
                 }
             }
             Event::GlobalShortcut(_) => {}
@@ -892,6 +892,10 @@ impl App {
     }
 
     fn start_capture(&mut self) {
+        self.start_capture_with_handoff(None);
+    }
+
+    fn start_capture_with_handoff(&mut self, handoff: Option<CaptureHandoff>) {
         self.delayed_capture.stop();
         if self.busy {
             return;
@@ -904,11 +908,11 @@ impl App {
         self.hide();
         if panel {
             Timer::single_shot(Duration::from_millis(32), move || {
-                if let Err(error) = capture::start(started, cancellation) {
+                if let Err(error) = capture::start(started, cancellation, handoff) {
                     use_app(|app| app.capture_error(error.into()));
                 }
             });
-        } else if let Err(error) = capture::start(started, cancellation) {
+        } else if let Err(error) = capture::start(started, cancellation, handoff) {
             self.capture_error(error.into());
         }
     }

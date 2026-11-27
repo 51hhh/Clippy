@@ -16,6 +16,7 @@ use clippy_platform::capture::{
     window_pick, CaptureSource, DesktopRect, FrozenCapture, FrozenOutput, Region,
     RegionCancellation,
 };
+use clippy_platform::shortcuts::CaptureHandoff;
 use image::{
     codecs::png::{CompressionType, FilterType, PngEncoder},
     ExtendedColorType, ImageBuffer, ImageEncoder, RgbaImage,
@@ -305,11 +306,20 @@ impl Drop for View {
     }
 }
 
-pub(super) fn start(started: Instant, cancellation: RegionCancellation) -> io::Result<()> {
+pub(super) fn start(
+    started: Instant,
+    cancellation: RegionCancellation,
+    handoff: Option<CaptureHandoff>,
+) -> io::Result<()> {
     thread::Builder::new()
         .name("clippy-freeze".into())
         .spawn(move || {
             capture::freeze_selection(&cancellation, |result| {
+                if result.is_ok() {
+                    if let Some(handoff) = handoff {
+                        handoff();
+                    }
+                }
                 let outputs = result
                     .as_ref()
                     .ok()

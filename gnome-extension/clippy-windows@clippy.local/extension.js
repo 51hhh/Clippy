@@ -37,6 +37,8 @@ import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 import Mtk from 'gi://Mtk';
 import Shell from 'gi://Shell';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import {PopupAnimation} from 'resource:///org/gnome/shell/ui/boxpointer.js';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const IFACE = `
@@ -44,6 +46,23 @@ const IFACE = `
   <interface name="org.gnome.Shell.Extensions.ClippyWindows">
     <method name="GetVersion">
       <arg type="u" direction="out" name="version"/>
+    </method>
+    <method name="GetCaptureApiVersion">
+      <arg type="u" direction="out" name="version"/>
+    </method>
+    <method name="ClaimCaptureShortcut">
+      <arg type="s" direction="in" name="token"/>
+      <arg type="s" direction="in" name="service"/>
+      <arg type="b" direction="out" name="registered"/>
+    </method>
+    <method name="ReleaseCaptureShortcut">
+      <arg type="s" direction="in" name="token"/>
+      <arg type="s" direction="in" name="service"/>
+    </method>
+    <method name="FinishCapture">
+      <arg type="s" direction="in" name="token"/>
+      <arg type="s" direction="in" name="service"/>
+      <arg type="u" direction="in" name="serial"/>
     </method>
     <method name="GetWindows">
       <arg type="s" direction="in" name="token"/>
@@ -104,20 +123,207 @@ const TOKEN_FILE_NAME = 'token';
 
 /// 令牌长度下限，防止空文件或被截断的文件被当成有效凭据。
 const MIN_TOKEN_LENGTH = 16;
+const CAPTURE_API_VERSION = 1;
+const SHORTCUT_SERVICES = ['com.clippy.app.Shortcuts', 'com.clippy.qa.slint.Shortcuts'];
+const MEDIA_KEYS = 'org.gnome.settings-daemon.plugins.media-keys';
+const CUSTOM_KEYS = 'custom-keybindings';
+const SHORTCUT_PATH = '/com/clippy/app';
+const SHORTCUT_INTERFACE = 'com.clippy.app';
 
 export default class ClippyWindowsExtension extends Extension {
     enable() {
+        this._captureKeys = new Map();
+        this._captureSerial = 0;
+        this._accelerator = global.display.connect('accelerator-activated', (_display, action) => {
+            for (const key of this._captureKeys.values()) {
+                if (key.action === action)
+                    this._activateCapture(key);
+            }
+        });
         this._dbus = Gio.DBusExportedObject.wrapJSObject(IFACE, this);
         this._dbus.export(Gio.DBus.session, OBJECT_PATH);
+        const token = this._readToken();
+        if (token) {
+            for (const service of SHORTCUT_SERVICES)
+                this._callApp(service, 'ShellHelperReady', new GLib.Variant('(s)', [token]));
+        }
     }
 
     disable() {
+        for (const key of this._captureKeys.values())
+            this._releaseCapture(key);
+        global.display.disconnect(this._accelerator);
         this._dbus?.unexport();
         this._dbus = null;
     }
 
     GetVersion() {
         return PROTOCOL_VERSION;
+    }
+
+    GetCaptureApiVersion() {
+        return CAPTURE_API_VERSION;
+    }
+
+    ClaimCaptureShortcutAsync([token, service], invocation) {
+        if (!this._tokenMatches(token) || !SHORTCUT_SERVICES.includes(service)) {
+            invocation.return_dbus_error('org.freedesktop.DBus.Error.AccessDenied',
+                'Clippy shortcut configuration requires a matching token');
+            return;
+        }
+        const existing = this._captureKeys.get(service);
+        if (existing) {
+            invocation.return_value(new GLib.Variant('(b)', [existing.action !== 0]));
+            return;
+        }
+
+        const settings = new Gio.Settings({schema_id: MEDIA_KEYS});
+        const command = `dbus-send --session --type=method_call --dest=${service} ` +
+            `${SHORTCUT_PATH} ${SHORTCUT_INTERFACE}.Capture`;
+        let slot = null;
+        let path = null;
+        for (const entry of settings.get_strv(CUSTOM_KEYS)) {
+            const candidate = new Gio.Settings({schema_id: `${MEDIA_KEYS}.custom-keybinding`, path: entry});
+            if (candidate.get_string('command') === command) {
+                slot = candidate;
+                path = entry;
+            }
+        }
+        const shortcut = slot?.get_string('binding');
+        if (!shortcut || !slot.set_string('binding', '')) {
+            invocation.return_value(new GLib.Variant('(b)', [false]));
+            return;
+        }
+
+        const key = {service, settings, slot, command, shortcut, action: 0, retry: 0,
+            claim: invocation, scene: null};
+        this._captureKeys.set(service, key);
+        key.listChanged = settings.connect(`changed::${CUSTOM_KEYS}`, () => {
+            if (!settings.get_strv(CUSTOM_KEYS).includes(path))
+                this._releaseCapture(key);
+        });
+        key.slotChanged = slot.connect('changed', () => {
+            if (slot.get_string('binding') || slot.get_string('command') !== command)
+                this._releaseCapture(key);
+        });
+        key.owner = Gio.bus_watch_name_on_connection(Gio.DBus.session, service,
+            Gio.BusNameWatcherFlags.NONE, null, () => this._releaseCapture(key));
+
+        // 等 MediaKeys 消费 dconf 变更并释放原来的注册。
+        const deadline = GLib.get_monotonic_time() + 400_000;
+        key.retry = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 15, () => {
+            const action = global.display.grab_accelerator(shortcut, Meta.KeyBindingFlags.IGNORE_AUTOREPEAT);
+            if (action === Meta.KeyBindingAction.NONE && GLib.get_monotonic_time() < deadline)
+                return GLib.SOURCE_CONTINUE;
+            key.retry = 0;
+            if (action === Meta.KeyBindingAction.NONE) {
+                this._releaseCapture(key);
+            } else {
+                key.action = action;
+                Main.wm.allowKeybinding(Meta.external_binding_name_for_action(action),
+                    Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP);
+                const reply = key.claim;
+                key.claim = null;
+                reply.return_value(new GLib.Variant('(b)', [true]));
+            }
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    ReleaseCaptureShortcut(token, service) {
+        if (!this._tokenMatches(token)) {
+            throw Gio.DBusError.new_for_dbus_error('org.freedesktop.DBus.Error.AccessDenied',
+                'Clippy shortcut configuration requires a matching token');
+        }
+        const key = this._captureKeys.get(service);
+        if (key)
+            this._releaseCapture(key);
+    }
+
+    _releaseCapture(key) {
+        if (this._captureKeys.get(key.service) !== key)
+            return;
+        this._captureKeys.delete(key.service);
+        key.slot.disconnect(key.slotChanged);
+        key.settings.disconnect(key.listChanged);
+        Gio.bus_unwatch_name(key.owner);
+        if (key.retry)
+            GLib.source_remove(key.retry);
+        if (key.action) {
+            Main.wm.allowKeybinding(Meta.external_binding_name_for_action(key.action), Shell.ActionMode.NONE);
+            global.display.ungrab_accelerator(key.action);
+        }
+        this._clearScene(key);
+        if (key.slot.get_string('command') === key.command && !key.slot.get_string('binding')) {
+            key.slot.set_string('binding', key.shortcut);
+            Gio.Settings.sync();
+        }
+        key.claim?.return_value(new GLib.Variant('(b)', [false]));
+    }
+
+    _activateCapture(key) {
+        const popup = Main.actionMode === Shell.ActionMode.POPUP;
+        const modal = Main.modalActorFocusStack.at(-1);
+        const overview = Main.overview.visible;
+        if (!popup && !overview) {
+            this._callApp(key.service, 'Capture');
+            return;
+        }
+        if (key.scene)
+            return;
+        const token = this._readToken();
+        if (!token)
+            return;
+        this._captureSerial = this._captureSerial % 0xffffffff + 1;
+        const serial = this._captureSerial;
+        const timeout = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 3, () => {
+            key.scene = null;
+            return GLib.SOURCE_REMOVE;
+        });
+        key.scene = {modal, popup, overview, serial, timeout};
+        this._callApp(key.service, 'CaptureFromShell', new GLib.Variant('(su)', [token, serial]),
+            accepted => {
+                if (!accepted && key.scene?.serial === serial)
+                    this._clearScene(key);
+            });
+    }
+
+    FinishCapture(token, service, serial) {
+        if (!this._tokenMatches(token)) {
+            throw Gio.DBusError.new_for_dbus_error('org.freedesktop.DBus.Error.AccessDenied',
+                'Clippy screenshot handoff requires a matching token');
+        }
+        const key = this._captureKeys.get(service);
+        const scene = key?.scene;
+        if (!scene || scene.serial !== serial)
+            return;
+        this._clearScene(key);
+        if (Main.modalActorFocusStack.at(-1) !== scene.modal)
+            return;
+        if (scene.popup)
+            scene.modal?.actor._delegate?.close?.(PopupAnimation.NONE);
+        if (scene.overview && Main.overview.visible)
+            Main.overview.hide();
+    }
+
+    _clearScene(key) {
+        if (key.scene) {
+            GLib.source_remove(key.scene.timeout);
+            key.scene = null;
+        }
+    }
+
+    _callApp(service, method, parameters = null, completed = null) {
+        Gio.DBus.session.call(service, SHORTCUT_PATH, SHORTCUT_INTERFACE, method,
+            parameters, null, Gio.DBusCallFlags.NO_AUTO_START, 1000, null, (connection, result) => {
+                let accepted = false;
+                try {
+                    [accepted] = connection.call_finish(result).deepUnpack();
+                } catch (_) {
+                    // 新旧版本共用扩展，尚未启动的应用也不会接收通知。
+                }
+                completed?.(accepted);
+            });
     }
 
     GetWindows(token) {
