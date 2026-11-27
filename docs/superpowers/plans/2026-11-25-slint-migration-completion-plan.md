@@ -1606,6 +1606,13 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   `target/test-artifacts/slint-stage4-raw-audio-clock.FI1YOT/sample-match.log` 及同目录的双端原始采样。
 - DSP 和交错 PCM 直连均复现元数据未传递。客户端端口格式实验收束到这里，后续优先验证能随样本交付原生时间
   的源端。如果需要采用服务器的样本索引，先用有声画标记的设备验证索引与源时间的映射，再提时间合同变更。
+- 在隔离 PipeWire-Pulse 1.6.2 会话，系统 monitor 和虚拟麦克风均协商 48 kHz 双声道 F32LE。
+  512 和 1024 两档缓冲分别在正常读取与暂停读取 55 ms 时采集，每组逐样本匹配 80 个包。
+  4,770 个服务端快照的写入索引可对应到捕获样本；以查询时间扣除报告的源延迟并加回 monitor 延迟，
+  同一索引的估计时刻在 512 档相差最多 10.4 ms，1024 档相差最多 20.7 ms。两档报告的延迟修正均为零。
+  样本索引保留顺序，查询时间随请求变化。后续验证从实际源端随缓冲取得原生时钟。
+  原始日志和核对脚本位于 `target/test-artifacts/slint-stage4-pulse-source-clock.koToRx/`。
+  [PipeWire-Pulse 记录延迟回复](https://github.com/PipeWire/pipewire/blob/1.6.2/src/modules/module-protocol-pulse/pulse-server.c#L2130-L2143)
 
 ### 阶段 5 · PP-OCRv6 small 离线探针
 
