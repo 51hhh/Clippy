@@ -2172,6 +2172,16 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   Linux 打包门禁也对三个入口做内容检查。证据位于 `target/test-artifacts/slint-stage7-apt-upgrade.nKX884XM/`。
 - 完整 Linux 本地门禁 11 项通过、0 失败、0 跳过，见 `ci-local-desktop-id.log`。GNOME 实机的收藏点击待复测。
 
+#### 阶段 7 · Linux deb 实际覆盖安装与回滚
+
+- 独立 Ubuntu 26.04.1 容器由 APT 安装 GitHub 正式 `v0.1.21` 的 Ubuntu 22 deb，普通用户启动托盘并从外部剪贴板
+  产生历史。使用上述带三个启动项的候选 deb 原位升级到 `v0.2.0`。同一个 `clippy` 软件包、可执行入口和
+  `com.clippy.app` 数据目录可继续使用。检查 SQLite、首次启动生成的备份，以及测试设置和两个快捷键值。
+- APT 显式降级回原包。将合成配置和数据库写成中断状态，再用 Slint 生成的备份恢复。旧版重新注册托盘，能读到
+  原历史并捕获新一条历史，SQLite 完整性检查通过。证据为同目录的 `isolated-apt-desktop-candidate.log`。
+- 候选使用 `475c62c` 应用二进制与 `fc75956` 的 deb 启动项配置。该应用需要 glibc 2.43。最终 Jammy 产物、签名
+  客户端升级、贴图和密钥引用仍待验收。
+
 ## Acceptance Criteria
 
 - [ ] Linux 的 GNOME Wayland、X11、KDE/其他受支持 Wayland，以及 Windows 10/11、macOS Intel/Apple Silicon，
