@@ -1066,6 +1066,10 @@ P50、P95 及 1.25 秒空闲区间的工作线程唤醒。验证外部复制、�
 - 指标包含虚拟输入和 25 毫秒间隔的轮询。4K 的 P95 相差 7.9 毫秒，低于采样间隔，继续用正式包、实体输入和
   更精确的时间边界复测。旧版 v0.1.21 在隔离 1080p 收到同一个真实热键并记录 Mutter/PipeWire 取帧和前端
   就绪，但夹具未观测到可交互覆盖层，未获得同口径的 v5 比较值。正式包冷态、剪贴板端到端和多屏继续验收。
+- 同一 Release 在隔离 GNOME 用外部 GTK 窗口建立焦点，Slint 启动后首次执行截图。Shell 路径 1080p 五次中有
+  四次映射并保存，成功样本为 508.3–570.0 毫秒；4K 五次均成功，为 659.3–744.5 毫秒。失败的 1080p 样本在
+  D-Bus 上未出现 `Capture`，仍需复测实体输入。MediaKeys 冷态只获得一条有效的 1080p 样本（546.9 毫秒），
+  保留冷态对照待验。记录位于同目录的 `cold-registered-*`。
 - Release QA 的 SHA-256 为 `e0c1dcd06acb9f0449c23795f6213f25afbb9f23eabf3e16e44d3628c59be8a0`。
   原始记录在 `target/test-artifacts/slint-gnome-menu-hotkey/v5-compare/` 的 `release-1920x1080/`、
   `release-4k-direct/` 和 `pilot-paint-1080/`。 [三平台 CI](https://github.com/51hhh/Clippy/actions/runs/46013283159) ·
@@ -1808,6 +1812,10 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   样本索引保留顺序，查询时间随请求变化。后续验证从实际源端随缓冲取得原生时钟。
   原始日志和核对脚本位于 `target/test-artifacts/slint-stage4-pulse-source-clock.koToRx/`。
   [PipeWire-Pulse 记录延迟回复](https://github.com/PipeWire/pipewire/blob/1.6.2/src/modules/module-protocol-pulse/pulse-server.c#L2130-L2143)
+- 在连接期间核对 48 kHz 交错 PCM 两端的内存映射。512 帧和 1024 帧两档各匹配 72 个包，采样编号与图周期一致。
+  发送端的 PCM 与帧头映射到同一个文件，接收侧两者位于匿名映射。144 个接收包的帧头均存在，PTS
+  仍为零。下一步追踪两端之间的缓冲交付位置，优先找能保留源时钟的端点。此实验只覆盖合成直连，暂未修改
+  录制的时间戳合同。日志与脚本位于 `target/test-artifacts/slint-stage4-audio-buffer-origin.uXs8bQjT/`。
 
 ### 阶段 5 · PP-OCRv6 small 离线探针
 
