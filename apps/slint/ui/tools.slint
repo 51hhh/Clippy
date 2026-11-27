@@ -1,5 +1,6 @@
 import { ComboBox, ListView, TextEdit } from "std-widgets.slint";
-import { ClippyTheme, RichDocumentView, SurfaceButton } from "theme.slint";
+import { ClippyTheme, SurfaceButton } from "theme.slint";
+import { RichBlock, RichDocumentView } from "rich-document.slint";
 import { ClippyWindow } from "window.slint";
 
 export struct TranslationRow { title: string, source: string, result: string }
@@ -7,8 +8,7 @@ export struct TranslationRow { title: string, source: string, result: string }
 export component ToolsWindow inherits ClippyWindow {
     in-out property <string> source;
     in-out property <string> result;
-    in-out property <styled-text> result-markup;
-    in-out property <bool> has-result-markup;
+    in-out property <[RichBlock]> result-document;
     in property <string> note;
     in property <bool> busy;
     in property <bool> system-screenshot-available;
@@ -37,8 +37,7 @@ export component ToolsWindow inherits ClippyWindow {
 
     function clear-result() {
         root.result = "";
-        root.result-markup = @markdown("");
-        root.has-result-markup = false;
+        root.result-document = [];
     }
 
     VerticalLayout {
@@ -118,10 +117,10 @@ export component ToolsWindow inherits ClippyWindow {
                 horizontal-stretch: 1;
                 spacing: 6px;
                 Text { text: root.action-index == 0 ? @tr("Translation") : @tr("Result"); color: ClippyTheme.foreground; font-weight: 600; }
-                if root.has-result-markup: RichDocumentView {
-                    body: root.result-markup;
+                if root.result-document.length > 0: RichDocumentView {
+                    blocks: root.result-document;
                 }
-                if !root.has-result-markup: TextEdit {
+                if root.result-document.length == 0: TextEdit {
                     text <=> root.result;
                     accessible-label: @tr("Text result");
                     read-only: true;

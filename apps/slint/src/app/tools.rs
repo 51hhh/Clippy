@@ -9,7 +9,7 @@ use clippy_core::{
 use clippy_storage::NewTranslation;
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use pulldown_cmark::{Event as Markdown, Parser, TagEnd};
-use slint::{CloseRequestResponse, ComponentHandle, ModelRc, StyledText, VecModel};
+use slint::{CloseRequestResponse, ComponentHandle, ModelRc, VecModel};
 use std::{
     io::Write,
     process::{Command, Stdio},
@@ -51,7 +51,7 @@ pub(super) enum Message {
 
 pub(super) struct TextOutput {
     plain: String,
-    markup: Option<StyledText>,
+    document: Option<preview_document::Document>,
 }
 
 #[derive(Default)]
@@ -372,8 +372,12 @@ impl App {
                     if let Some(output) = result? {
                         if let Some(window) = &self.tools.window {
                             window.set_result(output.plain.into());
-                            window.set_has_result_markup(output.markup.is_some());
-                            window.set_result_markup(output.markup.unwrap_or_default());
+                            window.set_result_document(
+                                output
+                                    .document
+                                    .map(preview_document::Document::into_model)
+                                    .unwrap_or_default(),
+                            );
                         }
                     }
                     self.tools.note("Done");
@@ -429,7 +433,7 @@ impl App {
                             }
                             TextOutput {
                                 plain: text,
-                                markup: None,
+                                document: None,
                             }
                         });
                     send(Message::Completed(id, result.map(Some)));
@@ -440,7 +444,7 @@ impl App {
                 .spawn(move || {
                     let output = transform(action, &source).map(|plain| TextOutput {
                         plain,
-                        markup: if action == 1 {
+                        document: if action == 1 {
                             preview_document::markdown(&source)
                         } else {
                             None

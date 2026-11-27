@@ -390,6 +390,32 @@ def run(binary, root):
             return red - max(green, blue) >= 90 and red > 120
         return False
 
+    def copy_last_table_cell(x, y, header_y, expected):
+        root_window = Gdk.get_default_root_window()
+        header_color = bytes.fromhex("262a32" if theme == "dark" else "f1f1f6")
+
+        def table_header():
+            sample = Gdk.pixbuf_get_from_window(root_window, x - 6, header_y, 12, 1)
+            pixels = sample.get_pixels()
+            return any(pixels[offset:offset + 3] == header_color for offset in range(0, len(pixels), 3))
+
+        def row_pixels():
+            return bytes(Gdk.pixbuf_get_from_window(root_window, x - 100, y, 110, 1).get_pixels())
+
+        wait_for(table_header, "native table header did not appear")
+        before = row_pixels()
+        desktop.move(desktop.display, 0, x, y, 0)
+        for _ in range(20):
+            desktop.button(desktop.display, 7, 1, 0)
+            desktop.button(desktop.display, 7, 0, 0)
+        desktop.sync(desktop.display, 0)
+        wait_for(lambda: row_pixels() != before, "wide table did not scroll horizontally")
+        desktop.click(x, y)
+        desktop.keys("Control_L", "a")
+        desktop.keys("Control_L", "c")
+        wait_for(lambda: get_clipboard("UTF8_STRING").decode() == expected,
+                 f"native table did not select and copy {expected}")
+
     def check_titlebar(bounds, name, color=None):
         x, y, width, _ = bounds
         expected = bytes.fromhex(color or ("20232a" if theme == "dark" else "ffffff"))
@@ -596,6 +622,17 @@ def run(binary, root):
         time.sleep(0.2)
         desktop.click(x + width - 150, y + height - 25)
         assert get_clipboard("UTF8_STRING").decode() == OTHER, "protected preview exposed a Copy action"
+
+        table_html = ("<table><tr><th colspan='6'>Native table</th></tr><tr>"
+                      "<td>tabqaleft</td> <td>celltwo</td> <td>cellthree</td> "
+                      "<td>cellfour</td> <td>cellfive</td> <td>tabqaright</td></tr></table>")
+        set_clipboard("text/html", table_html.encode())
+        wait_for(lambda: any(row[2] == table_html for row in rows()), "table HTML did not reach history")
+        search("tabqaleft")
+        wait_for_single_search_result((x, y, width, height))
+        desktop.click(x + 52, y + 79)
+        copy_last_table_cell(x + width - 62, y + 101, y + 55, "tabqaright")
+        save_qa_window("table-html-scroll.png", (x, y, width, height))
         desktop.click(x + width - 24, y + 25)
         panel_width(380)
         close()
@@ -672,6 +709,21 @@ def run(binary, root):
         desktop.keys("Return")
         select_text_pane(False, "Native markup\nbold QA and code.")
         save_qa_window("text-tools-markdown.png", tools_bounds)
+
+        markdown_table = ("| mdqaleft | Head2 | Head3 | Head4 | Head5 | mdqaright |\n"
+                          "| --- | ---: | :---: | --- | --- | --- |\n"
+                          "| Alpha | 42 | 中 | A | B | Omega |")
+        set_clipboard("UTF8_STRING", markdown_table.encode())
+        desktop.click(x + 80, y + 159)
+        desktop.keys("Control_L", "a")
+        desktop.keys("Control_L", "v")
+        desktop.click(x + 81, y + height - 55)
+        desktop.keys("Return")
+        desktop.keys("Tab")
+        desktop.keys("Return")
+        copy_last_table_cell(x + width - 65, y + 190, y + 143, "Omega")
+        save_qa_window("table-markdown-scroll.png", tools_bounds)
+        print("PASS native HTML and Markdown tables scroll horizontally and copy a selected cell", flush=True)
 
         with sqlite3.connect(data_dir / "clips.db") as connection:
             connection.execute(

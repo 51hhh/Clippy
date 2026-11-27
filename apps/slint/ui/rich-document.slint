@@ -1,0 +1,73 @@
+import { ScrollView } from "std-widgets.slint";
+import { ClippyTheme } from "theme.slint";
+
+export enum RichAlignment { start, left, center, right }
+export struct RichTableCell { body: styled-text, span: int, heading: bool, alignment: RichAlignment }
+export struct RichTableRow { cells: [RichTableCell] }
+export struct RichBlock { body: styled-text, columns: int, rows: [RichTableRow] }
+
+component DocumentText inherits StyledText {
+    selectable: true;
+    default-color: ClippyTheme.foreground;
+    default-font-size: 14px;
+    selection-foreground-color: ClippyTheme.foreground;
+    selection-background-color: ClippyTheme.selected;
+}
+
+component DocumentTable inherits ScrollView {
+    in property <int> columns;
+    in property <[RichTableRow]> rows;
+    private property <length> column-width: max(96px, root.width / root.columns);
+
+    min-width: 0px;
+    preferred-width: 0px;
+    min-height: grid.preferred-height + (root.content-width > root.width ? 16px : 0px);
+    preferred-height: self.min-height;
+    vertical-stretch: 0;
+    content-width: root.column-width * root.columns;
+    content-height: grid.preferred-height;
+    horizontal-scrollbar-policy: as-needed;
+    vertical-scrollbar-policy: always-off;
+    mouse-drag-pan-enabled: false;
+
+    grid := VerticalLayout {
+        width: root.content-width;
+        for row in root.rows: HorizontalLayout {
+            alignment: start;
+            for cell in row.cells: Rectangle {
+                width: root.column-width * cell.span;
+                background: cell.heading ? ClippyTheme.hover : ClippyTheme.surface;
+                border-width: 1px;
+                border-color: ClippyTheme.border;
+                VerticalLayout {
+                    padding: 8px;
+                    DocumentText {
+                        text: cell.body;
+                        horizontal-alignment: cell.alignment == RichAlignment.right ? right
+                            : cell.alignment == RichAlignment.center ? center
+                            : cell.alignment == RichAlignment.left ? left : start;
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component RichDocumentView inherits ScrollView {
+    in property <[RichBlock]> blocks;
+    min-height: 0px;
+    vertical-stretch: 1;
+    horizontal-scrollbar-policy: always-off;
+    mouse-drag-pan-enabled: false;
+
+    VerticalLayout {
+        width: root.visible-width;
+        alignment: start;
+        padding: 8px;
+        spacing: 8px;
+        for block in root.blocks: VerticalLayout {
+            if block.columns > 0: DocumentTable { columns: block.columns; rows: block.rows; }
+            if block.columns == 0: DocumentText { text: block.body; }
+        }
+    }
+}

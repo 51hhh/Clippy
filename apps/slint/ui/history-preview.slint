@@ -1,13 +1,13 @@
 import { ScrollView, TextEdit } from "std-widgets.slint";
-import { ClippyTheme, RichDocumentView, SurfaceButton } from "theme.slint";
+import { ClippyTheme, SurfaceButton } from "theme.slint";
+import { RichBlock, RichDocumentView } from "rich-document.slint";
 
 export struct ClipPreview {
     clip-id: string,
     kind: string,
     metadata: string,
     content: string,
-    styled-content: styled-text,
-    has-styles: bool,
+    document: [RichBlock],
     image: image,
     recognized: string,
     ocr-busy: bool,
@@ -155,8 +155,8 @@ export component HistoryPreviewPane inherits Rectangle {
             if root.has-item && root.message == "" && !root.is-image: VerticalLayout {
                 padding: 4px;
                 vertical-stretch: 1;
-                if root.preview.has-styles: RichDocumentView { body: root.preview.styled-content; }
-                if !root.preview.has-styles: TextEdit {
+                if root.preview.document.length > 0: RichDocumentView { blocks: root.preview.document; }
+                if root.preview.document.length == 0: TextEdit {
                     text: root.preview.content; read-only: true; wrap: word-wrap; vertical-stretch: 1;
                 }
             }

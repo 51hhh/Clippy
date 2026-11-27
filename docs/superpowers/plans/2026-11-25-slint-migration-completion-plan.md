@@ -832,6 +832,20 @@ SQLite 查询，不改变文件命名、数据库或归档格式。文件发布�
 
 **Out of Scope** 新工程文件格式、在 PNG 中写回原图、迁移 renderer v1 标注坐标以及修改 Winit。
 
+#### 阶段 6 · 原生表格预览
+
+**Goal** 剪贴板 HTML 侧栏和 Markdown 工具在 Slint 中按原文顺序显示文字、表头和表格。需求 `SLINT-MIGRATION-CLOSURE-01`。
+
+**Requirements** 共用带文字和表格的文档模型。在现有后台预览任务中解析，进入界面后构建 Slint 模型。Markdown
+保留列对齐，HTML 支持表头和列合并。宽表可横向滚动，单元格内容可选择和复制，普通段落和原文复制入口保留。
+沿用 128 KiB 解析上限，控制非虚拟化表格最多 1,024 个单元格和 32 列，超出时提供已有纯文本内容。
+外部资源、脚本和网页样式继续按原生预览合同处理。
+
+**Acceptance Criteria** 解析测试覆盖段落与表格顺序、Unicode、列对齐、列合并和输入上限。在隔离 X11
+从历史和工具实际查看表格，验证窄栏宽表滚动、单元格复制、旧的纯文本复制和敏感预览。运行完整本地门禁。
+
+**Out of Scope** HTML 跨行合并、嵌套表格、链接打开、代码语法高亮、媒体预览。
+
 ### 阶段 7 · macOS Intel 冷构建时限
 
 **Goal** 让 Intel 安装包在无原生构建缓存时完成随包离线 OCR 的编译、烟测和签名校验。
@@ -2234,6 +2248,16 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   合成 PNG 和重开 RGBA 摘要，以及 `gtk-picker-final.log`、`gnome-picker-final.log`。完整 Linux 门禁
   11 通过、0 失败、0 跳过，见 `full-ci/run.log`。门禁验证了目录写入失败不登记修订，存储不可用不留下半成品。
   Windows 和 macOS 安装包的文件拖入、选择器及重开待验收。
+
+#### 阶段 6 · 原生表格预览结果
+
+- 历史和工具共用顺序文档模型。HTML 的说明文字、表头和合并列按源顺序展示，Markdown 按声明的列对齐。
+  Slint 在界面线程创建视图模型，解析继续在原有后台任务运行。宽表可横向滚动，并支持在单元格内选中文字。
+- 五个解析用例覆盖普通富文本、Markdown 表格顺序与列对齐、HTML Unicode 与列合并、大小限制及未支持的表格结构。
+  隔离 X11 浅色和深色均从两个入口滚到最后一列并复制准确文本。旧的纯文本、HTML 选择和敏感项回归也通过。
+  记录位于 `target/test-artifacts/slint-native-tables/` 的 `model-tests.log`、`light-final/` 和 `dark-final/`。
+- 同一源码的完整 Linux 门禁 11 项通过、0 失败、0 跳过，见同目录的 `ci-local.log`。随包跨平台测试、跨行合并
+  和嵌套表格继续验收。
 
 ### 阶段 7 · macOS Intel 冷构建时限结果
 

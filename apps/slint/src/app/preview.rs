@@ -10,7 +10,7 @@ use clippy_storage::{
 };
 use clippy_translate::types::TranslationResult;
 use image::{DynamicImage, ImageError, ImageFormat, ImageReader, RgbaImage};
-use slint::{ComponentHandle, LogicalSize, StyledText};
+use slint::{ComponentHandle, LogicalSize};
 use std::{
     io::Cursor,
     sync::{
@@ -100,7 +100,7 @@ struct PreviewInput {
 }
 
 enum Body {
-    Text(String, Option<StyledText>),
+    Text(String, Option<preview_document::Document>),
     Image {
         picture: RgbaImage,
         width: u32,
@@ -128,10 +128,11 @@ impl Details {
             ..Default::default()
         };
         match self.body {
-            Body::Text(text, styled) => {
+            Body::Text(text, document) => {
                 model.content = text.into();
-                model.has_styles = styled.is_some();
-                model.styled_content = styled.unwrap_or_default();
+                model.document = document
+                    .map(preview_document::Document::into_model)
+                    .unwrap_or_default();
             }
             Body::Image {
                 picture,
@@ -447,7 +448,7 @@ fn prepare(
     } else {
         match clip.content_type {
             ContentType::Text | ContentType::Html => {
-                let styled = clip
+                let document = clip
                     .html_content
                     .as_deref()
                     .and_then(preview_document::html);
@@ -457,7 +458,7 @@ fn prepare(
                         .map(strip_html_tags)
                         .unwrap_or_default()
                 });
-                Body::Text(truncate_preview(&text, MAX_TEXT_CHARS), styled)
+                Body::Text(truncate_preview(&text, MAX_TEXT_CHARS), document)
             }
             ContentType::Image => match snapshot.map(|item| item.image) {
                 Some(BoundedImageData::Bytes(bytes)) => match decode_preview_png(&bytes) {
