@@ -5,6 +5,13 @@ use clippy_core::clipboard::{strip_html_tags, MAX_CLIPBOARD_TEXT_BYTES};
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(target_os = "linux")]
+pub mod foreground;
+#[cfg(target_os = "linux")]
+pub(crate) mod offer;
+#[cfg(target_os = "linux")]
+pub use offer::Offer;
+
 #[cfg(target_os = "windows")]
 mod windows;
 #[cfg(target_os = "windows")]

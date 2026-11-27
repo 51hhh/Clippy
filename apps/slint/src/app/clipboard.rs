@@ -24,9 +24,36 @@ use std::time::{Duration, Instant};
 
 use super::{post, Event};
 
+#[cfg(target_os = "linux")]
+pub(super) mod foreground;
+#[cfg(target_os = "linux")]
+use clippy_platform::clipboard::{
+    foreground::{Ticket, Transfer},
+    Offer,
+};
+#[cfg(target_os = "linux")]
+use std::sync::atomic::AtomicBool;
+
 const POLL: Duration = Duration::from_millis(250);
 const EXPIRE_INTERVAL: Duration = Duration::from_secs(30);
 const MAX_PNG_BYTES: usize = MAX_CLIPBOARD_PNG_BYTES;
+
+pub(super) type Finish = Box<dyn FnOnce(Result<()>) + Send>;
+
+#[derive(Clone, Copy, Default)]
+pub(super) struct Origin {
+    #[cfg(target_os = "linux")]
+    ticket: Option<Ticket>,
+}
+
+impl Origin {
+    pub(super) fn is_foreground(self) -> bool {
+        #[cfg(target_os = "linux")]
+        return self.ticket.is_some();
+        #[cfg(not(target_os = "linux"))]
+        false
+    }
+}
 
 pub(super) enum Request {
     Copy {
@@ -39,23 +66,33 @@ pub(super) enum Request {
     },
     WriteImage {
         image: Arc<image::RgbaImage>,
-        finish: Box<dyn FnOnce(Result<()>) + Send>,
+        finish: Finish,
     },
     WriteText {
         text: String,
-        finish: Box<dyn FnOnce(Result<()>) + Send>,
+        finish: Finish,
     },
     Authorize,
     ClosePermission,
     #[cfg(target_os = "linux")]
     ForgetPermission,
+    #[cfg(target_os = "linux")]
+    ForegroundTransfer(Transfer),
+}
+
+struct Job {
+    request: Request,
+    #[cfg(target_os = "linux")]
+    origin: Origin,
 }
 
 pub(super) struct Worker {
-    sender: Option<SyncSender<Request>>,
+    sender: Option<SyncSender<Job>>,
     wake: Option<ClipboardWake>,
     thread: Option<JoinHandle<()>>,
     limit: Arc<AtomicU32>,
+    #[cfg(target_os = "linux")]
+    ready: Arc<AtomicBool>,
 }
 
 impl Worker {
@@ -69,22 +106,64 @@ impl Worker {
         let worker_limit = limit.clone();
         let wake = ClipboardWake::new();
         let worker_wake = wake.clone();
+        #[cfg(target_os = "linux")]
+        let ready = Arc::new(AtomicBool::new(false));
+        #[cfg(target_os = "linux")]
+        let worker_ready = ready.clone();
         let thread = thread::Builder::new()
             .name("clippy-clipboard".into())
-            .spawn(move || watch(receiver, worker_wake, storage, data, &worker_limit))?;
+            .spawn(move || {
+                watch(
+                    receiver,
+                    worker_wake,
+                    storage,
+                    data,
+                    &worker_limit,
+                    #[cfg(target_os = "linux")]
+                    &worker_ready,
+                )
+            })?;
         Ok(Self {
             sender: Some(sender),
             wake,
             thread: Some(thread),
             limit,
+            #[cfg(target_os = "linux")]
+            ready,
         })
     }
 
     pub(super) fn submit(&self, request: Request) -> Result<()> {
+        self.submit_origin(request, Origin::default())
+    }
+
+    pub(super) fn origin(&self, window: &slint::Window) -> Origin {
+        let _ = window;
+        Origin {
+            #[cfg(target_os = "linux")]
+            ticket: if clippy_platform::session::is_wayland() && !self.ready.load(Ordering::Acquire)
+            {
+                foreground::ticket(window)
+            } else {
+                None
+            },
+        }
+    }
+
+    pub(super) fn submit_from(&self, request: Request, window: &slint::Window) -> Result<()> {
+        self.submit_origin(request, self.origin(window))
+    }
+
+    pub(super) fn submit_origin(&self, request: Request, origin: Origin) -> Result<()> {
+        let _ = origin;
         self.sender
             .as_ref()
             .expect("Clipboard worker running")
-            .try_send(request)
+            .try_send(Job {
+                request,
+                #[cfg(target_os = "linux")]
+                origin,
+            })
             .map_err(|_| anyhow!("Clipboard is busy. Try again."))?;
         self.notify();
         Ok(())
@@ -112,11 +191,11 @@ impl Drop for Worker {
 }
 
 fn wait_for_request(
-    receiver: &Receiver<Request>,
+    receiver: &Receiver<Job>,
     clipboard: Option<&mut Clipboard>,
     wake: Option<&ClipboardWake>,
     timeout: Duration,
-) -> Result<Request, RecvTimeoutError> {
+) -> Result<Job, RecvTimeoutError> {
     let mut wait = POLL;
     if let (Some(clipboard), Some(wake)) = (clipboard, wake) {
         // 一次系统唤醒可能对应多个请求，队列还有待办时继续处理。
@@ -133,11 +212,12 @@ fn wait_for_request(
 }
 
 fn watch(
-    receiver: Receiver<Request>,
+    receiver: Receiver<Job>,
     wake: Option<ClipboardWake>,
     storage: StorageClient,
     data: PathBuf,
     limit: &AtomicU32,
+    #[cfg(target_os = "linux")] ready: &AtomicBool,
 ) {
     let mut paste = Paste::new(&data);
     let mut clipboard = None;
@@ -153,8 +233,7 @@ fn watch(
         } else {
             until_expiry
         };
-        let request = match wait_for_request(&receiver, clipboard.as_mut(), wake.as_ref(), timeout)
-        {
+        let job = match wait_for_request(&receiver, clipboard.as_mut(), wake.as_ref(), timeout) {
             Ok(request) => Some(request),
             Err(RecvTimeoutError::Timeout) => None,
             Err(RecvTimeoutError::Disconnected) => break,
@@ -171,8 +250,12 @@ fn watch(
             if clipboard.is_none() {
                 clipboard = paste.clipboard();
             }
+            ready.store(clipboard.is_some(), Ordering::Release);
         }
 
+        #[cfg(target_os = "linux")]
+        let ticket = job.as_ref().and_then(|job| job.origin.ticket);
+        let request = job.map(|job| job.request);
         match request {
             Some(Request::Authorize) => {
                 #[cfg(target_os = "linux")]
@@ -204,12 +287,32 @@ fn watch(
                 post(Event::PermissionForgotten(paste.forget_permission()));
                 continue;
             }
+            #[cfg(target_os = "linux")]
+            Some(Request::ForegroundTransfer(transfer)) => {
+                if let Err(error) = transfer.deliver() {
+                    eprintln!("Could not serve clipboard data: {error:#}");
+                }
+                continue;
+            }
             request => {
                 let system = match clipboard.as_mut() {
                     Some(system) => system,
                     None => match Clipboard::open() {
-                        Ok(system) => clipboard.insert(system),
+                        Ok(system) => {
+                            #[cfg(target_os = "linux")]
+                            ready.store(true, Ordering::Release);
+                            clipboard.insert(system)
+                        }
                         Err(error) => {
+                            #[cfg(target_os = "linux")]
+                            if let Some(ticket) = ticket {
+                                foreground_copy(
+                                    &storage,
+                                    request.expect("Foreground gesture belongs to a copy"),
+                                    ticket,
+                                );
+                                continue;
+                            }
                             report_error(&mut reported, format!("Clipboard unavailable: {error}"));
                             match request {
                                 Some(Request::Copy { .. }) => {
@@ -265,7 +368,9 @@ fn watch(
                     }
                     Some(Request::Authorize | Request::ClosePermission) => unreachable!(),
                     #[cfg(target_os = "linux")]
-                    Some(Request::ForgetPermission) => unreachable!(),
+                    Some(Request::ForgetPermission | Request::ForegroundTransfer(_)) => {
+                        unreachable!()
+                    }
                     None => {}
                 }
 
@@ -324,6 +429,32 @@ fn watch(
             expire = Instant::now() + EXPIRE_INTERVAL;
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn foreground_copy(storage: &StorageClient, request: Request, ticket: Ticket) {
+    let (offer, finish): (Result<Offer>, Finish) = match request {
+        Request::Copy { id, target } => (
+            load_clip(storage, id).and_then(Offer::encode),
+            Box::new(move |result| match (result, target) {
+                (Ok(()), Some(_)) => post(Event::Pasted(Err(anyhow!(
+                    "Enable Wayland paste permission in Clippy first"
+                )))),
+                (result, _) => post(Event::Copied(result.map(|()| (None, None)))),
+            }),
+        ),
+        Request::WriteImage { image, finish } => (
+            Offer::encode_image(ImageData {
+                width: image.width() as usize,
+                height: image.height() as usize,
+                bytes: Cow::Borrowed(image.as_raw()),
+            }),
+            finish,
+        ),
+        Request::WriteText { text, finish } => (Ok(Offer::Text(text)), finish),
+        _ => unreachable!("Only copies have a foreground gesture"),
+    };
+    post(Event::ForegroundClipboard(ticket, offer, finish));
 }
 
 fn report_error(previous: &mut String, error: String) {

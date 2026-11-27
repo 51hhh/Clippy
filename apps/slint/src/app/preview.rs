@@ -262,16 +262,20 @@ impl App {
                 }
             }
             Message::CopyText(text) => {
-                if let Err(error) = self.clipboard.submit(clipboard::Request::WriteText {
-                    text,
-                    finish: Box::new(|result| {
-                        let status = result.map_or_else(
-                            |error| error.to_string(),
-                            |()| crate::locale::tr("Copied").into(),
-                        );
-                        post(Event::ClipboardStatus(status));
-                    }),
-                }) {
+                let Some(window) = &self.window else { return };
+                if let Err(error) = self.clipboard.submit_from(
+                    clipboard::Request::WriteText {
+                        text,
+                        finish: Box::new(|result| {
+                            let status = result.map_or_else(
+                                |error| error.to_string(),
+                                |()| crate::locale::tr("Copied").into(),
+                            );
+                            post(Event::ClipboardStatus(status));
+                        }),
+                    },
+                    window.window(),
+                ) {
                     self.status(error.to_string());
                 }
             }

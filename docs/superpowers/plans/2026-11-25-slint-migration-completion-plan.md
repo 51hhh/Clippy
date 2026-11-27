@@ -871,8 +871,39 @@ Portal 在真实键盘授权会话内向原生 GTK 发送了字节一致的 PNG�
   D-Bus 时序在同目录 `clipboard-dbus.log`。完整 Linux 门禁 11 项通过、0 失败、0 跳过，见
   `final-ci/run.log`。平台层通过 Windows GNU 和 macOS 双架构严格交叉 Clippy。
 - 同一构建拒绝授权后，Slint 已聚焦的快捷键输入框可通过标准 Wayland 剪贴板复制选中文本，GTK3 读取一致。
-  记录为 `foreground-probe-r2.log`。历史、截图和查看器的免授权前台复制、实体安装包与最新正式候选的
-  空闲 PSS 待验收。
+  记录为 `foreground-probe-r2.log`。前台操作沿下节接入。
+
+#### 阶段 1 · 纯 Wayland 前台复制
+
+**Goal** 系统授权被拒绝或不可用时，用户从已聚焦的 Clippy 窗口主动复制历史、截图或查看器内容。
+
+**Requirements** 复用 Slint 所在的 Wayland 显示连接，使用本次窗口操作的真实输入序号。后台准备 UTF-8、HTML 或
+PNG，提交前重新确认焦点与序号。仅在合成器回报本次选区所有权后反馈成功。关闭截图覆盖层后仍按需交付复制数据。
+沿用文本、图像和写入时限。已有原生剪贴板或获准的 Portal 时继续使用现有路径。
+
+**Acceptance Criteria** 在无 XWayland 的隔离 GNOME 拒绝 Portal 后，用 GTK 核对历史 Unicode 与 HTML、透明 PNG、
+截图和查看器。测试异步准备期间切换焦点、同一图像重复复制和退出释放。完整本地门禁与原生安装包分开记录。
+
+**Out of Scope** 前台路径的后台监听、输入注入、主动要求授权和修改合成器策略。
+
+隔离 GNOME 使用额外事件队列复用已映射 GTK 窗口的 Wayland 显示连接。文本和透明 PNG 均收到所有者通知；
+GTK 在源窗口隐藏后读取 13×11 RGBA 逐字节一致。延后提交期间切走焦点，原文本仍能读到。记录见
+`target/test-artifacts/slint-stage1-wayland-foreground.9opuoSIY/core-probe.log`。
+[Wayland 选区协议](https://wayland.freedesktop.org/docs/html/apa.html#protocol-spec-wl_data_device)
+
+- Winit 的窗口事件循环处理前台选区，后台准备和按需交付由已有剪贴板线程完成。文本、HTML 和 PNG 与 Portal
+  共用同一份格式和大小限制。截图先撤下覆盖层可见内容，等合成器确认所有权后释放原窗口。
+- 无 XWayland 的隔离 GNOME 50.1 实测拒绝授权后，用真实按钮和 Ctrl+C 复制历史。Unicode、HTML 及其纯文本、
+  透明 PNG 都由 GTK3 等值读回。查看器连续两次发布相同 PNG 都得到确认。合成器确认选区后关闭截图覆盖层，
+  GTK3 仍能取得 160×112 的逐像素一致截图。D-Bus 记录中拒绝后没有新增 Portal 剪贴板请求。
+- 持有 SQLite 写锁，在查看器操作保存可编辑 PNG 后切换到外部窗口。解锁后文件仍按原像素保存，Clippy 保留了
+  外部剪贴板。实体 GNOME/KDE、最终安装包和空闲 PSS 继续验收。
+- QA 二进制 SHA-256 为 `ce8eb85a567dcee0fe2dd152853ee78d5ce39f7894cc38699459be5151a263fc`。
+  同一构建复测了已授权的历史往返、截图和查看器复制、恢复授权、自动粘贴和撤销权限。完整 Linux 门禁
+  11 项通过、0 失败、0 跳过。Windows GNU 的 Slint QA 入口通过严格交叉 Clippy，使用关闭默认录屏特性的配置。
+  记录见 `target/test-artifacts/slint-stage1-wayland-foreground.9opuoSIY/` 下的 `final-foreground/run.log`、
+  `final-foreground/application-wayland.log`、`final-foreground/portal-profile.log`、`final-portal/run.log` 和
+  `final-ci/run.log`。
 
 ### 阶段 1 · 剪贴板系统通知
 

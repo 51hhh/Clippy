@@ -1,20 +1,14 @@
 use super::Command;
+use crate::clipboard::offer::{limit, Offer as Payload, HTML, PNG, TEXT};
 use crate::clipboard::{Content, ImageData};
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use ashpd::desktop::clipboard::{Clipboard, SelectionOwnerChanged, SetSelectionOptions};
 use ashpd::desktop::remote_desktop::RemoteDesktop;
 use ashpd::desktop::Session;
-use clippy_core::clipboard::{
-    strip_html_tags, validate_image_layout, MAX_CLIPBOARD_PNG_BYTES, MAX_CLIPBOARD_TEXT_BYTES,
-};
+use clippy_core::clipboard::strip_html_tags;
 use futures_util::StreamExt;
-use image::{
-    codecs::png::{CompressionType, FilterType, PngEncoder},
-    ExtendedColorType, ImageEncoder, ImageFormat, ImageReader,
-};
 use std::{
-    borrow::Cow,
-    io::{Cursor, ErrorKind},
+    io::ErrorKind,
     os::fd::OwnedFd,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -29,9 +23,6 @@ use zbus::{
     zvariant::{serialized::Context as DbusContext, to_bytes, OwnedObjectPath, LE},
 };
 
-const PNG: &str = "image/png";
-const HTML: &str = "text/html";
-const TEXT: [&str; 3] = ["text/plain;charset=utf-8", "UTF8_STRING", "text/plain"];
 const READ_TIME: Duration = Duration::from_secs(2);
 const SIGNAL_TIME: Duration = Duration::from_secs(1);
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
@@ -62,30 +53,15 @@ impl Client {
     }
 
     pub(crate) fn write(&self, content: Content) -> Result<()> {
-        match content {
-            Content::Text(text) => self.publish(Payload::Text(text)),
-            Content::Html { html, text } => self.publish(Payload::Html { html, text }),
-            Content::Image(image) => self.write_image(image),
-        }
+        self.publish(Payload::encode(content)?)
     }
 
     pub(crate) fn write_image(&self, image: ImageData<'_>) -> Result<()> {
-        let (width, height) = validate_image_layout(image.width, image.height, image.bytes.len())
-            .map_err(anyhow::Error::msg)?;
-        let mut png = Vec::with_capacity(image.bytes.len().min(1024 * 1024));
-        PngEncoder::new_with_quality(&mut png, CompressionType::Fast, FilterType::Adaptive)
-            .write_image(&image.bytes, width, height, ExtendedColorType::Rgba8)?;
-        self.publish(Payload::Png(png))
+        self.publish(Payload::encode_image(image)?)
     }
 
     fn publish(&self, payload: Payload) -> Result<()> {
-        for mime in payload.types() {
-            let bytes = payload.bytes(mime).expect("Advertised clipboard format");
-            ensure!(
-                bytes.len() <= limit(mime),
-                "Clipboard data exceeds its size limit"
-            );
-        }
+        payload.validate()?;
         self.call(|reply| Request::Publish(payload, reply))
     }
 
@@ -122,58 +98,6 @@ impl Request {
                 let _ = reply.send(Err(error));
             }
         }
-    }
-}
-
-pub(super) enum Payload {
-    Text(String),
-    Html { html: String, text: String },
-    Png(Vec<u8>),
-}
-
-impl Payload {
-    fn types(&self) -> &[&str] {
-        match self {
-            Self::Text(_) => &TEXT,
-            Self::Html { .. } => &[HTML, TEXT[0], TEXT[1], TEXT[2]],
-            Self::Png(_) => &[PNG],
-        }
-    }
-
-    fn bytes(&self, mime: &str) -> Option<&[u8]> {
-        match self {
-            Self::Text(text) if TEXT.contains(&mime) => Some(text.as_bytes()),
-            Self::Html { html, .. } if mime == HTML => Some(html.as_bytes()),
-            Self::Html { text, .. } if TEXT.contains(&mime) => Some(text.as_bytes()),
-            Self::Png(png) if mime == PNG => Some(png),
-            _ => None,
-        }
-    }
-
-    fn decode(&self) -> Result<Content> {
-        Ok(match self {
-            Self::Text(text) => Content::Text(text.clone()),
-            Self::Html { html, text } => Content::Html {
-                html: html.clone(),
-                text: text.clone(),
-            },
-            Self::Png(png) => {
-                let png_reader = || ImageReader::with_format(Cursor::new(png), ImageFormat::Png);
-                let (width, height) = png_reader().into_dimensions()?;
-                let (width, height) = (width as usize, height as usize);
-                let len = width
-                    .checked_mul(height)
-                    .and_then(|n| n.checked_mul(4))
-                    .context("PNG dimensions overflow")?;
-                validate_image_layout(width, height, len).map_err(anyhow::Error::msg)?;
-                let bytes = png_reader().decode()?.into_rgba8().into_raw();
-                Content::Image(ImageData {
-                    width,
-                    height,
-                    bytes: Cow::Owned(bytes),
-                })
-            }
-        })
     }
 }
 
@@ -377,14 +301,6 @@ async fn next_event(
             }
             _ => {}
         }
-    }
-}
-
-fn limit(mime: &str) -> usize {
-    if mime == PNG {
-        MAX_CLIPBOARD_PNG_BYTES
-    } else {
-        MAX_CLIPBOARD_TEXT_BYTES
     }
 }
 

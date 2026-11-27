@@ -352,7 +352,12 @@ impl App {
         }
     }
 
-    pub(super) fn editor_revision_saved(&mut self, id: u64, result: Result<PathBuf>) {
+    pub(super) fn editor_revision_saved(
+        &mut self,
+        id: u64,
+        result: Result<PathBuf>,
+        origin: clipboard::Origin,
+    ) {
         let Some(editor) = self.editor.as_ref().filter(|editor| editor.id == id) else {
             return;
         };
@@ -361,15 +366,18 @@ impl App {
             Err(error) => return self.editor_output(id, Err(error)),
         };
         let copied_path = path.clone();
-        let result = self.clipboard.submit(clipboard::Request::WriteImage {
-            image: editor.current.clone(),
-            finish: Box::new(move |result| {
-                post(Event::EditorOutput(
-                    id,
-                    Ok(editable_save_status(&copied_path, result)),
-                ));
-            }),
-        });
+        let result = self.clipboard.submit_origin(
+            clipboard::Request::WriteImage {
+                image: editor.current.clone(),
+                finish: Box::new(move |result| {
+                    post(Event::EditorOutput(
+                        id,
+                        Ok(editable_save_status(&copied_path, result)),
+                    ));
+                }),
+            },
+            origin,
+        );
         if let Err(error) = result {
             self.editor_output(id, Ok(editable_save_status(&path, Err(error))));
         }
@@ -408,15 +416,18 @@ impl App {
                     return;
                 }
                 let id = editor.id;
-                let result = self.clipboard.submit(clipboard::Request::WriteImage {
-                    image: editor.current.clone(),
-                    finish: Box::new(move |result| {
-                        post(Event::EditorOutput(
-                            id,
-                            result.map(|()| "Image copied".to_owned()),
-                        ))
-                    }),
-                });
+                let result = self.clipboard.submit_from(
+                    clipboard::Request::WriteImage {
+                        image: editor.current.clone(),
+                        finish: Box::new(move |result| {
+                            post(Event::EditorOutput(
+                                id,
+                                result.map(|()| "Image copied".to_owned()),
+                            ))
+                        }),
+                    },
+                    editor.window.window(),
+                );
                 match result {
                     Ok(()) => editor.set_busy(true),
                     Err(error) => editor.set_status(error.to_string()),
@@ -432,17 +443,22 @@ impl App {
                 );
                 let id = editor.id;
                 let image = editor.current.clone();
-                let revision = matches!(action, Action::SaveEditable)
-                    .then(|| (editor.document.snapshot(), self.storage.client()));
+                let revision = matches!(action, Action::SaveEditable).then(|| {
+                    (
+                        editor.document.snapshot(),
+                        self.storage.client(),
+                        self.clipboard.origin(editor.window.window()),
+                    )
+                });
                 editor.set_busy(true);
                 editor.set_status(tr("Saving…").to_owned());
                 if let Err(error) = thread::Builder::new()
                     .name("clippy-image-save".into())
                     .spawn(move || match revision {
-                        Some((project, storage)) => {
+                        Some((project, storage, origin)) => {
                             let result =
                                 image_project::save_editable(&project, &image, &target, &storage);
-                            post(Event::EditorRevisionSaved(id, result));
+                            post(Event::EditorRevisionSaved(id, result, origin));
                         }
                         None => {
                             let result = capture::save_png(&image, &target)
@@ -490,15 +506,18 @@ impl App {
                 );
                 let color = format!("#{:02X}{:02X}{:02X}", pixel[0], pixel[1], pixel[2]);
                 let id = editor.id;
-                let result = self.clipboard.submit(clipboard::Request::WriteText {
-                    text: color.clone(),
-                    finish: Box::new(move |result| {
-                        post(Event::EditorOutput(
-                            id,
-                            result.map(|()| format!("Copied {color}")),
-                        ));
-                    }),
-                });
+                let result = self.clipboard.submit_from(
+                    clipboard::Request::WriteText {
+                        text: color.clone(),
+                        finish: Box::new(move |result| {
+                            post(Event::EditorOutput(
+                                id,
+                                result.map(|()| format!("Copied {color}")),
+                            ));
+                        }),
+                    },
+                    editor.window.window(),
+                );
                 match result {
                     Ok(()) => editor.set_busy(true),
                     Err(error) => editor.set_status(error.to_string()),

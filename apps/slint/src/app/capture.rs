@@ -49,6 +49,8 @@ use std::{
 mod desktop;
 mod scan;
 
+use super::clipboard;
+
 pub(super) use scan::Message as ScanMessage;
 
 pub(super) struct Selection {
@@ -59,6 +61,14 @@ pub(super) struct Selection {
 }
 
 impl Selection {
+    pub(super) fn clipboard_origin(&self, worker: &clipboard::Worker) -> clipboard::Origin {
+        self.views
+            .iter()
+            .map(|view| worker.origin(view.window.window()))
+            .find(|origin| origin.is_foreground())
+            .unwrap_or_default()
+    }
+
     pub(super) fn install_window_targets(
         &self,
         started: Instant,
@@ -137,7 +147,7 @@ impl From<FrozenOutput> for OverlayFrame {
 }
 
 pub(super) enum StillDestination {
-    Clipboard,
+    Clipboard(clipboard::Origin),
     File(SaveTarget),
     Editor,
 }
@@ -146,6 +156,29 @@ pub(super) enum Destination {
     Still(StillDestination),
     Longshot,
     Record,
+}
+
+pub(super) enum Output {
+    Started,
+    Closing(Box<PendingOutput>),
+    Clipboard(ClipboardViews),
+}
+
+pub(super) struct ClipboardViews {
+    _views: Vec<View>,
+}
+
+impl ClipboardViews {
+    fn hold(views: Vec<View>) -> Self {
+        // 保留框选时获得焦点的原生窗口，异步编码期间先撤掉可见内容。
+        for view in &views {
+            view.window.set_blank(true);
+            view.window
+                .window()
+                .with_winit_window(|native| native.request_redraw());
+        }
+        Self { _views: views }
+    }
 }
 
 pub(super) enum Area {
@@ -238,13 +271,30 @@ impl slint::winit_030::CustomApplicationHandler for CaptureWindowEvents {
         &mut self,
         _: &ActiveEventLoop,
         id: WindowId,
-        _: Option<&slint::winit_030::winit::window::Window>,
+        native: Option<&slint::winit_030::winit::window::Window>,
         _: Option<&slint::Window>,
         event: &WindowEvent,
     ) -> EventResult {
+        let _ = native;
+        #[cfg(target_os = "linux")]
+        if let (Some(window), WindowEvent::Focused(true)) = (native, event) {
+            clipboard::foreground::attach(window);
+        }
         if matches!(event, WindowEvent::Destroyed) {
             post(Event::CaptureWindowDestroyed(id, Instant::now()));
         }
+        EventResult::Propagate
+    }
+
+    #[cfg(target_os = "linux")]
+    fn about_to_wait(&mut self, _: &ActiveEventLoop) -> EventResult {
+        clipboard::foreground::service();
+        EventResult::Propagate
+    }
+
+    #[cfg(target_os = "linux")]
+    fn exiting(&mut self, _: &ActiveEventLoop) -> EventResult {
+        clipboard::foreground::shutdown();
         EventResult::Propagate
     }
 }
@@ -640,15 +690,18 @@ pub(super) fn output(
     selection: Selection,
     area: Area,
     destination: Destination,
-) -> io::Result<Option<PendingOutput>> {
+) -> io::Result<Output> {
+    let keep_foreground = matches!(
+        &destination,
+        Destination::Still(StillDestination::Clipboard(origin)) if origin.is_foreground()
+    );
     let (index, bounds) = match area {
         Area::Display { index, bounds } => (index, bounds),
         Area::Desktop(composition) => {
             let Destination::Still(destination) = destination else {
                 unreachable!("跨屏工具栏只提供静态截图动作");
             };
-            output_desktop(selection, composition, destination)?;
-            return Ok(None);
+            return output_desktop(selection, composition, destination, keep_foreground);
         }
     };
     let Selection {
@@ -696,7 +749,6 @@ pub(super) fn output(
             .collect()
     };
     let pixels = selected.frame.pixels.clone();
-    views.clear();
     let job = OutputJob {
         region,
         marks,
@@ -704,6 +756,7 @@ pub(super) fn output(
         destination,
     };
     if let Some(window_id) = window_id {
+        views.clear();
         // 先提交透明画面，避免合成器用带选框的旧画面播放窗口关闭动画。
         selected.window.set_blank(true);
         selected
@@ -713,32 +766,45 @@ pub(super) fn output(
         slint::Timer::single_shot(Duration::from_secs(1), move || {
             post(Event::CaptureOverlayClearTimedOut(started));
         });
-        return Ok(Some(PendingOutput {
+        return Ok(Output::Closing(Box::new(PendingOutput {
             window_id,
             started,
             clearing_overlay: Some(selected),
             job,
-        }));
+        })));
     }
-    drop(selected);
+    let output = if keep_foreground {
+        views.push(selected);
+        Output::Clipboard(ClipboardViews::hold(views))
+    } else {
+        drop(views);
+        drop(selected);
+        Output::Started
+    };
     job.start()?;
-    Ok(None)
+    Ok(output)
 }
 
 fn output_desktop(
     selection: Selection,
     composition: Composition,
     destination: StillDestination,
-) -> io::Result<()> {
+    keep_foreground: bool,
+) -> io::Result<Output> {
     let snapshot = DesktopSnapshot::new(&selection.views, composition);
-    drop(selection);
+    let output = if keep_foreground {
+        Output::Clipboard(ClipboardViews::hold(selection.views))
+    } else {
+        drop(selection);
+        Output::Started
+    };
     thread::Builder::new()
         .name("clippy-screenshot-output".into())
         .spawn(move || {
             let started = Instant::now();
             finish_still(Ok(snapshot.render()), &[], destination, started);
         })?;
-    Ok(())
+    Ok(output)
 }
 
 struct DesktopSnapshot {
@@ -820,9 +886,10 @@ fn finish_still(
             }),
             started,
         )),
-        StillDestination::Clipboard => post(Event::CaptureClipboard(
+        StillDestination::Clipboard(origin) => post(Event::CaptureClipboard(
             result.and_then(|image| render_marks(image, marks)),
             started,
+            origin,
         )),
         StillDestination::Editor => post(Event::EditorOpen(
             result.and_then(|image| edit_project(image, marks)),

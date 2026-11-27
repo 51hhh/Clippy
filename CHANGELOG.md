@@ -231,6 +231,9 @@
 
 ### Slint 托盘、剪贴板和快速截图
 
+- 在没有 XWayland 和 data-control 的 GNOME Wayland 上，即使拒绝 Portal 授权，也可从聚焦的 Clippy 窗口
+  复制历史文本、HTML、透明图片、截图和查看器输出。隔离 GNOME 已验证像素和切换焦点后的剪贴板保留，
+  实体安装包待验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 - 在没有 XWayland 和 data-control 的 GNOME Wayland 上，可从设置页顶部授予 Wayland 权限，
   通过同一系统会话读取和复制 Unicode、HTML、透明 PNG。关闭自动粘贴时仍可使用剪贴板，
   清除权限会关闭会话。已在隔离 GNOME 验证历史往返、截图、查看器和授权恢复。

@@ -158,6 +158,7 @@ pub fn run(identity: &'static DeploymentIdentity) -> Result<()> {
             action_status: SharedString::default(),
             capture_selection: None,
             capture_after_close: None,
+            capture_clipboard_views: None,
             capture_shutdown: RegionCancellation::default(),
             delayed_capture: Timer::default(),
             editor: None,
@@ -230,6 +231,12 @@ enum Event {
     ClipboardStatus(String),
     ShortcutStatus(ShortcutStatus),
     Copied(Result<(Option<Target>, Option<u64>)>),
+    #[cfg(target_os = "linux")]
+    ForegroundClipboard(
+        clippy_platform::clipboard::foreground::Ticket,
+        Result<clippy_platform::clipboard::Offer>,
+        clipboard::Finish,
+    ),
     Pasted(Result<()>),
     Permission(Result<()>, bool),
     #[cfg(target_os = "linux")]
@@ -261,13 +268,13 @@ enum Event {
         action: CaptureAction,
     },
     CaptureScan(capture::ScanMessage),
-    CaptureClipboard(Result<image::RgbaImage>, Instant),
+    CaptureClipboard(Result<image::RgbaImage>, Instant, clipboard::Origin),
     CaptureFinished(Result<String>, Instant),
     EditorOpen(Result<capture::EditedCapture>),
     EditorAction(editor::Action),
     EditorRendered(u64, Result<image::RgbaImage>),
     EditorOutput(u64, Result<String>),
-    EditorRevisionSaved(u64, Result<PathBuf>),
+    EditorRevisionSaved(u64, Result<PathBuf>, clipboard::Origin),
     EditorOpenFile(slint::Weak<AppWindow>, PathBuf),
     EditorFileOpened(slint::Weak<AppWindow>, Result<image_project::Prepared>),
     Pins(pins::Message),
@@ -317,7 +324,8 @@ struct App {
     portal_shortcuts: crate::PortalShortcutView,
     action_status: SharedString,
     capture_selection: Option<capture::Selection>,
-    capture_after_close: Option<capture::PendingOutput>,
+    capture_after_close: Option<Box<capture::PendingOutput>>,
+    capture_clipboard_views: Option<capture::ClipboardViews>,
     capture_shutdown: RegionCancellation,
     delayed_capture: Timer,
     editor: Option<editor::View>,
@@ -440,6 +448,10 @@ impl App {
             }
             Event::Copied(Ok(_)) => self.complete("Copied to clipboard"),
             Event::Copied(Err(error)) => self.complete(format!("Could not copy: {error}")),
+            #[cfg(target_os = "linux")]
+            Event::ForegroundClipboard(ticket, result, finish) => {
+                clipboard::foreground::publish(ticket, result, finish);
+            }
             Event::Pasted(Ok(())) => self.complete("Pasted"),
             Event::Pasted(Err(error)) => {
                 eprintln!("Copied. Auto paste unavailable: {error}");
@@ -559,7 +571,9 @@ impl App {
                 if let Some(selection) = self.capture_selection.take() {
                     use capture::{Destination, StillDestination};
                     let destination = match action {
-                        CaptureAction::Copy => Destination::Still(StillDestination::Clipboard),
+                        CaptureAction::Copy => Destination::Still(StillDestination::Clipboard(
+                            selection.clipboard_origin(&self.clipboard),
+                        )),
                         CaptureAction::Edit => Destination::Still(StillDestination::Editor),
                         CaptureAction::Longshot => Destination::Longshot,
                         CaptureAction::Record => Destination::Record,
@@ -571,40 +585,56 @@ impl App {
                         }
                     };
                     match capture::output(selection, area, destination) {
-                        Ok(pending) => self.capture_after_close = pending,
+                        Ok(capture::Output::Started) => (),
+                        Ok(capture::Output::Closing(output)) => {
+                            self.capture_after_close = Some(output)
+                        }
+                        Ok(capture::Output::Clipboard(views)) => {
+                            self.capture_clipboard_views = Some(views)
+                        }
                         Err(error) => self.capture_error(error.into()),
                     }
                 }
             }
             Event::CaptureScan(message) => self.capture_scan_message(message),
-            Event::CaptureClipboard(result, started) => {
+            Event::CaptureClipboard(result, started, origin) => {
                 let result = result.and_then(|image| {
-                    self.clipboard.submit(clipboard::Request::WriteImage {
-                        image: Arc::new(image),
-                        finish: Box::new(move |result| {
-                            post(Event::CaptureFinished(
-                                result.map(|()| "Screenshot copied".to_owned()),
-                                started,
-                            ))
-                        }),
-                    })
+                    self.clipboard.submit_origin(
+                        clipboard::Request::WriteImage {
+                            image: Arc::new(image),
+                            finish: Box::new(move |result| {
+                                post(Event::CaptureFinished(
+                                    result.map(|()| "Screenshot copied".to_owned()),
+                                    started,
+                                ))
+                            }),
+                        },
+                        origin,
+                    )
                 });
                 if let Err(error) = result {
-                    self.capture_error(error);
+                    post(Event::CaptureFinished(Err(error), started));
                 }
             }
-            Event::CaptureFinished(result, started) => match result {
-                Ok(status) => {
-                    if self.identity.channel == DistributionChannel::Qa {
-                        eprintln!(
-                            "capture_commit elapsed_ms={:.1}",
-                            started.elapsed().as_secs_f64() * 1000.0
-                        );
+            Event::CaptureFinished(result, started) => {
+                let foreground = self.capture_clipboard_views.take().is_some();
+                match result {
+                    Ok(status) => {
+                        if self.identity.channel == DistributionChannel::Qa {
+                            eprintln!(
+                                "capture_commit elapsed_ms={:.1}",
+                                started.elapsed().as_secs_f64() * 1000.0
+                            );
+                        }
+                        self.complete(status);
                     }
-                    self.complete(status);
+                    Err(error) if foreground => {
+                        eprintln!("Screenshot copy unavailable: {error:#}");
+                        self.complete(format!("Screenshot copy unavailable: {error:#}"));
+                    }
+                    Err(error) => self.capture_error(error),
                 }
-                Err(error) => self.capture_error(error),
-            },
+            }
             Event::EditorOpen(result) => {
                 self.set_busy(false);
                 if let Err(error) =
@@ -616,7 +646,9 @@ impl App {
             Event::EditorAction(action) => self.edit(action),
             Event::EditorRendered(id, result) => self.editor_rendered(id, result),
             Event::EditorOutput(id, result) => self.editor_output(id, result),
-            Event::EditorRevisionSaved(id, result) => self.editor_revision_saved(id, result),
+            Event::EditorRevisionSaved(id, result, origin) => {
+                self.editor_revision_saved(id, result, origin)
+            }
             Event::EditorOpenFile(owner, path) => self.open_editor_file(owner, path),
             Event::EditorFileOpened(owner, result) => self.editor_file_opened(owner, result),
             Event::Pins(message) => self.pin_message(message),
@@ -762,10 +794,10 @@ impl App {
         } else {
             None
         };
-        match self
-            .clipboard
-            .submit(clipboard::Request::Copy { id, target })
-        {
+        match self.clipboard.submit_from(
+            clipboard::Request::Copy { id, target },
+            self.window.as_ref().unwrap().window(),
+        ) {
             Ok(()) => self.set_busy(true),
             Err(error) => self.status(error.to_string()),
         }
@@ -903,6 +935,7 @@ impl App {
     }
 
     fn capture_error(&mut self, error: anyhow::Error) {
+        self.capture_clipboard_views.take();
         eprintln!("Screenshot unavailable: {error:#}");
         self.complete(format!("Screenshot unavailable: {error:#}"));
         if let Err(error) = self.open(false) {
