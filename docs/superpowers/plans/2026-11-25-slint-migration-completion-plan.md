@@ -1547,6 +1547,35 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   `target/test-artifacts/slint-stage4-linux-player-package.qRyZJ0/` 的 `package-host.log`、
   `packages/SHA256SUMS.txt`、`deb-ui.log`、`appimage-ui.log` 和 `ci-local.log`。
 
+#### Ubuntu 22.04 的 PulseAudio 回放
+
+- 使用 `8738a10` 的同一套 CI deb 和 AppImage，在干净 Ubuntu 22.04.5 容器验证 PulseAudio 15.99.1 的
+  默认虚拟输出。服务端校验 256 字节 Cookie，应用以同一个普通用户运行。两种包均通过有声原件、独立分段和
+  恢复件的首帧、暂停、定位、播放结束、关窗释放及退出。监听端测得 439.5、619.5、620.5 Hz，恢复件播放中
+  定位替换原音频流。另验证无声片段，以及不可用的显式播放设备反馈。
+- 在另外的隔离无 Cookie 会话，`pactl` 可连接，deb 和 AppImage 都在音频连接时显示
+  `IO error: failed to fill whole buffer`，PulseAudio 服务端记录 protocol error。当前 CPAL 0.18.2 依赖的
+  `pulseaudio` 0.3.2 在找不到 Cookie 时发送空字段；Jammy 服务在检查会话授权前会解析固定 256 字节字段。
+  [Rust 客户端](https://docs.rs/crate/pulseaudio/0.3.2/source/src/client.rs) ·
+  [PulseAudio 服务端](https://github.com/pulseaudio/pulseaudio/blob/v15.99.1/src/pulsecore/protocol-native.c#L2359-L2363)
+- 同一 Jammy 服务并开两条仅供实验的 Unix socket。一条保留原生 Cookie 和用户凭据校验，另一条允许匿名。
+  用原版和补齐 256 字节空字段的 CPAL 探针各测试一次。有效 Cookie 下，两份探针均请求了 960 帧，错误
+  Cookie 均被拒绝。文件确实不存在时，补齐字段只让匿名 socket 成功。需要认证的 socket 仍拒绝 Rust 候选，
+  官方 `pactl` 可用同 UID 凭据连接。固定字段长度只修复协议解析，后续优先验证官方 libpulse 输出适配，沿用
+  默认／显式设备选择、有界 PCM 队列和现有播放时钟验收。Windows WASAPI、macOS AudioUnit 和录制采集时钟
+  沿用现有接口。 [官方客户端认证代码](https://github.com/pulseaudio/pulseaudio/blob/v15.99.1/src/pulse/context.c#L584-L615)
+- 系统 libpulse 探针用同一 UID 和缺失的 Cookie 路径，成功打开 Jammy 默认虚拟输出。暂停态查询返回有效的零
+  延迟，启动后前三批共 1,440 帧的延迟均有效。相同探针在 PipeWire-Pulse 1.6.2 连续提交 44,640 帧，93 批
+  均取得有效延迟，范围 0–33.56 毫秒。 [libpulse 流时钟](https://docs.rs/libpulse-binding/2.30.1/libpulse_binding/stream/struct.Stream.html#method.get_latency)
+- 在同一个 Jammy 容器内从 libpulse 15.99.1 编译并运行轮询探针。原顺序在 0.9 秒内写出 1,440 帧；先填满
+  暂停态缓冲并调整预缓冲量，开始后仍只写出 960 帧。两种顺序都经同 UID 认证通过，并有初始延迟数据，均未达到
+  持续供给。轮询候选收束。后续对照现有 CPAL 写回调，验证 libpulse 写请求的交付节奏、回压和关窗回收。
+- 记录位于 `target/test-artifacts/slint-stage2-jammy-package.5GJ3hWE7/` 的 `clean-jammy-playback-cookie.log`、
+  `playback-cookie-output/`、`clean-jammy-playback.log`、`playback-retest-output/`、`jammy-pulse-auth-matrix.log`、
+  `libpulse-play-clock.log`、`libpulse-play-pipewire-clock.log` 和 `libpulse-jammy-local-buffer.log`。
+  这是短片的虚拟默认输出验收。AppImage 包装进程的单进程 PSS 不用于整包内存指标。真实设备的长时同步和
+  音源采集仍按原计划验证。
+
 ### 阶段 4 · Windows 轻量播放器结果
 
 - Windows QA 共用已有的索引解码、PCM 队列和画面。播放时通过 WASAPI 共享模式打开 48 kHz 双声道流。出包步骤
