@@ -409,6 +409,25 @@ def run(binary, root):
         # 输入事件和 SQLite 返回跨两个线程，等查询结果进入页面再点击。
         time.sleep(0.25)
 
+    def wait_for_single_search_result(box):
+        x, y, _, _ = box
+
+        def result_drawn():
+            strip = Gdk.pixbuf_get_from_window(Gdk.get_default_root_window(), x + 1, y + 82, 8, 119)
+            if strip is None:
+                return False
+            pixels = strip.get_pixels()
+            stride = strip.get_rowstride()
+
+            def pixel(column, row):
+                start = row * stride + column * 3
+                return pixels[start:start + 3]
+
+            # 搜索栏下方只有一条结果时，第一个分隔线可见，第二个位置是空白区。
+            return pixel(0, 0) != pixel(7, 0) and pixel(7, 41) != pixel(7, 118)
+
+        wait_for(result_drawn, "the single history search result was not rendered")
+
     def launcher_search(word):
         desktop.keys("Control_L", "a")
         for letter in word:
@@ -678,6 +697,7 @@ def run(binary, root):
         panel_id, box = panel()
         desktop.focus(panel_id)
         search("needle")
+        wait_for_single_search_result(box)
         x, y, _, _ = box
         desktop.click(x + 50, y + 82)
         desktop.keys("Control_L", "c")
@@ -696,6 +716,7 @@ def run(binary, root):
         panel_id, box = panel()
         desktop.focus(panel_id)
         search("needle")
+        wait_for_single_search_result(box)
         desktop.keys("Return")
         wait_for(lambda: not titled_window(TITLE), "panel stayed open after paste")
         # Xvfb 没有窗口管理器，夹具在面板撤下后恢复焦点。
@@ -714,6 +735,7 @@ def run(binary, root):
         panel_id, box = panel()
         desktop.focus(panel_id)
         search("needle")
+        wait_for_single_search_result(box)
         desktop.keys("Return")
         wait_for(lambda: not titled_window(TITLE), "panel stayed open after requesting paste")
         desktop.focus(third_id)
