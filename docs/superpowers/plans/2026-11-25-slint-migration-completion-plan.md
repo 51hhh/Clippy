@@ -1052,6 +1052,25 @@ P50、P95 及 1.25 秒空闲区间的工作线程唤醒。验证外部复制、�
   `target/test-artifacts/slint-gnome-menu-hotkey/integration/` 的 `indicator-ready/`、`native-rebind.log` 和 `ci-local.log`。
   设置页自动化尚未触发保存按钮，冻结失败时的弹窗行为、正式包实体多屏和 1080p/4K 同机 v5 对照仍待验证。
 
+#### GNOME 普通桌面的 Release 热键对照
+
+- `914b620` 的同一份 Linux Release QA 二进制，在隔离 GNOME 50.1 分别启停辅助扩展。两种模式都用配置的
+  `Ctrl+Alt+Shift+K`，分别经 Shell 或真实 MediaKeys 启动普通截图。每个分辨率的每条路径各跑 20 次热态，
+  以交错顺序核对每次按键的单次触发、实际指针框选，以及导出的 1240×590 PNG 逐像素一致。
+
+| 分辨率 | Shell 按键到映射 P50 / P95 | MediaKeys 按键到映射 P50 / P95 | Shell 确认到落盘 P95 | MediaKeys 确认到落盘 P95 |
+| --- | ---: | ---: | ---: | ---: |
+| 1920×1080 | 134.8 / 161.8 ms | 136.2 / 163.0 ms | 26.9 ms | 27.0 ms |
+| 3840×2160 | 258.0 / 286.3 ms | 258.2 / 278.4 ms | 52.2 ms | 52.3 ms |
+
+- 指标包含虚拟输入和 25 毫秒间隔的轮询。4K 的 P95 相差 7.9 毫秒，低于采样间隔，继续用正式包、实体输入和
+  更精确的时间边界复测。旧版 v0.1.21 在隔离 1080p 收到同一个真实热键并记录 Mutter/PipeWire 取帧和前端
+  就绪，但夹具未观测到可交互覆盖层，未获得同口径的 v5 比较值。正式包冷态、剪贴板端到端和多屏继续验收。
+- Release QA 的 SHA-256 为 `e0c1dcd06acb9f0449c23795f6213f25afbb9f23eabf3e16e44d3628c59be8a0`。
+  原始记录在 `target/test-artifacts/slint-gnome-menu-hotkey/v5-compare/` 的 `release-1920x1080/`、
+  `release-4k-direct/` 和 `pilot-paint-1080/`。 [三平台 CI](https://github.com/51hhh/Clippy/actions/runs/46013283159) ·
+  [同 SHA 四架构 Slint QA](https://github.com/51hhh/Clippy/actions/runs/46014875336)
+
 ### 阶段 2 · 渲染内存基线
 
 - `54948f5` 的 FemtoVG QA Debug 二进制 SHA-256 为

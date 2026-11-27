@@ -25,8 +25,8 @@ cargo-packager --config apps/slint/Packager.qa.toml --formats deb,appimage
 ```
 
 Linux 构建机用 Python 3 准备模型和运行库，用 `patchelf` 固定 AppImage 与 deb 共用的加载路径。
-Linux QA 回放构建需安装 `libasound2-dev`。deb 声明 ALSA 运行库依赖，AppImage 使用系统
-`libasound.so.2`。两种格式的有声回放都使用系统 PulseAudio 或 PipeWire-Pulse 服务。
+Linux QA 回放构建需安装 `libpulse-dev`。deb 声明 `libpulse0` 依赖，AppImage 包含 `libpulse.so.0`
+及对应的运行库。两种格式的有声回放都连接系统 PulseAudio 或 PipeWire-Pulse 服务。
 Packager 配置直接读取已经构建的二进制和资源目录。Windows 的 Rust 编译同样在打包前执行，避免
 shell hook 在扩展长度工作目录下把路径解析为 UNC。
 
@@ -34,7 +34,7 @@ QA 与正式版本有独立的数据目录、单实例和快捷键身份。Linux
 截图。安装包自带 PP-OCRv6 small 和 CPU 运行库，打开图片文字工具时按需识别，运行时无需 Python。
 显式配置的增强引擎继续生效，直接从源码运行时仍可用本机 Tesseract。QA 包使用原生录屏播放器，
 正式包的录屏回放和文本发音依赖本机 `ffplay`。
-真实平台验收以同一 SHA 上的 QA 记录为准。
+真实平台验收以同一 SHA 上的 [Slint 真机 QA 记录](../../docs/native-qa.md#slint-v02-安装包验收)为准。
 
 Native QA 工作流可在 Linux x64 选择 `linux_renderer_ab`。对照包的 `QA-BUILD.txt` 标记
 `renderer=femtovg+skia-software`。启动同一个 QA 二进制时可通过 `SLINT_BACKEND` 选择

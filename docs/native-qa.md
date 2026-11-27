@@ -26,22 +26,46 @@ Jammy job 执行完整 Rust 与前端门禁；Windows/macOS 原生 job 执行 Ru
 安装包由下一步的 Native QA workflow 构建；CI 仍不能证明桌面权限、
 焦点恢复、输入注入、混合 DPI 或签名证书链在真实用户环境中工作。
 
-CI 通过后，在 GitHub Actions 中对同一 ref 手动运行 `Native QA Packages`。该 run 会并行生成
-`qa-legacy-*` 与 `qa-slint-*`：每个后端各有 Linux x64、Windows x64、macOS Intel 和
-Apple Silicon 四套以完整 SHA 命名的包。另有 legacy Ubuntu 24 AppImage X11 smoke 证据和
-`qa-legacy-record-templates-<SHA>`。先核对安装包内的 `QA-BUILD.txt` 与 `SHA256SUMS.txt`，再使用
-同一 run 生成的 JSON 记录；不要把其它 run、旧 SHA 或本地临时构建混入证据。
+在 GitHub Actions 中对同一 ref 运行 `Native QA Packages`，日常新版验收选择 `backend=slint`。
+每个选中的后端各有 Linux x64、Windows x64、macOS Intel 和 Apple Silicon 四套以完整 SHA 命名的包。
+选择 legacy 时还会生成 Ubuntu 24 AppImage X11 smoke 证据和 `qa-legacy-record-templates-<SHA>`。
+安装前核对 `QA-BUILD.txt`、`SHA256SUMS.txt` 与 CI 的提交。正式验收使用同一候选 SHA 的安装包和记录。
 
 `QA-BUILD.txt` 由单一脚本读取当前仓库版本生成，必须包含 `backend`、`framework`、
 `framework_version`、`renderer` 和完整 commit。legacy 明确写 `slint=not included`；Slint 明确写
-`tauri=not included`，并记录隔离的 identity/data/single-instance/shortcut namespace。Slint 当前仍是
-迁移壳层，能生成安装包不代表下文完整功能矩阵可用，也不能使用 legacy 的记录模板冒充 Slint 验收。
+`tauri=not included`，并记录隔离的 identity/data/single-instance/shortcut namespace。
 
 legacy Windows QA 包使用临时自签名，legacy 与 Slint macOS QA 包仅做 Ad-Hoc 签名；Slint Windows
 QA 包当前为未签名测试包。updater 安装必须改用同 SHA 的正式 release 产物。当前正式 macOS release
 也采用 Ad-Hoc 签名，因此只能验证功能和更新链，不能作为 Developer ID、公证或 Gatekeeper 信任证据。
 
-下文功能场景当前只适用于 `qa-legacy-*`。Linux x64 legacy QA 包显式启用
+## Slint v0.2 安装包验收
+
+本节对应 `SLINT-MIGRATION-CLOSURE-01`。每个环境记录完整 SHA、安装包格式和 SHA-256、测试时间、系统版本、
+CPU 架构、桌面和显示器布局，以及 `QA-BUILD.txt` 中的 renderer、录屏播放后端和 OCR 清单。用实际安装后的入口
+操作，逐项记录用例、结果、测量值和证据位置。虚拟桌面、Wine、交叉编译和原生 CI 的结果分别记录。
+
+| 环境 | 安装与平台重点 |
+| --- | --- |
+| Linux x64 | 用 deb、AppImage 覆盖 X11、GNOME Wayland、KDE Wayland 和受支持的 wlroots 会话。记录 AppImage 的 FUSE 或解包启动方式。Wayland 核对授权拒绝、撤回后重试、实际剪贴板及输入能力。GNOME 另截日历、快速设置、概览和真实托盘菜单。 |
+| Windows x64 | Windows 10 和 11 实装 NSIS、MSI，核对无预装 VC++ Redistributable 环境启动、混合 DPI、快捷键保存、WGC 首帧、录屏浮窗排除和非默认音源。 |
+| macOS Intel 与 Apple Silicon | 实装 DMG，核对 11.0 最低部署版本、Retina、旋转、拒绝及授予权限。按系统版本验证 12.3 起的视频采集、13 起的系统声和 15 起的麦克风及混音。 |
+
+每个环境从托盘或配置的全局键走一遍下列流程，并对照该环境声明的能力填写实际结果。
+
+1. 复制外部 Unicode、HTML 和透明 PNG，验证入库、搜索、侧栏、回写以及焦点变化后的粘贴。再验证设置拖动、主题、语言、快捷键冲突和保存失败回滚。
+2. 用同一画面核对 1080p、4K 的单屏和多屏截图。记录从按键到可框选及从确认到复制或保存的冷、热 P95，导出的 PNG 和剪贴板像素应与选区对应。测试标注撤销、窗口速选、贴图位置恢复，以及自动或手动长截图的结束和取消。
+3. 在没有 Python 或目录覆盖变量的环境打开随包 OCR，记录首次与热态耗时、真实行框、段落顺序、内存峰值和 worker 退出。用已授权的服务验证图片译文和长段侧栏。
+4. 每个声明音源使用实际设备录屏，测试暂停、定位回放、关窗回收、拔出和分段恢复。为各平台保存 30 分钟有声录制的时间线和音画漂移。QA 包记录 `pulseaudio`、`wasapi` 或 `coreaudio` 的输出，正式候选另核对该包实际启用的回放后端。
+5. 用最终候选在指定 Linux 实体桌面测五轮 60 秒空闲进程树总 PSS，每轮低于 50 MiB。另记启动、开关窗、截图、OCR、长截图、录屏及回放的峰值和释放，并查依赖和进程树是否包含 WebView。
+6. 从最新版稳定 Tauri 安装升级正式 Slint 候选。核对应用身份、签名、快捷键、历史、设置、贴图、密钥引用和备份，模拟失败后恢复。客户端取包和验签使用正式资产及更新清单。
+
+[迁移收尾计划](superpowers/plans/2026-11-25-slint-migration-completion-plan.md#acceptance-criteria) ·
+[内存脚本](../scripts/qa/measure-slint-idle.py) · [Linux 升级测试](../scripts/qa/slint-linux-upgrade.py)
+
+## Legacy v0.1 测试包
+
+下文功能场景用于 `qa-legacy-*`。Linux x64 legacy QA 包显式启用
 `recording-wayland-qa,recording-linux-av-qa`（同时覆盖 X11 与 Wayland
 视频源、PipeWire 系统声和麦克风），Windows x64 QA 包显式启用
 `recording-windows-av-qa`；macOS 12.3+ QA 包显式启用 `recording-macos-av-qa`，Intel 另叠加
