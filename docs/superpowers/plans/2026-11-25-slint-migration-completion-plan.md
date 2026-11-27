@@ -1517,6 +1517,15 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
 - 同机在 `SPA_PARAM_Buffers` 中显式要求帧头类型，协商成功，四组各收到 24 个缓冲，帧头仍为空。原始记录见
   同目录的 `required-*-*.log`。继续评估能绑定源样本的时钟路径，沿用现有同步验收门槛。
   [PipeWire 缓冲参数](https://docs.pipewire.org/group__spa__param.html)
+- 用两个实时 `pw_filter` 客户端绕开采集侧的 `pw_stream` 转换器。同一隔离会话下按 PCM 样本编号匹配
+  直连、虚拟输出 monitor 和 loopback 麦克风。512、1024 两档各路径匹配 72 组双声道包。直连源用
+  同一图时钟填写正数 PTS 和样本序号，接收端的帧头已分配，六组的 PTS 和序号仍为零。
+- 直连样本跨客户端的图周期差为零。monitor 和 loopback 麦克风分别晚 512、1024 个采样周期，
+  对应 10.667、21.333 ms。两路接收端的图时钟和端口报告延迟均为零，无法从这些字段恢复源时间。
+  实验和核对脚本见 `target/test-artifacts/slint-stage4-dsp-clock.0gMGdA/` 的 `dsp-clock.c`、
+  `run.sh`、`check-clock.py` 和 `sample-match.log`。后续评估能随 PCM 保留源时间的端点；
+  正式采集继续使用已批准的时间戳合同。
+  [PipeWire ALSA 源端时间戳](https://github.com/PipeWire/pipewire/blob/1.6.2/spa/plugins/alsa/alsa-pcm.c#L3161-L3165)
 
 ### 阶段 5 · PP-OCRv6 small 离线探针
 
