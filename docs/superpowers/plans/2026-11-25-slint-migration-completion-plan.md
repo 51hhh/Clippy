@@ -1816,6 +1816,15 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   发送端的 PCM 与帧头映射到同一个文件，接收侧两者位于匿名映射。144 个接收包的帧头均存在，PTS
   仍为零。下一步追踪两端之间的缓冲交付位置，优先找能保留源时钟的端点。此实验只覆盖合成直连，暂未修改
   录制的时间戳合同。日志与脚本位于 `target/test-artifacts/slint-stage4-audio-buffer-origin.uXs8bQjT/`。
+- PipeWire 1.6.2 的本地输入端为 raw PCM 协商了独立的混音输出缓冲。常规复制路径交付 PCM 与 chunk，
+  单一输入只有在动态缓冲路径才会引用原始 `spa_buffer`。仅在合成测试的接收进程旁路该混音器后，
+  512 和 1024 帧各 72 个包的 PCM、PTS、序号、映射文件和偏移均与发送侧一致。
+  [输入端混音配置](https://github.com/PipeWire/pipewire/blob/1.6.2/src/pipewire/impl-port.c#L2059-L2065) ·
+  [raw PCM 混音输出](https://github.com/PipeWire/pipewire/blob/1.6.2/spa/plugins/audiomixer/audiomixer.c#L860-L875)
+- 在隔离会话用常规虚拟系统输出 monitor 和 loopback 麦克风对照接收端旁路。512 帧时四组各收到 24 个缓冲，
+  帧头仍为零份。1024 帧的探针在本组实验中提前退出，未取得端点结果。旁路可以保留直连源交付的帧头，
+  产品仍需解决标准端点的源时间戳。证据在 `target/test-artifacts/slint-stage4-pw-local-mixer.RVX42zsU/` 与
+  `target/test-artifacts/slint-stage4-pw-stock-endpoints.nolfDK0g/`。
 
 ### 阶段 5 · PP-OCRv6 small 离线探针
 
