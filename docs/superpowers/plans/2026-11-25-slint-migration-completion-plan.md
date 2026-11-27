@@ -1640,7 +1640,12 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   deb 声明 `libpulse0`。证据位于同目录的 `host-default.log`、`host-4k.log`、
   `host-client-jammy-retest.log` 和 `rust-media-{tests,clippy}.log`。
 - 完整本地门禁 11 项通过、0 失败、0 跳过，见同目录的 `ci-local-libpulse.log`。
-- Ubuntu 22.04 回归使用宿主构建连接目标版本服务。新 QA deb 和 AppImage 的干净安装、真实设备和长片仍待验证。
+- 同一 CI `1cb28d2` 的 deb 和 AppImage 校验 SHA-256 后在全新 Ubuntu 22.04.5 容器运行。APT 安装 deb，
+  AppImage 用其提取运行模式。两种包均在同 UID、缺客户端 Cookie 的 PulseAudio 会话通过有声原件、独立分段、
+  恢复件、正反定位、暂停、结束与关闭回收，试听获 439.5、619.5 和 620.5 Hz。无声和无效设备通过。
+  deb 声明并链接 `libpulse0`，动态依赖检查通过。记录见 `jammy-ci-native-1cb28d2.log`；真实设备和长片仍待验证。
+  [Ubuntu 门禁](https://github.com/51hhh/Clippy/actions/runs/46003492524) ·
+  [Linux QA 出包](https://github.com/51hhh/Clippy/actions/runs/46003501657/job/140520799533)
 
 ### 阶段 4 · Windows 轻量播放器结果
 
