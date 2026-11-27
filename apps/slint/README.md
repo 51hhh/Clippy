@@ -36,6 +36,10 @@ QA 与正式版本有独立的数据目录、单实例和快捷键身份。Linux
 正式包的录屏回放和文本发音依赖本机 `ffplay`。
 真实平台验收以同一 SHA 上的 QA 记录为准。
 
+Native QA 工作流可在 Linux x64 选择 `linux_renderer_ab`。对照包的 `QA-BUILD.txt` 标记
+`renderer=femtovg+skia-software`。启动同一个 QA 二进制时可通过 `SLINT_BACKEND` 选择
+`winit-femtovg` 或 `winit-skia-software`。
+
 正式打包读取 `Packager.toml`，由 `scripts/slint-release.mjs` 保留旧版身份和二进制名，
 并生成各系统的安装版本。Linux 使用 Debian 的 `~rc.1` 等排序规则。Windows 安装版本第三段
 为 `patch * 100 + rank`，alpha、beta、rc 和正式版的 rank 依次增加。macOS 保留普通版本号，

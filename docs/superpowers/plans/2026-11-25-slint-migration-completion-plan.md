@@ -161,6 +161,18 @@ flowchart LR
 每个候选使用固定输入记录原始问题、替代方案、收益和回退点。连续两次候选无指标或测试推进时记录阻塞，
 先继续其他独立任务。涉及 macOS 最低版本、既有性能与数据约束的变更，先出提案再实施。
 
+### 阶段 2 · Ubuntu 22.04 渲染器对照包
+
+**Goal** 在 Ubuntu 22.04 生成可比较的 QA 安装包，确认 Skia 软件渲染能进入发行候选。
+
+**Requirements** Linux QA 工作流显式开启对照时，在一个 Release 二进制中编入 FemtoVG 和 Skia Software，
+分别选择对应的 Winit renderer。固定上游 Skia 归档与摘要，QA 包附带许可，元数据列出两个可选 renderer。
+
+**Acceptance Criteria** 两个 renderer 在同一个二进制上完成当前 X11 桌面回归。从 deb 和 AppImage 核对
+启动依赖、包内许可和 OCR。记录同机开关窗后内存和截图表现，实体桌面与正式发布验收继续按原门槛执行。
+
+**Out of Scope** 正式渲染器切换、跨平台默认配置、系统最低版本和发布性能门槛。
+
 ### 阶段 2 · GNOME 持续采集选区
 
 **Goal** 让长截图与录屏的单次 Mutter 会话直接接收 1× 屏幕上的选区像素，减少每帧从 PipeWire 读回的字节。
@@ -1016,6 +1028,39 @@ libvpx 缓存均经过 SHA-256 校验，双渲染器构建中 bindgen 0.73.2 使
 
 Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生硬件加速、Jammy、Windows 和 macOS 的
 显示与包验证，并在指定真实桌面完成五轮 60 秒的托盘 PSS 验收。
+
+#### Ubuntu 渲染器对照包结果
+
+- Linux QA 可通过 `linux_renderer_ab` 从同一个 Release 二进制测试两种 renderer。Slint 1.19 的特性图
+  仍启用 Skia 的 GL/Vulkan 绑定，因此固定与实际特性匹配的 `skia-bindings 0.157.0` 归档及 SHA-256。
+  `bindgen 0.73.2` 锁定使用与 Syn 3 匹配的 `prettyplease 0.3.0`。
+  [Skia 发行归档](https://github.com/rust-skia/skia-binaries/releases/expanded_assets/0.157.0)
+- 本机 Ubuntu 26.04 同一 Release 产物的 SHA-256 为
+  `b18082711f2c93dff6ab7991aa6cf87f6340b38b5cb177b35d8c45cda17207c5`。
+  两种 renderer 各通过 63 条 X11 回归断言，含设置、跨屏截图、选区扫码和查看器重开。
+  本机 deb 与 AppImage 的 ELF Build ID 均与测试二进制相同，包内 Skia 许可与上游归档逐字节一致，
+  两种包均通过离线 OCR worker 烟测。
+
+| 本机隔离会话 | FemtoVG | Skia Software |
+| --- | ---: | ---: |
+| X11 托盘就绪 PSS | 20.63 MiB | 19.55 MiB |
+| X11 打开设置 PSS | 142.39 MiB | 30.44 MiB |
+| X11 关闭设置 60 秒 PSS | 126.04 MiB | 32.97 MiB |
+| GNOME 1080p 冷态映射 P50 | 542.4 ms | 116.8 ms |
+| GNOME 1080p 热态映射 P95 | 145.0 ms | 94.4 ms |
+| GNOME 4K 冷态映射 P50 | 667.3 ms | 210.3 ms |
+| GNOME 4K 热态映射 P95 | 268.3 ms | 183.4 ms |
+
+- 内存每种 renderer 采样一次。FemtoVG 关闭设置后相对托盘增加的 PSS 主要来自堆 67.4 MiB、
+  LLVM 15.6 MiB 与 Gallium 5.1 MiB。截图从 D-Bus 请求计到合成器映射，分别采样五次冷态和二十次热态。
+  修正 4K 夹具的窗口尺寸后复测通过。4K 采样结束后，隔离会话清理阶段 WirePlumber 触发 GLib 断言，
+  截图对照已在此前输出结果。
+- 首轮默认本地门禁在生成 X11 QA 链接产物时遇到构建盘空间不足。归档并校验两份旧构建后，
+  完整门禁复跑 11 通过、0 失败、0 跳过。宿主包要求 `GLIBC_2.43`。Ubuntu 22.04 的原生作业、
+  真机渲染对照和五轮 60 秒托盘 PSS 仍需记录。
+- 日志和校验文件位于 `target/test-artifacts/slint-stage2-renderer-software.evGdKR/`，包括
+  `ui-winit-*.log`、`pss-winit-*.log`、`gnome-1920x1080.log`、`gnome-3840x2160.log`、
+  `packaging.log`、`package-build-id.log` 和 `ci-local-final.log`。
 
 ### 阶段 2 · Windows WGC 接入结果
 

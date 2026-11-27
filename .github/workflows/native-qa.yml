@@ -12,6 +12,11 @@ on:
           - slint
           - legacy
           - all
+      linux_renderer_ab:
+        description: '在 Linux Slint QA 包中验证 FemtoVG 与 Skia Software'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: '${{ github.workflow }}-${{ github.ref }}'
@@ -458,9 +463,13 @@ jobs:
 
   build-slint-linux:
     if: inputs.backend == 'slint' || inputs.backend == 'all'
-    name: Slint QA Bundle (Linux x64)
+    name: Slint QA Bundle (Linux x64${{ inputs.linux_renderer_ab && ', renderer A/B' || '' }})
     runs-on: ubuntu-22.04
-    timeout-minutes: 45
+    timeout-minutes: ${{ inputs.linux_renderer_ab && 70 || 45 }}
+    env:
+      CLIPPY_QA_LINUX_RENDERER_AB: ${{ inputs.linux_renderer_ab }}
+      SLINT_QA_FEATURES: >-
+        clippy-slint/qa-build,clippy-slint/recording-playback-native-qa${{ inputs.linux_renderer_ab && ',clippy-slint/qa-skia-software' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -472,6 +481,13 @@ jobs:
             pkg-config patchelf squashfs-tools libclang-dev libpipewire-0.3-dev libasound2-dev libxkbcommon-x11-0 \
             libwayland-dev libgbm-dev libegl1-mesa-dev libdrm-dev
 
+      - name: Install renderer comparison test dependencies
+        if: inputs.linux_renderer_ab
+        run: |
+          sudo apt-get install -y \
+            xvfb xauth xclip x11-utils x11-xserver-utils libxtst6 dbus-x11 python3-gi gir1.2-gtk-3.0 \
+            ffmpeg tesseract-ocr-eng tesseract-ocr-chi-sim
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable action
         with:
@@ -481,7 +497,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           prefix-key: v1-rust
-          key: qa-slint-linux-x64
+          key: qa-slint-linux-x64${{ inputs.linux_renderer_ab && '-renderer-ab' || '' }}
           workspaces: . -> target
 
       - name: Setup Node.js
@@ -492,15 +508,36 @@ jobs:
       - name: Install pinned cargo-packager
         run: cargo install cargo-packager --version 0.11.8 --locked
 
+      - name: Prepare verified Skia Software archive
+        if: inputs.linux_renderer_ab
+        run: |
+          archive=skia-binaries-30669978c3f39a73e8a7-x86_64-unknown-linux-gnu-ganesh-gl-jpegd-jpege-pdf-vulkan.tar.gz
+          file="$RUNNER_TEMP/$archive"
+          curl --fail --location --silent --show-error --retry 2 --output "$file" \
+            "https://github.com/rust-skia/skia-binaries/releases/download/0.157.0/$archive"
+          printf '%s  %s\n' 6e3dbc01dd725d31598513f24a3eb4cdd161eaf7530d355839f4447f01f94fbc "$file" | sha256sum --check
+          mkdir -p target/packager/slint-skia
+          tar -xOf "$file" skia-binaries/LICENSE_SKIA > target/packager/slint-skia/LICENSE-Skia.txt
+          printf 'SKIA_BINARIES_URL=file://%s\n' "$file" >> "$GITHUB_ENV"
+
       - name: Test Slint QA host
         run: >-
           cargo test --locked -p clippy-platform -p clippy-slint
-          --features clippy-slint/qa-build,clippy-slint/recording-playback-native-qa
+          --features "$SLINT_QA_FEATURES"
 
       - name: Build Slint QA binary
         run: >-
           cargo build --locked --release -p clippy-slint
-          --bin clippy-slint-qa --features qa-build,recording-playback-native-qa
+          --bin clippy-slint-qa --features "$SLINT_QA_FEATURES"
+
+      - name: Compare Slint X11 renderers on the same binary
+        if: inputs.linux_renderer_ab
+        run: |
+          sha256sum target/release/clippy-slint-qa
+          for renderer in winit-femtovg winit-skia-software; do
+            printf 'Slint X11 renderer %s\n' "$renderer"
+            bash scripts/test-slint-x11.sh target/release/clippy-slint-qa "$renderer"
+          done
 
       - uses: ./.github/actions/slint-ocr-bundle
 
@@ -509,9 +546,17 @@ jobs:
           rm -rf target/packager/slint-qa
           TMPDIR=$(mktemp -d)
           export TMPDIR
-          trap 'rm -rf -- "$TMPDIR"' EXIT
+          config=apps/slint/Packager.qa.toml
+          comparison_config=
+          trap 'rm -rf -- "$TMPDIR"; if [ -n "$comparison_config" ]; then rm -f -- "$comparison_config"; fi' EXIT
+          if [ "$CLIPPY_QA_LINUX_RENDERER_AB" = true ]; then
+            comparison_config=$(mktemp --suffix=.toml apps/slint/Packager.qa-ab.XXXXXX)
+            sed '/^resources = \[/a\  { src = "../../target/packager/slint-skia/LICENSE-Skia.txt", target = "licenses/Skia.txt" },' \
+              "$config" > "$comparison_config"
+            config=$comparison_config
+          fi
           cargo-packager \
-            --config apps/slint/Packager.qa.toml \
+            --config "$config" \
             --formats deb,appimage
 
       - name: Verify Slint Linux QA bundles
@@ -550,11 +595,18 @@ jobs:
           payload=$(mktemp -d)
           trap 'rm -rf -- "$payload"' EXIT
           dpkg-deb -x "$DEB" "$payload/deb"
-          unsquashfs -o "$VALID_OFFSET" -d "$payload/appimage" "$APPIMAGE" usr/lib/clippy-slint-qa/ocr
+          extract_paths=(usr/lib/clippy-slint-qa/ocr)
+          if [ "$CLIPPY_QA_LINUX_RENDERER_AB" = true ]; then
+            extract_paths+=(usr/lib/clippy-slint-qa/licenses/Skia.txt)
+          fi
+          unsquashfs -o "$VALID_OFFSET" -d "$payload/appimage" "$APPIMAGE" "${extract_paths[@]}"
           for format in deb appimage; do
             OCR="$payload/$format/usr/lib/clippy-slint-qa/ocr"
             python3 -B scripts/prepare-slint-ocr.py --bundle "$OCR"
             python3 -B scripts/prepare-slint-ocr.py --bundle "$OCR" --smoke
+            if [ "$CLIPPY_QA_LINUX_RENDERER_AB" = true ]; then
+              cmp target/packager/slint-skia/LICENSE-Skia.txt "$payload/$format/usr/lib/clippy-slint-qa/licenses/Skia.txt"
+            fi
           done
 
       - name: Prepare Slint Linux QA artifact
@@ -563,6 +615,10 @@ jobs:
           cp target/packager/slint-qa/*.deb qa-slint-stage/
           cp target/packager/slint-qa/*.AppImage qa-slint-stage/
           cp target/packager/slint-ocr/OCR-BUNDLE.json qa-slint-stage/
+          renderer_fields=()
+          if [ "$CLIPPY_QA_LINUX_RENDERER_AB" = true ]; then
+            renderer_fields=(--renderer femtovg+skia-software)
+          fi
           node scripts/qa-build-info.mjs \
             --backend slint \
             --platform linux-x64 \
@@ -570,7 +626,7 @@ jobs:
             --sha "$GITHUB_SHA" \
             --output qa-slint-stage/QA-BUILD.txt \
             --field packager=cargo-packager-0.11.8 \
-            --field recording_playback=pulseaudio
+            --field recording_playback=pulseaudio "${renderer_fields[@]}"
           (cd qa-slint-stage && sha256sum ./*.deb ./*.AppImage OCR-BUNDLE.json > SHA256SUMS.txt)
           tar -czf "qa-slint-artifacts/Clippy_Slint_QA_${GITHUB_SHA}_linux-x64.tar.gz" \
             -C qa-slint-stage .
@@ -578,7 +634,7 @@ jobs:
       - name: Upload Slint Linux QA artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: qa-slint-linux-x64-${{ github.sha }}
+          name: qa-slint-linux-x64${{ inputs.linux_renderer_ab && '-renderer-ab' || '' }}-${{ github.sha }}
           path: qa-slint-artifacts/*.tar.gz
           if-no-files-found: error
           retention-days: 14

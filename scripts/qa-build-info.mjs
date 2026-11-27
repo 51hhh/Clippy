@@ -74,10 +74,15 @@ function readSlintProfile(repositoryRoot) {
 }
 
 export function buildQaBuildInfo(options, repositoryRoot = defaultRepositoryRoot) {
-  const { backend, platform, signing, sha, fields = [] } = options;
+  const { backend, platform, signing, sha, renderer, fields = [] } = options;
   if (!/^[0-9a-f]{40}$/i.test(sha ?? "")) throw new Error("sha 必须是 40 位十六进制 commit");
   if (!/^[a-z0-9][a-z0-9-]*$/.test(platform ?? "")) throw new Error("platform 格式无效");
   if (!signing || /[\r\n]/.test(signing)) throw new Error("signing 格式无效");
+  if (renderer !== undefined && (
+    backend !== "slint" || platform !== "linux-x64" || renderer !== "femtovg+skia-software"
+  )) {
+    throw new Error("双渲染器元数据仅用于 Linux x64 Slint 对照包");
+  }
 
   const profile = backend === "legacy-tauri"
     ? readLegacyProfile(repositoryRoot)
@@ -93,7 +98,7 @@ export function buildQaBuildInfo(options, repositoryRoot = defaultRepositoryRoot
     ["backend", profile.backend],
     ["framework", profile.framework],
     ["framework_version", profile.frameworkVersion],
-    ["renderer", profile.renderer],
+    ["renderer", renderer ?? profile.renderer],
   ];
   if (profile.identity) {
     entries.push(
@@ -133,7 +138,7 @@ export function parseArguments(args) {
     index += 1;
     const key = flag.slice(2);
     if (key === "field") options.fields.push(value);
-    else if (REQUIRED_OPTIONS.includes(key)) options[key] = value;
+    else if (key === "renderer" || REQUIRED_OPTIONS.includes(key)) options[key] = value;
     else throw new Error(`未知参数: ${flag}`);
   }
   for (const key of REQUIRED_OPTIONS) {

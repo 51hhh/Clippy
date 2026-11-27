@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { buildQaBuildInfo } from "./qa-build-info.mjs";
+import { buildQaBuildInfo, parseArguments } from "./qa-build-info.mjs";
 import { installVersions } from "./slint-release.mjs";
 
 test("native versions keep alpha, beta, RC and stable in the same upgrade order", () => {
@@ -24,4 +24,17 @@ test("Slint QA workflows pass valid playback fields to the metadata builder", ()
     });
     assert.ok(report.split("\n").includes(`recording_playback=${player}`));
   }
+});
+
+test("only the Linux x64 Slint comparison uses dual renderer metadata", () => {
+  const base = [
+    "--backend", "slint", "--platform", "linux-x64", "--signing", "test",
+    "--sha", "a".repeat(40), "--output", "QA-BUILD.txt",
+  ];
+  const renderer = "femtovg+skia-software";
+  const options = parseArguments([...base, "--renderer", renderer]);
+  assert.match(buildQaBuildInfo(parseArguments(base)), /^renderer=femtovg$/m);
+  assert.ok(buildQaBuildInfo(options).split("\n").includes(`renderer=${renderer}`));
+  assert.throws(() => buildQaBuildInfo({ ...options, platform: "windows-x64" }), /Linux x64/);
+  assert.throws(() => buildQaBuildInfo({ ...options, renderer: "skia" }), /对照包/);
 });
