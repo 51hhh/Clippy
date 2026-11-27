@@ -1,5 +1,6 @@
+#[cfg_attr(target_os = "linux", path = "output/pulse.rs")]
 #[cfg_attr(target_os = "macos", path = "output/coreaudio.rs")]
-#[cfg_attr(not(target_os = "macos"), path = "output/system_cpal.rs")]
+#[cfg_attr(target_os = "windows", path = "output/system_cpal.rs")]
 mod system;
 
 use crate::recording::{

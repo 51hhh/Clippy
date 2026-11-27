@@ -100,6 +100,9 @@
 
 ### Slint 区域录屏
 
+- 修复 Linux QA 录屏库在 PulseAudio 用本地用户认证且缺少客户端 Cookie 时无法播放有声录屏的问题。
+  使用系统 libpulse，已在隔离 PulseAudio 与 PipeWire-Pulse 会话验证有声播放、定位和关窗回收。
+  新 QA 安装包与实体设备仍待复测。（需求 `SLINT-MIGRATION-CLOSURE-01`）
 - Linux QA deb 和 AppImage 接入录屏库内回放，通过 PulseAudio 或 PipeWire-Pulse 播放声音。
   本机两种包已验证有声原件、分段和恢复件的播放、定位及关窗释放。Ubuntu 22.04 干净安装和长时同步
   继续验收。（需求 `SLINT-MIGRATION-CLOSURE-01`）

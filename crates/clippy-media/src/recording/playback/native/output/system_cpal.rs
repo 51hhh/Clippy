@@ -13,9 +13,6 @@ use std::{
 const DEVICE_BUFFER_FRAMES: u32 = 480;
 
 pub(crate) fn open_device(target: Option<&str>) -> Result<OutputDevice, String> {
-    #[cfg(target_os = "linux")]
-    let host_id = HostId::PulseAudio;
-    #[cfg(target_os = "windows")]
     let host_id = HostId::Wasapi;
     let host = cpal::host_from_id(host_id)
         .map_err(|error| format!("无法连接 {} 输出: {error}", host_id.name()))?;

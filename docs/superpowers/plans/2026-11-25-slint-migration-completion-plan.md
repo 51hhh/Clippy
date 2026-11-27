@@ -1576,6 +1576,39 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   这是短片的虚拟默认输出验收。AppImage 包装进程的单进程 PSS 不用于整包内存指标。真实设备的长时同步和
   音源采集仍按原计划验证。
 
+#### Linux QA 回放的 libpulse 输出
+
+**Goal** 让录屏库在使用 Unix 用户凭据的 Linux 音频会话中正常播放有声文件。需求 `SLINT-MIGRATION-CLOSURE-01`。
+
+**Requirements** Linux QA 使用宿主 libpulse 完成认证，由写回调消费现有有界 PCM 队列。保留 48 kHz
+双声道、原有两个 480 帧周期的缓冲请求和暂停态预填；用实际流延迟推算已提交样本的播放时刻。指定设备
+在开启流后核对实际名称，设备不存在或流中断时报告原因。初始化有时限，暂停、定位和关窗释放流和回调。
+
+**Acceptance Criteria** 在 Jammy PulseAudio 和 PipeWire-Pulse 的隔离会话跑原件、独立分段和恢复件。
+核对同一用户缺少有效 Cookie 时的输出、可听时长与音调、暂停定位和关闭后移除流。核对无声件、无效
+指定设备、deb 及 AppImage 的运行依赖。最终实机和长时验收见本计划末尾。
+
+**Out of Scope** 变更 Linux 录制采集时钟、Windows WASAPI、macOS AudioUnit、正式发布播放器选型。
+
+- C 写回调在 PipeWire-Pulse 1.6.2 的默认流连续写出 62,464 帧（约 1.3 秒）。经典 Jammy 的冷空
+  `module-null-sink` 首轮仅取得初始请求，1.3 秒时读索引为 0，插值位置仍前进，不能单独作为播放证据。
+  标准程序及 20 毫秒延迟的监听流参与后，同一写回调在 Jammy 持续写出 61,440–62,400 帧，监听端捕获
+  1.80–1.83 秒有效波形，含暂停后的重新启动。关闭共享内存的对照也通过。PipeWire 对不存在的名称曾
+  自动分到默认输出，需按实际名称校验。原始记录在
+  `target/test-artifacts/slint-libpulse-write.xCkEdlDj/`。
+  [Jammy 虚拟 sink 的初始块时长](https://github.com/pulseaudio/pulseaudio/blob/v15.99.1/src/modules/module-null-sink.c#L53-L55)
+
+- 同一宿主 QA 构建在独立 X11 上连接 PipeWire-Pulse 1.6.2 与 Ubuntu 22.04.5 容器中的 PulseAudio 15.99.1。
+  两个服务的有声原件、独立分段和恢复件均通过首帧、暂停、正反定位、播放结束及关窗回收。
+  Ubuntu 22.04 服务启用正常的本地认证，客户端无有效 Cookie。三份片段听到 1.00、1.00 和 1.40 秒有效音频，
+  对应 439.5、619.5 和 620.6 Hz。恢复件播放中定位会替换旧流，无声和无效设备分支也通过。
+- PipeWire-Pulse 上指定有效输出，4K 有声录像连续五次正反定位及关窗通过，测得 194.3–432.9 毫秒，包含
+  点击和画面轮询。媒体库原生回放特性的 392 项测试与严格 Clippy 通过。Linux QA 改用 libpulse 链接，
+  deb 声明 `libpulse0`。证据位于同目录的 `host-default.log`、`host-4k.log`、
+  `host-client-jammy-retest.log` 和 `rust-media-{tests,clippy}.log`。
+- 完整本地门禁 11 项通过、0 失败、0 跳过，见同目录的 `ci-local-libpulse.log`。
+- Ubuntu 22.04 回归使用宿主构建连接目标版本服务。新 QA deb 和 AppImage 的干净安装、真实设备和长片仍待验证。
+
 ### 阶段 4 · Windows 轻量播放器结果
 
 - Windows QA 共用已有的索引解码、PCM 队列和画面。播放时通过 WASAPI 共享模式打开 48 kHz 双声道流。出包步骤
