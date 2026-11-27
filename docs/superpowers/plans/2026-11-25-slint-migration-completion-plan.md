@@ -833,6 +833,29 @@ OCR worker 和动态库架构与最低版本，并保留构建及烟测日志。
   自动粘贴、撤回后再次授权。用平台层回归报告记录结果，安装包设置入口、目标应用焦点和完整剪贴板往返仍待验收。
   [Portal 工作线程](../../../crates/clippy-platform/src/paste/portal.rs)
 
+#### 阶段 1 · 无 XWayland 的剪贴板授权与传输
+
+**Goal** 在 Clippy 中接通无 XWayland 的原生剪贴板复制与历史，通过现有的一次显式 Wayland 授权使用系统 Portal。
+
+**Requirements** 当系统剪贴板后端不可用时，在同一个 RemoteDesktop 会话启动前请求 Clipboard，并核对
+返回的授权能力。允许用户记住并恢复已授予的能力。用当前 D-Bus 工作线程处理所有者变化和传输，按会话与代次隔离
+结果，保留文本和图像字节上限，限制读写 FD 的等待。连续请求同一份数据时逐个回应序号。取消或撤回后立即释放会话
+和数据引用。已有可用的剪贴板后端继续处理自己的读写。
+
+**Acceptance Criteria** 在无 XWayland 的 GNOME 上从真实 GTK 窗口复制 Unicode、HTML 和透明 PNG，
+由 Clippy 入库并复制回另一窗口。用查看器和截图的实际动作确认像素，连测两次所有者切换及退出释放。验证取消、
+撤回、恢复令牌和失效后重新授权。分开验证正常原生后端和拒绝授权时可用的前台复制，延续既有空闲内存门槛。
+
+**Out of Scope** 自动弹出权限、GNOME Shell 扩展代读剪贴板、绕过合成器焦点规则和更改历史存储合同。
+
+隔离 GNOME 50.1 的 registry 交付 `wl_data_device_manager`，本次没有两个 data-control 接口。Clipboard
+Portal 在真实键盘授权会话内向原生 GTK 发送了字节一致的 PNG，并从 GTK 读回 Unicode 和透明 PNG。
+一个 PNG 的实际传输可收到多个请求序号。读取 FD 需等待数据就绪。勾选记住后，另一个 D-Bus 连接用原授权
+令牌恢复了键盘和剪贴板能力，未再出现对话框。
+证据位于 `target/test-artifacts/slint-stage1-wayland-clipboard.b4CLMgxm/` 的
+`protocols.log` 和 `native-portal-roundtrip.log`。以上为协议探针。
+Clippy 内的授权、历史和输出接线，以及无授权时的前台路径还要验收。 [系统协议](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.Clipboard.html)
+
 ### 阶段 1 · 剪贴板系统通知
 
 **Goal** 缩短 Windows 和 X11 从用户复制到历史入库的等待，减少没有剪贴板变化时的线程唤醒。
