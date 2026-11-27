@@ -1012,6 +1012,26 @@ P50、P95 及 1.25 秒空闲区间的工作线程唤醒。验证外部复制、�
   概览。每组关闭前后比较 PNG，目标区域变化分别为 197,500、73,246、334,173 像素，关闭后的同区域
   都恢复原像素。实体全局快捷键触发时的菜单状态、真实应用托盘弹窗、多屏和实体显示器仍待验收。
 
+#### GNOME 系统菜单的截图热键
+
+- 隔离 GNOME 50.1 运行真实 MediaKeys，以同一个键盘组合发送截图热键。提前用一次直接 D-Bus 捕获完成冷启动，
+  前后两次无弹窗对照均有一条 `Capture` 调用，覆盖层分别于 188.0 和 164.1 毫秒映射。这个口径含虚拟按键和
+  合成器轮询。
+- 日历和快速设置打开后，各等 3 秒均没有 `Capture` 调用。概览中收到一条调用并完成冻结，应用请求显示覆盖层，
+  概览期间仍没有映射。仅关闭概览就出现同一个覆盖层。证据为
+  `target/test-artifacts/slint-gnome-menu-hotkey/overview-exit/` 的运行、D-Bus 和应用日志。
+- GNOME 50.0 为普通自定义快捷键只注册桌面和概览，Shell 弹窗进入独立的动作模式。
+  [MediaKeys 自定义键](https://github.com/GNOME/gnome-settings-daemon/blob/50.0/plugins/media-keys/gsd-media-keys-manager.c#L720-L737) ·
+  [MediaKeys 动作模式](https://github.com/GNOME/gnome-settings-daemon/blob/50.0/plugins/media-keys/shortcuts-list.h#L23-L35) ·
+  [Shell 菜单模式](https://github.com/GNOME/gnome-shell/blob/50.1/js/ui/popupMenu.js#L1317-L1321)
+- 隔离扩展用额外测试键注册桌面、概览和弹窗模式。日历、快速设置和概览各送出一次捕获请求。夹具等截图冻结
+  日志出现才关闭 Shell 弹窗或概览，再用 Slint 工具栏导出 1240×590 PNG。相对关闭态的目标区域变化像素数依次
+  为 187,500、64,138 和 186,319，前后两次无弹窗对照差值均为零。三个场景从测试热键到覆盖层映射为
+  135.4–138.7 毫秒。原图与日志在 `target/test-artifacts/slint-gnome-menu-hotkey/shell-pixels-final/`。
+- 正式接入由已启用的 GNOME 辅助扩展接管截图键，冻结成功后由应用通知扩展释放 Shell 弹窗或概览。验收改键、
+  键位冲突、停用扩展、退出以及每次按键仅提交一次捕获。之后用正式包验证真实托盘、实体多屏和与 v5 同条件的
+  1080p/4K 冷热延迟。
+
 ### 阶段 2 · 渲染内存基线
 
 - `54948f5` 的 FemtoVG QA Debug 二进制 SHA-256 为
