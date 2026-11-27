@@ -16,7 +16,7 @@ test("native versions keep alpha, beta, RC and stable in the same upgrade order"
 
 test("Slint QA workflows pass valid playback fields to the metadata builder", () => {
   const workflow = readFileSync(new URL("../.github/workflows/native-qa.yml", import.meta.url), "utf8");
-  for (const [platform, player] of [["windows-x64", "wasapi"], ["macos-x64", "coreaudio"]]) {
+  for (const [platform, player] of [["linux-x64", "pulseaudio"], ["windows-x64", "wasapi"], ["macos-x64", "coreaudio"]]) {
     const option = workflow.match(new RegExp(`--field (recording[-_]playback=${player})(?=\\s|$)`));
     assert.ok(option, `missing QA playback field for ${platform}`);
     const report = buildQaBuildInfo({

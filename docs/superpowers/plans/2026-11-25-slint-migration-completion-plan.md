@@ -500,6 +500,18 @@ ScreenCaptureKit 取 `SCStreamFrameInfoDisplayTime`。原生时间缺失或超�
 
 **Out of Scope** 正式播放器切换、macOS 部署目标变更、音频采集时间戳变更。
 
+#### 阶段 4 · Linux QA 安装包原生回放
+
+**Goal** 用 Linux deb 和 AppImage 验证录屏库自带的 VP9/Opus 播放器。
+
+**Requirements** Linux QA 测试和出包使用同一个原生回放特性。沿用 CPAL 的 PulseAudio 协议输出，
+兼容 PipeWire-Pulse。deb 声明 CPAL 链接的 ALSA 库，包的记录写明 `recording_playback=pulseaudio`。
+
+**Acceptance Criteria** QA 工作流确认打包的二进制链接到预期的 ALSA 库。从两种包启动录屏库，
+核对有声原件、分段和恢复件的首帧、声音、定位与关窗释放。Ubuntu 22.04 真实安装单独记录。
+
+**Out of Scope** 正式包默认播放后端、录制音源和时间戳合同。
+
 #### 阶段 4 · Windows 轻量播放器候选
 
 **Goal** Windows 的录屏库能播放自有 VP9/Opus 录像，并用系统默认输出播放声音。
@@ -1416,6 +1428,23 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   `stream-4k-app-graph-*.log`、`stream-4k-library-final.log`、`native-stream-media-tests-final.log`、
   `player-stream-clippy-verified.log`、`ci-local-stream-playback-final.log`
   和 `windows-default-stream-playback-final.log`。
+
+### 阶段 4 · Linux QA 安装包原生回放结果
+
+- Linux QA 在测试和出包中启用原生回放，deb 明确声明 ALSA 运行库，AppImage 使用宿主的
+  `libasound.so.2`。工作流校验链接并记录 `recording_playback=pulseaudio`。
+- 本机 Ubuntu 26.04 生成 deb 和 AppImage。两个包的 Slint ELF Build ID 均为
+  `58d44e89a10f285f6dfff8c2e4ac1fa407a18fdc`，与 Release 构建相同，两个包内的 OCR worker 均通过烟测。
+  沙盒中 linuxdeploy 子进程退出，宿主复跑出包成功。AppImage 在本机 NTFS 临时目录无法创建链接，
+  同一文件使用 `TMPDIR=/tmp` 后通过启动。
+- 隔离 X11 从 deb 解包程序和 AppImage 入口启动录屏库，使用各自会话的默认 PipeWire-Pulse 输出。
+  有声原件、独立分段和恢复件通过首帧、暂停定位、实际音频、播放结束和关窗回收。恢复件播放中定位会替换
+  音频流。无声录像和指定设备不可用分别通过播放和错误反馈验证。
+- 六次瞬时进程树样本的空托盘为 17.5–21.6 MiB，关播放窗后为 112.3–146.0 MiB。AppImage 的
+  数据包含启动包装进程。60 秒资源回落、真实设备长时同步与 Ubuntu 22.04 干净安装继续验收。
+- 完整本地门禁 11 通过、0 失败、0 跳过。开启回放特性的宿主测试 85 通过、1 忽略。证据在
+  `target/test-artifacts/slint-stage4-linux-player-package.qRyZJ0/` 的 `package-host.log`、
+  `packages/SHA256SUMS.txt`、`deb-ui.log`、`appimage-ui.log` 和 `ci-local.log`。
 
 ### 阶段 4 · Windows 轻量播放器结果
 

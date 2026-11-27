@@ -268,7 +268,8 @@ Windows 用只提供 Unicode 文本或 PNG 的剪贴板回归核对缺少可选 
 ```bash
 ./scripts/ci-local.sh
 node scripts/verify-native-ci.mjs --repo 51hhh/Clippy --sha "$(git rev-parse HEAD)"
-cargo build --locked --release -p clippy-slint --bin clippy-slint-qa --features qa-build
+cargo build --locked --release -p clippy-slint --bin clippy-slint-qa \
+  --features qa-build,recording-playback-native-qa
 cargo-packager --config apps/slint/Packager.qa.toml --formats deb,appimage
 ```
 
