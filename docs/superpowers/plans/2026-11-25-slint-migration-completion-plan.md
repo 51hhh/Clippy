@@ -1078,11 +1078,45 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   修正 4K 夹具的窗口尺寸后复测通过。4K 采样结束后，隔离会话清理阶段 WirePlumber 触发 GLib 断言，
   截图对照已在此前输出结果。
 - 首轮默认本地门禁在生成 X11 QA 链接产物时遇到构建盘空间不足。归档并校验两份旧构建后，
-  完整门禁复跑 11 通过、0 失败、0 跳过。宿主包要求 `GLIBC_2.43`。Ubuntu 22.04 的原生作业、
+  完整门禁复跑 11 通过、0 失败、0 跳过。宿主包要求 `GLIBC_2.43`，Ubuntu 22.04 单独出包。
   真机渲染对照和五轮 60 秒托盘 PSS 仍需记录。
 - 日志和校验文件位于 `target/test-artifacts/slint-stage2-renderer-software.evGdKR/`，包括
   `ui-winit-*.log`、`pss-winit-*.log`、`gnome-1920x1080.log`、`gnome-3840x2160.log`、
   `packaging.log`、`package-build-id.log` 和 `ci-local-final.log`。
+
+#### Ubuntu 22.04 实际安装与搜索回归
+
+- `8738a10` 的 Ubuntu 22.04、Windows 与 macOS 原生门禁通过，同一 SHA 的四组 QA 包均已上传。
+  Linux runner 切换同一 Release 的 FemtoVG 和 Skia Software 跑 X11 回归后，生成 deb 和 AppImage。
+  [三平台检查](https://github.com/51hhh/Clippy/actions/runs/45927845606) ·
+  [同 SHA 安装包](https://github.com/51hhh/Clippy/actions/runs/45927850177)
+- 下载的两个包通过随包 SHA-256 校验，主程序 ELF Build ID 均为
+  `193654626274b349ae3928eb66971d728091658c`。主程序及 OCR worker 的最高 glibc 符号版本均为
+  `GLIBC_2.35`，两个包内的 OCR 资源清单和 worker 烟测通过。Ubuntu 26.04 宿主隔离 X11 从 deb 解包程序
+  分别运行两种 renderer，并从 AppImage 入口运行 Skia，三组各 63 条断言通过。
+- 官方 Ubuntu 22.04.5 容器使用 APT 正常安装 deb，从声明依赖载入 glibc 2.35、PipeWire 0.3.48 和 ALSA。
+  安装后的主程序无缺失的 ELF 依赖，也未链接 WebView。安装路径内的 OCR worker 可独立识别。普通用户启动
+  Skia 的 deb 和 AppImage，各通过 63 条断言。容器内 AppImage 采用解包运行模式。
+
+| Ubuntu 22.04 容器内同一 deb，隔离 X11 | FemtoVG | Skia Software |
+| --- | ---: | ---: |
+| 托盘就绪 PSS | 18.72 MiB | 18.84 MiB |
+| 打开设置 PSS | 123.51 MiB | 28.09 MiB |
+| 关闭设置 12 秒 PSS | 124.31 MiB | 27.39 MiB |
+| 关闭设置 60 秒 PSS | 123.76 MiB | 27.22 MiB |
+
+- FemtoVG 首轮执行到搜索复制时，剪贴板仍是上一步的译文。保持同一个已安装二进制，在三次诊断中复现两次。
+  两张失败前的画面均显示旧列表，之后才显示唯一匹配的 Unicode 条目和仍聚焦的搜索框。原夹具固定等待
+  250 毫秒，冷开面板慢时输入发生在旧布局和查询切换期间。三个冷开搜索、复制和粘贴用例改为等待选中结果及
+  分隔线出现后再发送点击或回车，保留原来的实际复制、目标窗口和失焦断言。
+- 隔离 X11 在发送搜索输入前暂停被测 Clippy 进程 800 毫秒。同一 QA 二进制下，旧夹具复现搜索复制失败，修正后的
+  夹具取得准确的 Unicode 条目。当前源码完整 Linux 门禁 11 通过、0 失败、0 跳过。Jammy 全量复测时两种
+  Skia 包各通过 63 条断言。FemtoVG 两轮均走过搜索断言，浅色轮另在扫码前的查看器打开失败，深色轮另在
+  编辑器重画矩形失败，保留待查。
+- 归档及原始记录在 `target/test-artifacts/slint-stage2-jammy-package.5GJ3hWE7/`，包括 `QA-BUILD.txt`、
+  `package-integrity.log`、`clean-jammy.log`、`clean-jammy-search-diagnostic.log`、两组失败前后截图、
+  `search-delay-{baseline,candidate}.log`、`clean-jammy-retest.log` 和 `ci-local-search-retest.log`。
+  PSS 每种 renderer 采样一轮。实体显卡、最终正式包的五轮 60 秒 PSS 以及实体桌面功能仍需验收。
 
 ### 阶段 2 · Windows WGC 接入结果
 
