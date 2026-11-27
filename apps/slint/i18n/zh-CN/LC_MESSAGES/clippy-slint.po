@@ -73,6 +73,18 @@ msgstr "下次录屏的音源"
 msgid "Authorize paste"
 msgstr "授权粘贴"
 
+msgid "Authorize Wayland access"
+msgstr "授予 Wayland 权限"
+
+msgid "Forget Wayland permission"
+msgstr "清除 Wayland 权限"
+
+msgid "This permission also enables clipboard access when the desktop requires it. Forgetting it closes the session."
+msgstr "桌面需要授权时，也会用这一权限访问剪贴板。忘记权限会关闭该会话。"
+
+msgid "Wayland clipboard permission is ready"
+msgstr "Wayland 剪贴板已授权"
+
 msgid "Authorize scrolling"
 msgstr "授权自动滚动"
 

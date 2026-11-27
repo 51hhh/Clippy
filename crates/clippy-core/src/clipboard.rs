@@ -6,6 +6,7 @@ const MAX_CLIPBOARD_IMAGE_PIXELS: usize = 40_000_000;
 const RGBA_BYTES_PER_PIXEL: usize = 4;
 /// 文本与 HTML 共用的入库上限。按 UTF-8 字节计数，与数据库 `byte_size` 一致。
 pub const MAX_CLIPBOARD_TEXT_BYTES: usize = 1_048_576;
+pub const MAX_CLIPBOARD_PNG_BYTES: usize = 64 * 1024 * 1024;
 
 pub fn validate_image_layout(
     width: usize,

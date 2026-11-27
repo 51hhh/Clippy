@@ -2,6 +2,7 @@ use anyhow::{anyhow, Context, Result};
 use clippy_capture::png_io::encode_png;
 use clippy_core::clipboard::{
     compute_hash, is_sensitive_text, rgba_fingerprint, strip_html_tags, validate_image_layout,
+    MAX_CLIPBOARD_PNG_BYTES,
 };
 use clippy_core::models::{ClipItem, ContentType};
 use clippy_platform::{
@@ -25,7 +26,7 @@ use super::{post, Event};
 
 const POLL: Duration = Duration::from_millis(250);
 const EXPIRE_INTERVAL: Duration = Duration::from_secs(30);
-const MAX_PNG_BYTES: usize = 64 * 1024 * 1024;
+const MAX_PNG_BYTES: usize = MAX_CLIPBOARD_PNG_BYTES;
 
 pub(super) enum Request {
     Copy {
@@ -159,12 +160,42 @@ fn watch(
             Err(RecvTimeoutError::Disconnected) => break,
         };
 
+        #[cfg(target_os = "linux")]
+        {
+            if clipboard.as_ref().is_some_and(Clipboard::portal_closed) {
+                clipboard.take();
+                generation = None;
+                previous = None;
+                retry = false;
+            }
+            if clipboard.is_none() {
+                clipboard = paste.clipboard();
+            }
+        }
+
         match request {
             Some(Request::Authorize) => {
-                paste.authorize(Box::new(|result| post(Event::Permission(result))));
+                #[cfg(target_os = "linux")]
+                if clippy_platform::session::is_wayland() {
+                    if clipboard.is_none() {
+                        clipboard = Clipboard::open().ok();
+                    }
+                    if clipboard.is_none() || paste.clipboard().is_some() {
+                        paste.authorize_clipboard(Box::new(|result| {
+                            post(Event::Permission(result, true));
+                        }));
+                        continue;
+                    }
+                }
+                paste.authorize(Box::new(|result| post(Event::Permission(result, false))));
                 continue;
             }
             Some(Request::ClosePermission) => {
+                #[cfg(target_os = "linux")]
+                if paste.clipboard().is_some() {
+                    // 自动粘贴开关只停用输入，已获准的剪贴板仍由同一会话持有。
+                    continue;
+                }
                 paste.close();
                 continue;
             }

@@ -854,7 +854,25 @@ Portal 在真实键盘授权会话内向原生 GTK 发送了字节一致的 PNG�
 令牌恢复了键盘和剪贴板能力，未再出现对话框。
 证据位于 `target/test-artifacts/slint-stage1-wayland-clipboard.b4CLMgxm/` 的
 `protocols.log` 和 `native-portal-roundtrip.log`。以上为协议探针。
-Clippy 内的授权、历史和输出接线，以及无授权时的前台路径还要验收。 [系统协议](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.Clipboard.html)
+[系统协议](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.Clipboard.html)
+
+- Slint 在原生剪贴板后端无法打开时，通过设置页顶部的 Wayland 权限入口请求 Clipboard。现有 Portal 线程持有
+  同一会话及当前数据，按代次校验外部读取。管道限制字节数和等待时间，逐个应答请求。自动粘贴开关只控制输入，
+  清除权限会关闭会话及删除保存的令牌。GNOME 50 系统对话框在无共享屏幕时要求勾选远程交互才能确认。
+  [GNOME 对话框](https://github.com/GNOME/xdg-desktop-portal-gnome/blob/50.0/src/remotedesktopdialog.c#L109-L122)
+- 无 XWayland 的隔离 GNOME 50.1 上，真实 GTK4 窗口复制的 Unicode、HTML 及其纯文本、透明 PNG 均经
+  Slint 历史复制回 GTK3，文字和 RGBA 一致。查看器连续发布两次同一图像，GTK3 均取得正确像素。
+  实际框选及复制的 160×112 截图与 GTK 原生背景逐像素一致。开启自动粘贴后，同一会话将历史文本送入原 GTK3 输入框。
+- 系统对话框拒绝后，GTK4 仍可发布剪贴板内容，Clippy 未记录新内容。退出时调用 Portal Close，合成器继续提供已复制的
+  截图。记住的授权在重启后从设置恢复时未再弹窗。GNOME 停止共享发出 Closed，应用停止入库。
+  在设置清除令牌后，可重新弹窗授权并恢复入库。
+- QA 二进制 SHA-256 为 `3b9dce333a8550f9874c2b1d995509d909ac2f2b3928784870c7e8376d0e5e4a`。
+  应用记录在 `target/test-artifacts/slint-stage1-portal-clipboard-app.Xi2jl4cN/gnome-final.log`，
+  D-Bus 时序在同目录 `clipboard-dbus.log`。完整 Linux 门禁 11 项通过、0 失败、0 跳过，见
+  `final-ci/run.log`。平台层通过 Windows GNU 和 macOS 双架构严格交叉 Clippy。
+- 同一构建拒绝授权后，Slint 已聚焦的快捷键输入框可通过标准 Wayland 剪贴板复制选中文本，GTK3 读取一致。
+  记录为 `foreground-probe-r2.log`。历史、截图和查看器的免授权前台复制、实体安装包与最新正式候选的
+  空闲 PSS 待验收。
 
 ### 阶段 1 · 剪贴板系统通知
 

@@ -4,6 +4,8 @@ use std::time::{Duration, Instant};
 
 #[cfg(target_os = "linux")]
 mod portal;
+#[cfg(target_os = "linux")]
+pub(crate) use portal::ClipboardClient;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Target(Focus);
@@ -102,6 +104,19 @@ impl Paste {
             return;
         }
         complete(inject_native(target));
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn authorize_clipboard(&mut self, complete: Completion) {
+        self.dispatch_portal(portal::Operation::AuthorizeClipboard, complete);
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn clipboard(&self) -> Option<crate::clipboard::Clipboard> {
+        self.portal
+            .as_ref()?
+            .clipboard()
+            .map(crate::clipboard::Clipboard::with_portal)
     }
 
     pub fn close(&mut self) {

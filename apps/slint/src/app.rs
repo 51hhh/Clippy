@@ -231,7 +231,7 @@ enum Event {
     ShortcutStatus(ShortcutStatus),
     Copied(Result<(Option<Target>, Option<u64>)>),
     Pasted(Result<()>),
-    Permission(Result<()>),
+    Permission(Result<()>, bool),
     #[cfg(target_os = "linux")]
     PermissionForgotten(Result<()>),
     #[cfg(target_os = "linux")]
@@ -445,8 +445,9 @@ impl App {
                 eprintln!("Copied. Auto paste unavailable: {error}");
                 self.complete(format!("Copied. Auto paste unavailable: {error}"));
             }
-            Event::Permission(result) => {
+            Event::Permission(result, clipboard) => {
                 self.complete(match result {
+                    Ok(()) if clipboard => "Wayland clipboard permission is ready".to_owned(),
                     Ok(()) => "Paste permission is ready".to_owned(),
                     Err(error) => format!("Paste permission unavailable: {error}"),
                 });
@@ -828,7 +829,10 @@ impl App {
     }
 
     fn authorize(&mut self) {
-        if !self.busy && self.config.auto_paste {
+        let available = self.config.auto_paste;
+        #[cfg(target_os = "linux")]
+        let available = available || clippy_platform::session::is_wayland();
+        if !self.busy && available {
             match self.clipboard.submit(clipboard::Request::Authorize) {
                 Ok(()) => self.set_busy(true),
                 Err(error) => self.status(error.to_string()),

@@ -48,15 +48,21 @@ pub enum Content {
 }
 
 pub struct Clipboard {
-    handle: arboard::Clipboard,
+    handle: Backend,
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     notifications: Option<notifications::SelectionChanges>,
+}
+
+enum Backend {
+    Native(arboard::Clipboard),
+    #[cfg(target_os = "linux")]
+    Portal(crate::paste::ClipboardClient),
 }
 
 impl Clipboard {
     pub fn open() -> Result<Self, Error> {
         Ok(Self {
-            handle: arboard::Clipboard::new()?,
+            handle: Backend::Native(arboard::Clipboard::new()?),
             #[cfg(target_os = "linux")]
             notifications: (!crate::session::is_wayland())
                 .then(x11::SelectionChanges::connect)
@@ -64,6 +70,19 @@ impl Clipboard {
             #[cfg(target_os = "windows")]
             notifications: windows::SelectionChanges::connect().ok(),
         })
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn with_portal(handle: crate::paste::ClipboardClient) -> Self {
+        Self {
+            handle: Backend::Portal(handle),
+            notifications: None,
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn portal_closed(&self) -> bool {
+        matches!(&self.handle, Backend::Portal(handle) if handle.generation().is_none())
     }
 
     /// 返回 false 时由调用方按原间隔轮询。
@@ -90,6 +109,9 @@ impl Clipboard {
     pub fn generation(&mut self) -> Option<u64> {
         #[cfg(target_os = "linux")]
         {
+            if let Backend::Portal(handle) = &self.handle {
+                return handle.generation();
+            }
             let result = self.notifications.as_mut()?.generation();
             match result {
                 Ok(value) => Some(value),
@@ -113,41 +135,62 @@ impl Clipboard {
     }
 
     pub fn read(&mut self) -> Result<Option<Content>, Error> {
-        #[cfg(target_os = "windows")]
-        let (html, text) = match read_flavor(self.handle.get().html_with_text())? {
-            Some((html, text)) if !html.is_empty() => (Some(html), text),
-            _ => (None, read_flavor(self.handle.get_text())?),
-        };
-        #[cfg(not(target_os = "windows"))]
-        let (html, text) = (
-            read_flavor(self.handle.get().html())?,
-            read_flavor(self.handle.get_text())?,
-        );
-        let text =
-            text.filter(|value| !value.is_empty() && value.len() <= MAX_CLIPBOARD_TEXT_BYTES);
-        let html = html.filter(|value| !value.is_empty());
-        if let Some(html) = html.filter(|value| value.len() <= MAX_CLIPBOARD_TEXT_BYTES) {
-            return Ok(Some(Content::Html {
-                text: text.unwrap_or_else(|| strip_html_tags(&html)),
-                html,
-            }));
+        match &mut self.handle {
+            #[cfg(target_os = "linux")]
+            Backend::Portal(handle) => handle.read().map_err(portal_error),
+            Backend::Native(handle) => {
+                #[cfg(target_os = "windows")]
+                let (html, text) = match read_flavor(handle.get().html_with_text())? {
+                    Some((html, text)) if !html.is_empty() => (Some(html), text),
+                    _ => (None, read_flavor(handle.get_text())?),
+                };
+                #[cfg(not(target_os = "windows"))]
+                let (html, text) = (
+                    read_flavor(handle.get().html())?,
+                    read_flavor(handle.get_text())?,
+                );
+                let text = text
+                    .filter(|value| !value.is_empty() && value.len() <= MAX_CLIPBOARD_TEXT_BYTES);
+                let html = html.filter(|value| !value.is_empty());
+                if let Some(html) = html.filter(|value| value.len() <= MAX_CLIPBOARD_TEXT_BYTES) {
+                    return Ok(Some(Content::Html {
+                        text: text.unwrap_or_else(|| strip_html_tags(&html)),
+                        html,
+                    }));
+                }
+                if let Some(text) = text {
+                    return Ok(Some(Content::Text(text)));
+                }
+                Ok(read_flavor(handle.get_image())?.map(Content::Image))
+            }
         }
-        if let Some(text) = text {
-            return Ok(Some(Content::Text(text)));
-        }
-        Ok(read_flavor(self.handle.get_image())?.map(Content::Image))
     }
 
     pub fn write(&mut self, content: Content) -> Result<(), Error> {
-        match content {
-            Content::Text(text) => self.handle.set_text(text),
-            Content::Html { html, text } => self.handle.set_html(html, Some(text)),
-            Content::Image(image) => self.handle.set_image(image),
+        match &mut self.handle {
+            #[cfg(target_os = "linux")]
+            Backend::Portal(handle) => handle.write(content).map_err(portal_error),
+            Backend::Native(handle) => match content {
+                Content::Text(text) => handle.set_text(text),
+                Content::Html { html, text } => handle.set_html(html, Some(text)),
+                Content::Image(image) => handle.set_image(image),
+            },
         }
     }
 
     pub fn write_image(&mut self, image: ImageData<'_>) -> Result<(), Error> {
-        self.handle.set_image(image)
+        match &mut self.handle {
+            Backend::Native(handle) => handle.set_image(image),
+            #[cfg(target_os = "linux")]
+            Backend::Portal(handle) => handle.write_image(image).map_err(portal_error),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn portal_error(error: anyhow::Error) -> Error {
+    Error::Unknown {
+        description: format!("{error:#}"),
     }
 }
 

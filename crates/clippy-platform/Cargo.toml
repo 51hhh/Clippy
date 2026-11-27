@@ -26,9 +26,10 @@ raw-window-handle = { version = "0.6", features = ["std"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 arboard = { version = "3", features = ["wayland-data-control"] }
-ashpd = { version = "0.13", features = ["file_chooser", "global_shortcuts", "raw_handle", "remote_desktop", "screencast", "screenshot", "wayland"] }
+ashpd = { version = "0.13", features = ["clipboard", "file_chooser", "global_shortcuts", "raw_handle", "remote_desktop", "screencast", "screenshot", "wayland"] }
 enigo = { version = "0.6", default-features = false, features = ["x11rb"] }
 futures-util = { version = "0.3", default-features = false }
+image = { version = "0.25", default-features = false, features = ["png"] }
 libwayshot-xcap = "0.3"
 log = "0.4"
 memmap2 = "0.9"
@@ -39,7 +40,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 smithay-client-toolkit = { version = "0.19", default-features = false }
 tempfile = "3"
-tokio = { version = "1", features = ["rt", "macros", "sync", "time"] }
+tokio = { version = "1", features = ["rt", "macros", "net", "sync", "time"] }
 url = "2"
 wayland-client = "0.31"
 x11rb = { version = "0.13", features = ["image", "randr", "xfixes", "xtest"] }

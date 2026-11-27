@@ -63,6 +63,26 @@ component SettingHint inherits Text {
     wrap: word-wrap;
 }
 
+component PastePermissionActions inherits HorizontalLayout {
+    in property <bool> wayland-session;
+    in property <bool> auto-paste;
+    in property <bool> busy;
+    callback authorize();
+    callback forget();
+
+    spacing: 8px;
+    Button {
+        text: root.wayland-session ? @tr("Authorize Wayland access") : @tr("Authorize paste");
+        enabled: (root.wayland-session || root.auto-paste) && !root.busy;
+        clicked => { root.authorize(); }
+    }
+    Button {
+        text: root.wayland-session ? @tr("Forget Wayland permission") : @tr("Forget paste permission");
+        enabled: !root.busy;
+        clicked => { root.forget(); }
+    }
+}
+
 component CapabilityLine inherits Rectangle {
     in property <string> label;
     in property <string> value;
@@ -283,6 +303,17 @@ export component SettingsPane inherits Rectangle {
                 spacing: 8px;
                 if root.page == 0: VerticalLayout {
                     spacing: 7px;
+                    if root.wayland-session: VerticalLayout {
+                        spacing: 7px;
+                        PastePermissionActions {
+                            wayland-session: true;
+                            busy: root.busy;
+                            authorize => { root.authorize-paste(); }
+                            forget => { root.forget-paste(); }
+                        }
+                        SettingHint { text: @tr("This permission also enables clipboard access when the desktop requires it. Forgetting it closes the session."); }
+                        SectionRule { }
+                    }
                     if root.desktop-managed-shortcuts: DesktopShortcuts {
                         view: root.portal-shortcuts;
                         configure => { root.configure-portal-shortcuts(); }
@@ -342,10 +373,11 @@ export component SettingsPane inherits Rectangle {
                         enabled: !root.busy && !root.save-pending;
                         toggled => { root.paste-setting(self.checked); }
                     }
-                    HorizontalLayout {
-                        spacing: 8px;
-                        Button { text: @tr("Authorize paste"); enabled: root.auto-paste && !root.busy; clicked => { root.authorize-paste(); } }
-                        Button { text: @tr("Forget paste permission"); enabled: !root.busy; clicked => { root.forget-paste(); } }
+                    if !root.wayland-session: PastePermissionActions {
+                        busy: root.busy;
+                        auto-paste: root.auto-paste;
+                        authorize => { root.authorize-paste(); }
+                        forget => { root.forget-paste(); }
                     }
                     CheckBox {
                         text: @tr("Start at login");
