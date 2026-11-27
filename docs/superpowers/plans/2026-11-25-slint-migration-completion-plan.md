@@ -1555,6 +1555,12 @@ Skia Software 进入 Linux 渲染器候选验证。发布选型还需要原生�
   `run.sh`、`check-clock.py` 和 `sample-match.log`。后续评估能随 PCM 保留源时间的端点；
   正式采集继续使用已批准的时间戳合同。
   [PipeWire ALSA 源端时间戳](https://github.com/PipeWire/pipewire/blob/1.6.2/spa/plugins/alsa/alsa-pcm.c#L3161-L3165)
+- 将同一实验改为单端口直连，协商 48 kHz 双声道交错 F32LE。发送端和接收端在同一图周期，
+  512 和 1024 两档各有 72 个双声道包，首尾样本编号完全匹配。发送端的 144 个 PTS 均为实际图时间，
+  接收端已分配的帧头 PTS 和序号仍全为零。直连结果见
+  `target/test-artifacts/slint-stage4-raw-audio-clock.FI1YOT/sample-match.log` 及同目录的双端原始采样。
+- DSP 和交错 PCM 直连均复现元数据未传递。客户端端口格式实验收束到这里，后续优先验证能随样本交付原生时间
+  的源端。如果需要采用服务器的样本索引，先用有声画标记的设备验证索引与源时间的映射，再提时间合同变更。
 
 ### 阶段 5 · PP-OCRv6 small 离线探针
 
